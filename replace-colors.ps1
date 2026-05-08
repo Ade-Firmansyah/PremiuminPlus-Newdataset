@@ -30,16 +30,12 @@ foreach ($file in $files) {
         Write-Host "? Updated: $($file.FullName)" -ForegroundColor Green
         
         # Show what was replaced
-        $originalLines = $originalContent -split "
-"
-        $newLines = $content -split "
-"
         $changes = 0
         
         foreach ($pattern in $replacements.GetEnumerator()) {
             $matchCount = ([regex]::Matches($originalContent, [regex]::Escape($pattern.Key))).Count
             if ($matchCount -gt 0) {
-                Write-Host "    - Replaced '' with '': $matchCount occurrences" -ForegroundColor Gray
+                Write-Host "    - Replaced '$($pattern.Key)' with '$($pattern.Value)': $matchCount occurrences" -ForegroundColor Gray
                 $changes += $matchCount
             }
         }

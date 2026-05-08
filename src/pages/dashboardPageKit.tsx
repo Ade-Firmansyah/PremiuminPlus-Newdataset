@@ -1,27 +1,7 @@
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { ImageIcon, type LucideIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCurrency } from '../utils/format';
-
-export const products = [
-  { name: 'Capcut 7 Day', price: 5900, note: 'Paling populer untuk kebutuhan edit cepat.', tag: 'Instan' },
-  { name: 'Capcut 30 Day', price: 14900, note: 'Durasi lebih panjang dan lebih hemat.', tag: 'Best' },
-  { name: 'Netflix', price: 25900, note: 'Akses premium untuk hiburan multi-device.', tag: 'Premium' },
-  { name: 'ChatGPT 1 Bulan', price: 34900, note: 'Akses AI untuk produktivitas harian.', tag: 'AI' },
-  { name: 'YouTube Premium', price: 29900, note: 'Streaming tanpa iklan dan background play.', tag: 'Video' },
-];
-
-export const orderHistory = [
-  { title: 'Capcut 30 Day', time: '01 Mei 2026, 10:12', amount: 14900, status: 'Sukses' },
-  { title: 'Netflix', time: '01 Mei 2026, 09:54', amount: 25900, status: 'Sukses' },
-  { title: 'ChatGPT 1 Bulan', time: '30 Apr 2026, 21:32', amount: 34900, status: 'Pending' },
-];
-
-export const depositHistory = [
-  { title: 'Deposit QRIS', time: '01 Mei 2026, 08:40', amount: 50000, status: 'Sukses' },
-  { title: 'Deposit Transfer', time: '30 Apr 2026, 19:20', amount: 100000, status: 'Sukses' },
-  { title: 'Deposit E-Wallet', time: '30 Apr 2026, 17:05', amount: 25000, status: 'Pending' },
-];
 
 export function PageSection({
   title,
@@ -131,20 +111,32 @@ export function LinkCard({
   );
 }
 
-export function ProductList({ cta = false }: { cta?: boolean }) {
+type ProductListItem = {
+  name: string;
+  price: number;
+  note: string;
+  tag: string;
+  stock?: number;
+  image?: string;
+};
+
+export function ProductList({ cta = false, items = [] }: { cta?: boolean; items?: ProductListItem[] }) {
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      {products.map((item) => (
+      {items.map((item) => (
         <NeonCard key={item.name}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
+          <div className="grid gap-3 sm:grid-cols-[68px_1fr_auto] sm:items-center">
+            <div className="grid h-16 w-full place-items-center overflow-hidden rounded-xl border border-white/10 bg-white/5">
+              {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : <ImageIcon className="h-6 w-6 text-white/30" />}
+            </div>
+            <div className="min-w-0">
               <p className="text-[15px] font-semibold text-white">{item.name}</p>
-              <p className="mt-1 text-xs leading-5 text-white/40">{item.note}</p>
+              <p className="mt-1 text-xs leading-5 text-white/40">{item.note || 'Produk aktif dari database.'}</p>
             </div>
             <div className="text-right">
               <p className="text-sm font-bold text-white">{formatCurrency(item.price)}</p>
               <span className="mt-1 inline-flex rounded-full border border-brand/20 bg-brand/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white">
-                {item.tag}
+                {item.stock !== undefined ? `Stok ${item.stock}` : item.tag}
               </span>
             </div>
           </div>
@@ -155,6 +147,7 @@ export function ProductList({ cta = false }: { cta?: boolean }) {
           ) : null}
         </NeonCard>
       ))}
+      {!items.length ? <p className="text-sm text-white/45">Belum ada produk dari database.</p> : null}
     </div>
   );
 }

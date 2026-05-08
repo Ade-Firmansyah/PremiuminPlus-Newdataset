@@ -2,8 +2,8 @@ import { FileText } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from './dashboardPageKit';
 
 const docsList = [
-  { title: 'API Docs', desc: 'Panduan endpoint dan struktur request mock.' },
-  { title: 'Webhook', desc: 'Contoh payload notifikasi transaksi.' },
+  { title: 'API Docs', desc: 'Gunakan x-api-key user reseller untuk mengakses endpoint backend Premiumin Plus.' },
+  { title: 'Webhook', desc: 'Callback Premku diterima backend, disimpan ke webhook_logs, lalu status DB diperbarui.' },
   { title: 'Status API', desc: 'Daftar status sukses, pending, dan gagal.' },
 ];
 

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Banknote,
   BarChart3,
@@ -13,9 +13,7 @@ import {
   HelpCircle,
   Layers3,
   MessageCircle,
-  Minus,
   Phone,
-  Plus,
   ReceiptText,
   ShieldCheck,
   ShoppingBag,
@@ -28,6 +26,8 @@ import {
 import { motion } from 'motion/react';
 import { AppShell, type NavSection } from '../components/layout/AppShell';
 import { ApiKeyCard } from '../components/ApiKeyCard';
+import { premiuminApi, type DashboardSummaryRecord, type DepositRecord, type OrderRecord, type ProductRecord, type TopAccountRecord } from '../services/api';
+import { getApiKey } from '../store/useAuth';
 import { formatCurrency, formatNumber, getGreeting } from '../utils/format';
 import cardArt from '../asset/logo-upscale.png';
 import BotWA from './botwa';
@@ -37,7 +37,6 @@ import LaporanKendala from './laporankendala';
 import MutasiSaldo from './mutasisaldo';
 import Order from './order';
 import Profil from './profil';
-import RiwayatDeposit from './riwayatdeposit';
 import RiwayatPesanan from './riwayatpesanan';
 import TarikSaldo from './tariksaldo';
 
@@ -46,6 +45,7 @@ interface DashboardPageProps {
   session: {
     username: string;
     role: string;
+    apiKey: string;
   };
   onLogout: () => void;
 }
@@ -66,8 +66,7 @@ const sections: NavSection[] = [
       { label: 'Daftar Harga', to: '/dashboard/daftar-harga', icon: ReceiptText },
       { label: 'Tarik Saldo', to: '/dashboard/tarik-saldo', icon: Banknote },
       { label: 'Riwayat Pesanan', to: '/dashboard/riwayat-pesanan', icon: ClipboardList },
-      { label: 'Riwayat Deposit', to: '/dashboard/riwayat-deposit', icon: Coins },
-      { label: 'Mutasi Saldo', to: '/dashboard/mutasi-saldo', icon: ShoppingCart },
+      { label: 'Mutasi Saldo', to: '/dashboard/mutasi-saldo', icon: Coins },
     ],
   },
   {
@@ -75,97 +74,13 @@ const sections: NavSection[] = [
     items: [
       { label: 'Profil', to: '/dashboard/profil', icon: Users },
       { label: 'Laporan Kendala', to: '/dashboard/laporan-kendala', icon: ShieldCheck },
-      { label: 'Bot WA & Telegram', to: '/dashboard/bot-wa-telegram', icon: Bot },
+      { label: 'Bot Wa Setting', to: '/dashboard/bot-wa-telegram', icon: Bot },
       { label: 'Dokumen', to: '/dashboard/dokumen', icon: BookText },
     ],
   },
 ];
 
-const topSpenders = [
-  { rank: 1, name: '6289 xxx 38', amount: 20000, badge: 'text-amber-400' },
-  { rank: 2, name: '6287 xxx 45', amount: 20000, badge: 'text-slate-300' },
-  { rank: 3, name: '6282 xxx 57', amount: 18000, badge: 'text-orange-300' },
-];
-
-const recentOrders = [
-  { product: 'Viu Premium Lifetime', time: '01 May 2026, 02:37', price: 550, status: 'Sukses' },
-  { product: 'HMA VPN 1 Bulan', time: '30 Apr 2026, 20:25', price: 4000, status: 'Sukses' },
-  { product: 'Link ChatGPT Go 3 Bulan', time: '30 Apr 2026, 20:07', price: 3000, status: 'Sukses' },
-];
-
-const stats = [
-  { label: 'Total Deposit', value: 92142, icon: Coins, tone: 'emerald' as const, suffix: '', line: [18, 20, 17, 26, 21, 23, 20, 28, 25, 29] },
-  { label: 'Total Belanja', value: 40000, icon: ShoppingCart, tone: 'pink' as const, suffix: '', line: [10, 13, 14, 11, 16, 12, 15, 14, 18, 20] },
-  { label: 'Total Pesanan', value: 25, icon: ClipboardList, tone: 'blue' as const, suffix: 'Trx', line: [8, 10, 9, 12, 11, 12, 13, 14, 16, 18] },
-  { label: 'Produk Aktif', value: 30, icon: BarChart3, tone: 'amber' as const, suffix: 'Layanan', line: [12, 13, 12, 14, 13, 15, 14, 16, 17, 18] },
-];
-
-const products = [
-  { name: 'Capcut 7 Day', price: 5900, note: 'Paling populer', tag: 'Instan' },
-  { name: 'Capcut 30 Day', price: 14900, note: 'Lebih hemat', tag: 'Best' },
-  { name: 'Netflix', price: 25900, note: 'Multi device', tag: 'Premium' },
-  { name: 'ChatGPT 1 Bulan', price: 34900, note: 'Akses cepat', tag: 'AI' },
-  { name: 'YouTube Premium', price: 29900, note: 'Tanpa iklan', tag: 'Video' },
-];
-
-const waOrderLink = 'https://wa.me/6285888009931?text=Masih%20ada%20slot%20join%20reseller%20%3F';
-
 const quickDeposits = [10000, 25000, 50000, 100000, 250000, 500000];
-const waDepositLink = 'https://wa.me/6285888009931?text=Halo%20Admin%2C%20saya%20ingin%20top%20up%20saldo.';
-
-const orderHistory = [
-  { title: 'Capcut 30 Day', time: '01 Mei 2026, 10:12', amount: 14900, status: 'Sukses' },
-  { title: 'Netflix', time: '01 Mei 2026, 09:54', amount: 25900, status: 'Sukses' },
-  { title: 'ChatGPT 1 Bulan', time: '30 Apr 2026, 21:32', amount: 34900, status: 'Pending' },
-];
-
-const depositHistory = [
-  { title: 'Deposit QRIS', time: '01 Mei 2026, 08:40', amount: 50000, status: 'Sukses' },
-  { title: 'Deposit Transfer', time: '30 Apr 2026, 19:20', amount: 100000, status: 'Sukses' },
-  { title: 'Deposit E-Wallet', time: '30 Apr 2026, 17:05', amount: 25000, status: 'Pending' },
-];
-
-const mutationHistory = [
-  { title: 'Order Capcut 30 Day', type: 'Debit', amount: 14900, time: '01 Mei 2026, 10:12' },
-  { title: 'Refund Test', type: 'Credit', amount: 5000, time: '01 Mei 2026, 09:10' },
-  { title: 'Deposit QRIS', type: 'Credit', amount: 50000, time: '01 Mei 2026, 08:40' },
-];
-
-const profileItems = [
-  { label: 'Username', value: 'digitalpanel123' },
-  { label: 'Role', value: 'Member' },
-  { label: 'Status', value: 'Aktif' },
-  { label: 'Level', value: 'Premium User' },
-];
-
-const supportTopics = [
-  'Login gagal',
-  'Order pending',
-  'Deposit belum masuk',
-  'Harga produk berubah',
-];
-
-const botLinks = [
-  {
-    title: 'Buat Akun Bot WA',
-    description: 'Siapkan bot WhatsApp untuk notifikasi dan order otomatis.',
-    href: 'https://wa.me/6285888009931?text=Masih%20ada%20slot%20join%20reseller%20%3F',
-    icon: MessageCircle,
-  },
-  {
-    title: 'Buat Bot Telegram',
-    description: 'Tambahkan bot Telegram untuk notifikasi dan integrasi channel.',
-    href: 'https://t.me/+1tkWNfTUfEg1MTY1',
-    icon: Send,
-  },
-];
-
-const docsList = [
-  { title: 'API Docs', desc: 'Panduan endpoint dan struktur request mock.' },
-  { title: 'Webhook', desc: 'Contoh payload notifikasi transaksi.' },
-  { title: 'Status API', desc: 'Daftar status sukses, pending, dan gagal.' },
-];
-
 const pageTitles: Record<string, string> = {
   '/dashboard/komunitas-wa': 'Komunitas WA',
   '/dashboard/order-akun': 'Order Akun',
@@ -173,23 +88,24 @@ const pageTitles: Record<string, string> = {
   '/dashboard/daftar-harga': 'Daftar Harga',
   '/dashboard/tarik-saldo': 'Tarik Saldo',
   '/dashboard/riwayat-pesanan': 'Riwayat Pesanan',
-  '/dashboard/riwayat-deposit': 'Riwayat Deposit',
+  '/dashboard/riwayat-deposit': 'Mutasi Saldo',
   '/dashboard/mutasi-saldo': 'Mutasi Saldo',
   '/dashboard/profil': 'Profil',
   '/dashboard/laporan-kendala': 'Laporan Kendala',
-  '/dashboard/bot-wa-telegram': 'Bot WA & Telegram',
+  '/dashboard/bot-wa-telegram': 'Bot Wa Setting',
   '/dashboard/dokumen': 'Dokumen',
   '/dashboard/document': 'Document',
 };
 
 function Sparkline({ points }: { points: number[] }) {
+  const safePoints = points.length > 1 ? points : [0, points[0] || 0];
   const width = 180;
   const height = 48;
-  const max = Math.max(...points);
-  const min = Math.min(...points);
+  const max = Math.max(...safePoints);
+  const min = Math.min(...safePoints);
   const range = Math.max(max - min, 1);
-  const step = width / (points.length - 1);
-  const path = points
+  const step = width / (safePoints.length - 1);
+  const path = safePoints
     .map((point, index) => {
       const x = index * step;
       const y = height - ((point - min) / range) * (height - 6) - 3;
@@ -327,65 +243,6 @@ function ChannelCard({
   );
 }
 
-function ProductList({
-  items,
-  cta = 'Order Sekarang',
-}: {
-  items: { name: string; price: number; note: string; tag: string }[];
-  cta?: string | null;
-}) {
-  return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div key={item.name} className="rounded-[1.2rem] border border-white/10 bg-[#0f0b15] px-4 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-white">{item.name}</p>
-              <p className="mt-1 text-xs text-white/40">{item.note}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-bold text-white">{formatCurrency(item.price)}</p>
-              <span className="mt-1 inline-flex rounded-full border border-brand/20 bg-brand/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white">
-                {item.tag}
-              </span>
-            </div>
-          </div>
-          {cta ? (
-            <button className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10">
-              {cta}
-            </button>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ListTimeline({
-  items,
-}: {
-  items: { title: string; time: string; amount: number; status: string }[];
-}) {
-  return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div key={item.title + item.time} className="flex items-center justify-between gap-4 rounded-[1.2rem] border border-white/10 bg-[#0f0b15] px-4 py-4">
-          <div>
-            <p className="text-sm font-semibold text-white">{item.title}</p>
-            <p className="mt-1 text-xs text-white/40">{item.time}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm font-bold text-white">{formatCurrency(item.amount)}</p>
-            <span className="mt-1 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-              {item.status}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function MenuPage({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
@@ -396,139 +253,133 @@ function MenuPage({ title, subtitle, children }: { title: string; subtitle: stri
   );
 }
 
-function OrderCheckout() {
-  const [selectedProduct, setSelectedProduct] = useState(products[0]);
-  const [qty, setQty] = useState(1);
-  const total = selectedProduct.price * qty;
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4 xl:max-h-[calc(100vh-112px)] xl:overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-extrabold tracking-tight text-white">Checkout Produk</h2>
-          <p className="mt-1 text-xs text-white/55">Selesaikan pesanan kamu dalam beberapa langkah mudah.</p>
-        </div>
-        <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          100% Secure Checkout
-        </span>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-        <section className="min-h-[300px] rounded-[1.25rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.08),rgba(255,0,127,0.05))] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.18)]">
-          <div className="flex h-full flex-col justify-center rounded-[1rem] border border-white/10 bg-[#0f0b15]/70 p-5 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/35">
-              <ShoppingBag className="h-5 w-5" />
-            </div>
-            <h3 className="mt-4 text-lg font-extrabold text-white">{selectedProduct.name}</h3>
-            <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-white/55">{selectedProduct.note}. Produk dikirim ke nomor WhatsApp setelah order diproses.</p>
-            <div className="mx-auto mt-4 inline-flex items-center gap-3 rounded-xl border border-brand/20 bg-brand/10 px-4 py-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">Harga</span>
-              <strong className="text-xl text-brand">{formatCurrency(selectedProduct.price)}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[1.25rem] border border-white/10 bg-white/5 p-4 shadow-[0_14px_32px_rgba(0,0,0,0.18)]">
-          <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand ring-1 ring-brand/20">
-                <ShoppingCart className="h-5 w-5" />
-              </div>
-              <h3 className="text-xl font-extrabold text-white">Order Detail</h3>
-            </div>
-            <div className="text-right">
-              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Saldo Kamu</p>
-              <p className="mt-1 text-lg font-black text-white">Rp50.344</p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3.5">
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Pilih Layanan</span>
-              <select
-                value={selectedProduct.name}
-                onChange={(event) => {
-                  const nextProduct = products.find((item) => item.name === event.target.value);
-                  if (nextProduct) setSelectedProduct(nextProduct);
-                }}
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0f0b15] px-3.5 py-3 text-sm font-semibold text-white outline-none transition focus:border-brand/60"
-              >
-                {products.map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.name} - {formatCurrency(item.price)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="grid gap-3 sm:grid-cols-[1fr_132px]">
-              <label className="block">
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Kirim ke WA</span>
-                <div className="mt-1.5 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#0f0b15] px-3.5 py-3 text-sm font-semibold text-white">
-                  <MessageCircle className="h-4 w-4 text-emerald-300" />
-                  6285888009931
-                </div>
-              </label>
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Qty</span>
-                <div className="mt-1.5 grid grid-cols-3 overflow-hidden rounded-xl border border-white/10 bg-[#0f0b15]">
-                  <button type="button" onClick={() => setQty((value) => Math.max(1, value - 1))} className="grid h-[44px] place-items-center text-white/70 transition hover:bg-white/5">
-                    <Minus className="h-4 w-4" />
-                  </button>
-                  <div className="grid h-[44px] place-items-center border-x border-white/10 text-sm font-bold text-white">{qty}</div>
-                  <button type="button" onClick={() => setQty((value) => value + 1)} className="grid h-[44px] place-items-center text-white/70 transition hover:bg-white/5">
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-[#0b0f1a] px-4 py-3.5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Total Tagihan</p>
-                  <p className="mt-1 text-xs font-semibold text-emerald-300">{selectedProduct.name}</p>
-                </div>
-                <p className="text-2xl font-black text-white">{formatCurrency(total)}</p>
-              </div>
-            </div>
-
-            <button className="w-full rounded-xl bg-brand px-5 py-3 text-xs font-extrabold uppercase tracking-[0.16em] text-white shadow-lg shadow-brand/20 transition hover:scale-[1.01]">
-              Order Sekarang
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <section className="rounded-[1.25rem] border border-emerald-500/20 bg-[linear-gradient(145deg,rgba(16,185,129,0.12),rgba(255,255,255,0.04))] p-4">
-        <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-300">
-              <Phone className="h-6 w-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-extrabold text-white">Masih ada pertanyaan?</h3>
-              <p className="mt-1 max-w-lg text-xs leading-5 text-white/55">Konsultasikan kebutuhanmu langsung ke tim kami via WhatsApp.</p>
-            </div>
-          </div>
-          <a
-            href={waOrderLink}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex min-w-[220px] items-center justify-center gap-2.5 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-extrabold text-white shadow-lg shadow-emerald-500/20 transition hover:scale-[1.01]"
-          >
-            <MessageCircle className="h-5 w-5" />
-            Chat WhatsApp
-          </a>
-        </div>
-      </section>
-    </motion.div>
-  );
-}
-
 function DepositTopup() {
   const [amount, setAmount] = useState(25000);
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [error, setError] = useState('');
+  const [depositResult, setDepositResult] = useState<DepositRecord | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [adminWhatsapp, setAdminWhatsapp] = useState('');
+  const apiKey = getApiKey();
+  const waDepositLink = adminWhatsapp
+    ? `https://wa.me/${adminWhatsapp}?text=Halo%20Admin%2C%20saya%20ingin%20top%20up%20saldo.`
+    : '';
+
+  const qrImage = depositResult?.qr_image || depositResult?.qr_data || '';
+  const qrSrc = qrImage
+    ? qrImage.startsWith('data:image')
+      ? qrImage
+      : `data:image/png;base64,${qrImage}`
+    : '';
+  const modalOpen = Boolean(depositResult && !['success', 'canceled', 'failed', 'expired'].includes(String(depositResult.status || 'pending')));
+
+  useEffect(() => {
+    let active = true;
+    premiuminApi.publicConfig()
+      .then((response) => {
+        if (active) setAdminWhatsapp(response.data.admin_whatsapp || '');
+      })
+      .catch(() => {
+        if (active) setAdminWhatsapp('');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!depositResult?.expired_at || !modalOpen) return;
+    const updateCountdown = () => {
+      const next = Math.max(0, Math.floor((new Date(depositResult.expired_at || '').getTime() - Date.now()) / 1000));
+      setSecondsLeft(next);
+    };
+
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [depositResult?.expired_at, modalOpen]);
+
+  useEffect(() => {
+    if (!depositResult?.invoice || !modalOpen) return;
+
+    let active = true;
+    const timer = window.setInterval(async () => {
+      if (!active) return;
+      try {
+        const response = await premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined);
+        if (!active) return;
+        setDepositResult(response.data);
+        if (response.data.status === 'success') {
+          window.dispatchEvent(new Event('premiuminplus:balance-updated'));
+          active = false;
+          window.clearInterval(timer);
+        }
+      } catch {
+        // Manual check will surface errors; polling stays quiet to keep the modal calm.
+      }
+    }, 10000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [depositResult?.invoice, modalOpen, apiKey]);
+
+  const formatCountdown = (value: number) => {
+    const minutes = Math.floor(value / 60).toString().padStart(2, '0');
+    const seconds = Math.floor(value % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  };
+
+  const submitDeposit = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError('');
+    setDepositResult(null);
+
+    try {
+      const response = await premiuminApi.deposit({ amount }, apiKey || undefined);
+      setDepositResult(response.data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal membuat deposit.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkDeposit = async () => {
+    if (!depositResult?.invoice || checking) return;
+    setChecking(true);
+    setError('');
+    try {
+      const response = await premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined);
+      setDepositResult(response.data);
+      if (response.data.status === 'success') {
+        window.dispatchEvent(new Event('premiuminplus:balance-updated'));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal cek status deposit.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const cancelDeposit = async () => {
+    if (!depositResult?.invoice || canceling) return;
+    setCanceling(true);
+    setError('');
+    try {
+      const response = await premiuminApi.depositCancel(depositResult.invoice, apiKey || undefined);
+      setDepositResult(response.data);
+      window.setTimeout(() => setDepositResult(null), 650);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal membatalkan deposit.');
+    } finally {
+      setCanceling(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4 xl:max-h-[calc(100vh-112px)] xl:overflow-hidden">
@@ -593,8 +444,20 @@ function DepositTopup() {
             </div>
           </div>
 
-          <button className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-xl bg-brand px-5 py-3.5 text-xs font-extrabold uppercase tracking-[0.16em] text-white shadow-lg shadow-brand/20 transition hover:scale-[1.01]">
-            Lanjut Pembayaran
+          {error ? <div className="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
+          {depositResult?.status === 'success' ? (
+            <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              Deposit {depositResult.invoice} sukses. Saldo dashboard diperbarui otomatis.
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={submitDeposit}
+            disabled={loading}
+            className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-xl bg-brand px-5 py-3.5 text-xs font-extrabold uppercase tracking-[0.16em] text-white shadow-lg shadow-brand/20 transition hover:scale-[1.01] disabled:opacity-60"
+          >
+            {loading ? 'Membuat pembayaran...' : 'Lanjut Pembayaran'}
             <ArrowRight className="h-4 w-4" />
           </button>
         </section>
@@ -642,13 +505,91 @@ function DepositTopup() {
             href={waDepositLink}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex min-w-[220px] items-center justify-center gap-2.5 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-extrabold text-white shadow-lg shadow-emerald-500/20 transition hover:scale-[1.01]"
+            className={`inline-flex min-w-[220px] items-center justify-center gap-2.5 rounded-xl px-5 py-3 text-sm font-extrabold text-white shadow-lg transition hover:scale-[1.01] ${
+              waDepositLink ? 'bg-emerald-500 shadow-emerald-500/20' : 'pointer-events-none bg-white/10 opacity-50'
+            }`}
           >
             <MessageCircle className="h-5 w-5" />
             Chat WhatsApp
           </a>
         </div>
       </section>
+
+      {depositResult ? (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-md overflow-hidden rounded-[1.5rem] border border-brand/25 bg-[#0f172a] shadow-[0_0_48px_rgba(255,46,136,0.22)]"
+          >
+            <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(255,46,136,0.18),rgba(17,24,39,0.96))] px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-light">QRIS Deposit</p>
+                  <h3 className="mt-1 text-xl font-black text-white">{depositResult.invoice}</h3>
+                </div>
+                <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-200">
+                  {depositResult.status || 'pending'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="mx-auto grid aspect-square max-w-[260px] place-items-center rounded-[1.25rem] border border-brand/25 bg-white p-4 shadow-[0_0_30px_rgba(255,46,136,0.18)]">
+                {qrSrc ? <img src={qrSrc} alt={`QRIS ${depositResult.invoice}`} className="h-full w-full object-contain" /> : <p className="text-center text-sm font-bold text-slate-900">QR belum tersedia</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Total bayar</p>
+                  <p className="mt-1 text-lg font-black text-white">{formatCurrency(depositResult.total_bayar || depositResult.amount)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Expired</p>
+                  <p className="mt-1 text-lg font-black text-brand-light">{formatCountdown(secondsLeft)}</p>
+                </div>
+              </div>
+
+              {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
+
+              {depositResult.status === 'success' ? (
+                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                  Pembayaran sukses. Saldo kamu sudah disinkronkan.
+                </div>
+              ) : null}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={checkDeposit}
+                  disabled={checking || depositResult.status === 'success'}
+                  className="rounded-2xl bg-brand px-4 py-3 text-sm font-black text-white shadow-lg shadow-brand/20 disabled:opacity-60"
+                >
+                  {checking ? 'Checking...' : 'Check Deposit'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelDeposit}
+                  disabled={canceling || depositResult.status === 'success'}
+                  className="rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm font-black text-rose-100 disabled:opacity-60"
+                >
+                  {canceling ? 'Canceling...' : 'Cancel Deposit'}
+                </button>
+              </div>
+
+              {['success', 'canceled', 'failed', 'expired'].includes(String(depositResult.status)) ? (
+                <button
+                  type="button"
+                  onClick={() => setDepositResult(null)}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/75"
+                >
+                  Tutup
+                </button>
+              ) : null}
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -656,53 +597,179 @@ function DepositTopup() {
 export function DashboardPage({ session, onLogout }: DashboardPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [saldo, setSaldo] = useState(0);
+  const [summary, setSummary] = useState<DashboardSummaryRecord | null>(null);
+  const [dashboardProducts, setDashboardProducts] = useState<ProductRecord[]>([]);
+  const [recentOrderRows, setRecentOrderRows] = useState<OrderRecord[]>([]);
+  const [topAccounts, setTopAccounts] = useState<TopAccountRecord[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [saldoError, setSaldoError] = useState('');
   const path = location.pathname.replace(/\/+$/, '') || '/dashboard';
   const accountLabel = session.role === 'admin' ? 'Admin' : session.role === 'reseller' ? 'Reseller' : 'Member';
   const greeting = getGreeting();
+  const visibleSections = sections
+    .map((navSection) => ({
+      ...navSection,
+      items: navSection.items.filter((item) => {
+        if (session.role !== 'member') return true;
+        return ['Dasbor', 'Order Akun', 'Deposit Saldo', 'Daftar Harga', 'Riwayat Pesanan', 'Mutasi Saldo', 'Profil', 'Bot Wa Setting'].includes(item.label);
+      }),
+    }))
+    .filter((navSection) => navSection.items.length);
 
   const section = path === '/dashboard' ? null : path;
+  const memberAllowedPaths = new Set(['/dashboard', '/dashboard/order-akun', '/dashboard/deposit-saldo', '/dashboard/daftar-harga', '/dashboard/riwayat-pesanan', '/dashboard/riwayat-deposit', '/dashboard/mutasi-saldo', '/dashboard/profil', '/dashboard/bot-wa-telegram']);
+
+  useEffect(() => {
+    if (session.role === 'member' && !memberAllowedPaths.has(path)) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate, path, session.role]);
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      setDashboardLoading(true);
+      try {
+        const [meResponse, summaryResponse, productResponse, orderResponse, leaderboardResponse] = await Promise.all([
+          premiuminApi.me(session.apiKey),
+          premiuminApi.dashboardSummary(session.apiKey),
+          premiuminApi.products(session.apiKey),
+          premiuminApi.transactions(session.apiKey),
+          premiuminApi.topAccounts(session.apiKey).catch(() => ({ status: false, data: [] as TopAccountRecord[] })),
+        ]);
+        const resolvedTopAccounts = summaryResponse.data.top_accounts?.length ? summaryResponse.data.top_accounts : leaderboardResponse.data;
+        setSaldo(meResponse.data.saldo);
+        setSummary({ ...summaryResponse.data, top_accounts: resolvedTopAccounts });
+        setDashboardProducts(productResponse.data);
+        setRecentOrderRows(orderResponse.data.slice(0, 3));
+        setTopAccounts(resolvedTopAccounts);
+        setSaldoError('');
+      } catch (caught) {
+        setSaldoError(caught instanceof Error ? caught.message : 'Gagal memuat saldo.');
+      } finally {
+        setDashboardLoading(false);
+      }
+    };
+
+    void loadDashboardData();
+    const timer = window.setInterval(() => void loadDashboardData(), 15000);
+
+    const handleBalanceRefresh = () => {
+      void loadDashboardData();
+    };
+    window.addEventListener('premiuminplus:balance-updated', handleBalanceRefresh);
+    window.addEventListener('premiuminplus:orders-updated', handleBalanceRefresh);
+
+    return () => {
+      window.removeEventListener('premiuminplus:balance-updated', handleBalanceRefresh);
+      window.removeEventListener('premiuminplus:orders-updated', handleBalanceRefresh);
+      window.clearInterval(timer);
+    };
+  }, [session.apiKey]);
+
+  const productStockLine = dashboardProducts.slice(0, 10).map((product) => Number(product.stock || 0)).reverse();
+
+  const dashboardStats = [
+    {
+      label: 'Total Deposit',
+      value: summary?.total_deposit_amount || 0,
+      icon: Coins,
+      tone: 'emerald' as const,
+      suffix: '',
+      line: summary?.charts?.deposits || [0, 0],
+    },
+    {
+      label: 'Total Belanja',
+      value: summary?.total_spent || 0,
+      icon: ShoppingCart,
+      tone: 'pink' as const,
+      suffix: '',
+      line: summary?.charts?.spending || [0, 0],
+    },
+    {
+      label: 'Total Pesanan',
+      value: summary?.total_transactions || 0,
+      icon: ClipboardList,
+      tone: 'blue' as const,
+      suffix: 'Trx',
+      line: summary?.charts?.orders || [0, 0],
+    },
+    {
+      label: 'Produk Aktif',
+      value: summary?.active_products || dashboardProducts.length,
+      icon: BarChart3,
+      tone: 'amber' as const,
+      suffix: 'Layanan',
+      line: summary?.charts?.products || productStockLine,
+    },
+  ];
 
   const sectionContent: Record<string, ReactNode> = {
     '/dashboard/komunitas-wa': (
-      <MenuPage title="Komunitas WA" subtitle="Ruang update reseller dan channel cepat">
+      <MenuPage title="Komunitas WA" subtitle="Hubungi admin, developer, dan komunitas resmi">
         <div className="mb-4 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-[1.35rem] border border-white/10 bg-[linear-gradient(145deg,rgba(16,185,129,0.14),rgba(2,132,199,0.12))] p-4 lg:p-5">
             <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-white/45">Slogan Komunitas</p>
-            <h3 className="mt-2 text-[1.35rem] font-extrabold text-white lg:text-2xl">Tumbuh cepat, balas lebih cepat.</h3>
+            <h3 className="mt-2 text-[1.35rem] font-extrabold text-white lg:text-2xl">Cuan digital tumbuh bareng, bukan jalan sendirian.</h3>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">
-              Komunitas ini dibuat untuk update stok, diskusi reseller, dan jalur pengumuman yang rapi. Satu kaki di WhatsApp, satu kaki di Telegram.
+              Bergabung bersama reseller, anggota, admin, dan developer untuk diskusi, masukan, update stok, serta strategi jualan digital yang lebih rapi.
+              Admin biasanya lebih cepat merespons lewat WhatsApp, sedangkan developer lebih aktif di grup Telegram.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {['Jual konsisten', 'Bangun reputasi', 'Belajar bareng', 'Cuan tertata'].map((item) => (
+                <span key={item} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white/70">
+                  {item}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <div className="rounded-[1.35rem] border border-white/10 bg-[#0f0b15] p-4">
               <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-emerald-300">WhatsApp</p>
-              <p className="mt-2 text-sm text-white/65">Fast response, diskusi hangat, dan support harian.</p>
+              <p className="mt-2 text-sm text-white/65">Jalur cepat untuk hubungi admin, tanya stok, dan koordinasi reseller harian.</p>
             </div>
             <div className="rounded-[1.35rem] border border-white/10 bg-[#0f0b15] p-4">
               <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-sky-300">Telegram</p>
-              <p className="mt-2 text-sm text-white/65">Broadcast rapi, update lebih dingin, dan arsip mudah dicari.</p>
+              <p className="mt-2 text-sm text-white/65">Tempat developer lebih aktif, diskusi teknis, arsip update, dan masukan fitur.</p>
             </div>
           </div>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <ChannelCard
             title="Grup Reseller WhatsApp"
-            tagline="Hijau / cepat / responsif"
-            description="Tempat ngobrol reseller, tanya stok, dan dapat kabar terbaru tanpa menunggu lama."
+            tagline="Hijau / admin / responsif"
+            description="Masuk untuk ngobrol bareng admin, reseller, dan anggota. Cocok untuk support cepat, info stok, dan koordinasi jualan."
             href="https://chat.whatsapp.com/Igg1KjY54I3A2ERIgofm4b"
             icon={MessageCircle}
             tone="bg-[linear-gradient(145deg,rgba(34,197,94,0.20),rgba(15,11,21,0.98))]"
-            bullets={['Update stok', 'Support cepat', 'Komunitas aktif']}
+            bullets={['Admin response', 'Diskusi jualan', 'Update stok']}
           />
           <ChannelCard
             title="Channel Telegram"
-            tagline="Biru / rapi / informatif"
-            description="Channel pengumuman yang lebih tenang untuk notifikasi, arsip, dan update sistem."
+            tagline="Biru / developer / rapi"
+            description="Gabung untuk update developer, diskusi fitur, arsip pengumuman, dan masukan sistem agar panel makin nyaman dipakai."
             href="https://t.me/+1tkWNfTUfEg1MTY1"
             icon={Send}
             tone="bg-[linear-gradient(145deg,rgba(14,165,233,0.20),rgba(15,11,21,0.98))]"
-            bullets={['Broadcast resmi', 'Arsip pengumuman', 'Informasi singkat']}
+            bullets={['Developer aktif', 'Masukan fitur', 'Arsip update']}
           />
+        </div>
+        <div className="mt-4 rounded-[1.35rem] border border-amber-500/20 bg-amber-500/10 p-4 lg:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-amber-200/80">Prosedur Grup</p>
+              <h3 className="mt-2 text-xl font-extrabold text-white">Rame boleh, saling jaga wajib.</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-white/70">
+                Dilarang mengirim konten dewasa, spam iklan produk luar, menculik member, atau mengajak transaksi di luar aturan grup.
+                Pelanggaran akan diban dan tidak diperbolehkan kontribusi kembali. Terima kasih sudah mematuhi prosedur yang ada.
+              </p>
+            </div>
+            <div className="grid gap-2 text-xs font-bold uppercase tracking-[0.14em] text-white/65 sm:grid-cols-3 lg:min-w-[360px]">
+              <span className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">Etika jualan</span>
+              <span className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">Anti spam</span>
+              <span className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">Aman bareng</span>
+            </div>
+          </div>
         </div>
       </MenuPage>
     ),
@@ -711,7 +778,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
     '/dashboard/daftar-harga': <DaftarHarga />,
     '/dashboard/tarik-saldo': <TarikSaldo />,
     '/dashboard/riwayat-pesanan': <RiwayatPesanan />,
-    '/dashboard/riwayat-deposit': <RiwayatDeposit />,
+    '/dashboard/riwayat-deposit': <MutasiSaldo />,
     '/dashboard/mutasi-saldo': <MutasiSaldo />,
     '/dashboard/profil': <Profil />,
     '/dashboard/laporan-kendala': <LaporanKendala />,
@@ -727,7 +794,8 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
         subtitle={`${greeting}, ${session.username}. ${accountLabel} mode aktif.`}
         username={session.username}
         role={accountLabel}
-        sections={sections}
+        saldo={saldo}
+        sections={visibleSections}
         onLogout={onLogout}
       >
         {sectionContent[path as keyof typeof sectionContent] || (
@@ -745,7 +813,8 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
       subtitle={`${greeting}, ${session.username}. Kelola transaksi dan akses API kamu dengan mudah di Premiumin Plus.`}
       username={session.username}
       role={accountLabel}
-      sections={sections}
+      saldo={saldo}
+      sections={visibleSections}
       onLogout={onLogout}
     >
       <div className="space-y-6">
@@ -777,8 +846,9 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
                 <p className="mt-3 text-sm text-white/60">Saldo Tersedia</p>
                 <div className="mt-1 flex items-end gap-2">
                   <span className="text-lg font-bold text-brand">Rp</span>
-                  <span className="text-4xl font-black tracking-tight text-white">61.344</span>
+                  <span className="text-4xl font-black tracking-tight text-white">{formatNumber(saldo)}</span>
                 </div>
+                {saldoError ? <p className="mt-2 text-xs text-rose-200">{saldoError}</p> : null}
               </div>
               <button className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70 transition-transform duration-200 hover:scale-105">
                 <Sparkles className="h-5 w-5" />
@@ -787,10 +857,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
 
             <div className="mt-5 grid items-center gap-4 lg:grid-cols-[1fr_0.9fr]">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">Keseimbangan</p>
-                <p className="mt-2 text-sm text-white/60">Saldo kartu utama</p>
-                <p className="mt-1 text-2xl font-black text-white">{formatCurrency(55844)}</p>
-                <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">Card Holder</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">Card Holder</p>
                 <p className="mt-1 text-base font-extrabold tracking-tight">{session.username.toUpperCase()}</p>
               </div>
               <img
@@ -816,17 +883,20 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
             </div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, delay: 0.04 }}
-          >
-            <ApiKeyCard username={session.username} />
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: 0.04 }}>
+            {session.role === 'reseller' ? (
+              <ApiKeyCard username={session.username} apiKey={session.apiKey} />
+            ) : (
+              <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                <p className="text-sm font-bold text-white">API Credentials</p>
+                <p className="mt-2 text-sm text-white/55">Fitur tidak tersedia untuk role {accountLabel}. API key hanya aktif untuk reseller.</p>
+              </div>
+            )}
           </motion.div>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {stats.map((item, index) => {
+          {dashboardStats.map((item, index) => {
             const Icon = item.icon;
             const toneClass =
               item.tone === 'emerald'
@@ -852,7 +922,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
                   <div className="flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">{item.label}</p>
                     <p className="mt-2 text-xl font-extrabold tracking-tight text-white">
-                      {typeof item.value === 'number' ? formatCurrency(item.value) : item.value}
+                      {item.label === 'Total Pesanan' || item.label === 'Produk Aktif' ? formatNumber(item.value) : formatCurrency(item.value)}
                       {item.suffix ? <span className="ml-2 text-sm font-semibold text-white/55">{item.suffix}</span> : null}
                     </p>
                   </div>
@@ -862,24 +932,41 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
                 </div>
               </motion.div>
             );
-          })}
+          })} 
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr_0.95fr]">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-            <SectionShell title="Top Sultan" subtitle="Top spender">
-              <div className="space-y-3">
-                {topSpenders.map((item) => (
-                  <div key={item.rank} className="rounded-[1.2rem] border border-white/10 bg-[#0f0b15] px-4 py-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{item.name}</p>
-                        <p className="text-xs text-white/35">Top Spender</p>
+            <SectionShell title="Best Penjualan" subtitle="Saldo tertinggi">
+              <div className="space-y-2.5">
+                {topAccounts.map((account) => {
+                  const roleLabel = account.role === 'reseller' ? 'Reseller' : 'Anggota';
+                  const roleTone =
+                    account.role === 'reseller'
+                      ? 'border-brand/25 bg-brand/10 text-brand-light'
+                      : 'border-sky-500/20 bg-sky-500/10 text-sky-200';
+
+                  return (
+                    <div key={account.id} className="rounded-[1.05rem] border border-white/10 bg-[#0f0b15] px-3.5 py-3">
+                      <div className="grid grid-cols-[44px_1fr_auto] items-center gap-3">
+                        <div className="grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/5 text-sm font-black text-white">
+                          #{account.rank}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-white">{account.username}</p>
+                          <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${roleTone}`}>
+                            {roleLabel}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-white">{formatCurrency(account.saldo)}</p>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/35">Tier {String(account.rank).padStart(2, '0')}</p>
+                        </div>
                       </div>
-                      <p className={`text-lg font-extrabold ${item.badge}`}>{formatNumber(item.amount / 1000)}k</p>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
+                {!dashboardLoading && !topAccounts.length ? <p className="text-sm text-white/45">Belum ada data akun aktif.</p> : null}
               </div>
             </SectionShell>
           </motion.div>
@@ -887,24 +974,26 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
             <SectionShell title="Riwayat Terakhir" subtitle="Transaksi terbaru">
               <div className="space-y-4">
-                {recentOrders.map((row) => (
-                  <div key={row.product} className="flex items-center justify-between gap-4 border-b border-white/10 pb-4 last:border-0 last:pb-0">
+                {recentOrderRows.map((row) => (
+                  <div key={row.invoice} className="flex items-center justify-between gap-4 border-b border-white/10 pb-4 last:border-0 last:pb-0">
                     <div>
-                      <p className="text-sm font-semibold text-white">{row.product}</p>
-                      <p className="mt-1 text-xs text-white/35">{row.time}</p>
+                      <p className="text-sm font-semibold text-white">{row.product_name || row.invoice}</p>
+                      <p className="mt-1 text-xs text-white/35">{row.created_at || '-'}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-white">{formatCurrency(row.price)}</p>
+                      <p className="text-sm font-bold text-white">{formatCurrency(row.total_price || 0)}</p>
                       <span className="mt-1 inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                        {row.status}
+                        {row.status || 'pending'}
                       </span>
                     </div>
                   </div>
                 ))}
+                {!dashboardLoading && !recentOrderRows.length ? <p className="text-sm text-white/45">Belum ada transaksi.</p> : null}
               </div>
             </SectionShell>
           </motion.div>
 
+          {session.role === 'reseller' ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
             <SectionShell title="API Console" subtitle="Developer access">
               <div className="rounded-[1.1rem] border border-white/10 bg-[#0b0f1a] p-4 font-mono text-[11px] leading-6 text-white/80">
@@ -926,9 +1015,9 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
 {`curl -X POST \\
 https://premiumin.plus/api/order \\
 -H "Content-Type: application/json" \\
+-H "x-api-key: ************" \\
 -d '{
-  "api_key": "************",
-  "product_id": "netflix_1b",
+  "product_id": 1,
   "qty": 1
 }'
 
@@ -937,6 +1026,7 @@ developer@premiumin:~$`}
               </div>
             </SectionShell>
           </motion.div>
+          ) : null}
         </section>
 
         <footer className="py-2 text-center text-xs text-white/45">

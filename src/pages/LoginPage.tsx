@@ -3,15 +3,15 @@ import { ArrowRight, Eye, EyeOff, Lock, MessageCircle, Sparkles, User } from 'lu
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import logoUpScale from '../asset/logo-upscale.png';
+import { premiuminApi } from '../services/api';
 
 // Halaman login ini dibuat ringkas, elegan, dan bebas scroll berlebih.
 interface LoginPageProps {
   onLogin: (payload: {
     username: string;
     password: string;
-    role: 'member' | 'reseller';
     remember: boolean;
-  }) => void;
+  }) => Promise<{ role: 'admin' | 'reseller' | 'member' } | void>;
   initialUsername: string;
 }
 
@@ -20,12 +20,37 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [success, setSuccess] = useState('');
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [adminWhatsapp, setAdminWhatsapp] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     setUsername(initialUsername);
   }, [initialUsername]);
+
+  useEffect(() => {
+    let active = true;
+    premiuminApi.publicConfig()
+      .then((response) => {
+        if (active) setAdminWhatsapp(response.data.admin_whatsapp || '');
+      })
+      .catch(() => {
+        if (active) setAdminWhatsapp('');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -39,23 +64,81 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
     };
   }, []);
 
-  const submit = (role: 'member' | 'reseller') => {
+  const submit = async () => {
     if (!username.trim() || !password.trim()) {
       setError('Username dan password wajib diisi.');
       return;
     }
 
     setError('');
-    onLogin({ username: username.trim(), password, role, remember });
-    navigate(username === 'admin' && password === 'admin230521' ? '/admin' : '/dashboard', { replace: true });
+    setLoading(true);
+
+    try {
+      const nextSession = await onLogin({ username: username.trim(), password, remember });
+      const role = nextSession && typeof nextSession === 'object' && 'role' in nextSession ? nextSession.role : 'member';
+      navigate(role === 'admin' ? '/admin' : '/dashboard', { replace: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Username atau password salah.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitRegister = async () => {
+    if (!username.trim() || !password.trim()) {
+      setError('Username dan password wajib diisi.');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      await premiuminApi.register({
+        username: username.trim(),
+        password,
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+      });
+      setSuccess('Pendaftaran berhasil, silakan login.');
+      setMode('login');
+      setPassword('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Registrasi gagal.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openWhatsAppRegistration = () => {
+    if (!adminWhatsapp) {
+      setError('Nomor WhatsApp admin belum dikonfigurasi.');
+      return;
+    }
     window.open(
-      'https://wa.me/6285888009931?text=Masih%20ada%20slot%20join%20reseller%20%3F',
+      `https://wa.me/${adminWhatsapp}?text=Masih%20ada%20slot%20join%20reseller%20%3F`,
       '_blank',
       'noopener,noreferrer'
     );
+  };
+
+  const submitForgotPassword = async () => {
+    setError('');
+    setSuccess('');
+    setNewPassword('');
+    setLoading(true);
+    try {
+      const response = await premiuminApi.forgotPassword({
+        username: forgotUsername.trim(),
+        email: forgotEmail.trim(),
+        phone: forgotPhone.trim(),
+      });
+      setNewPassword(response.password);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Reset password gagal.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -150,7 +233,11 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
             className="mt-4 space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              submit('member');
+              if (mode === 'register') {
+                void submitRegister();
+              } else {
+                void submit();
+              }
             }}
           >
             <label className="block space-y-2">
@@ -198,19 +285,58 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
                 />
                 Ingat saya
               </label>
-              <button type="button" className="font-semibold text-brand transition hover:text-brand-light">
-                Cara Cuan Era Digital?
+              <button type="button" onClick={() => setForgotOpen(true)} className="font-semibold text-brand transition hover:text-brand-light">
+                Lupa Password?
               </button>
             </div>
 
+            {mode === 'register' ? (
+              <>
+                <input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 text-sm text-white outline-none focus:border-brand/80"
+                  placeholder="Email member"
+                />
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 text-sm text-white outline-none focus:border-brand/80"
+                  placeholder="Nomor WhatsApp"
+                />
+                <div className="rounded-2xl border border-brand/20 bg-brand/10 px-4 py-3 text-xs leading-5 text-pink-100">
+                  Registrasi otomatis hanya untuk member. Untuk menjadi reseller, hubungi WhatsApp Admin.
+                </div>
+              </>
+            ) : null}
+
             {error && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
+            {success && <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div>}
 
             <button
               type="submit"
+              disabled={loading}
+              onClick={(event) => {
+                if (mode === 'register') {
+                  event.preventDefault();
+                  void submitRegister();
+                }
+              }}
               className="flex w-full items-center justify-center gap-3 rounded-full bg-gradient-to-r from-brand-dark via-brand to-brand-light px-5 py-3 text-sm font-extrabold text-white shadow-[0_0_24px_rgba(255,0,127,.3)] transition hover:scale-[1.01] sm:py-3 sm:text-base"
             >
-              Login
+              {loading ? 'Memproses...' : mode === 'login' ? 'LOGIN' : 'REGISTER'}
               <ArrowRight className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMode((value) => (value === 'login' ? 'register' : 'login'));
+                setError('');
+              }}
+              className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-white/80 transition hover:bg-white/10"
+            >
+              {mode === 'login' ? 'Daftar Account' : 'Kembali ke Login'}
             </button>
 
             <div className="flex items-center gap-4 text-sm text-white/45">
@@ -226,13 +352,63 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
           >
               Daftar sekarang lewat WA
           </button>
-        </form>
+          </form>
 
         <p className="mt-4 text-center text-[11px] tracking-[0.18em] text-white/45">
           Code by LotusVolt (Copyright)
         </p>
         </motion.section>
       </div>
+
+      {forgotOpen ? (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 px-4 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-md rounded-[1.4rem] border border-brand/25 bg-[#0f172a] p-5 shadow-[0_0_40px_rgba(255,46,136,0.22)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-light">Reset Password</p>
+                <h3 className="mt-1 text-xl font-black text-white">Lupa Password?</h3>
+              </div>
+              <button type="button" onClick={() => setForgotOpen(false)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+                Tutup
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <input value={forgotUsername} onChange={(e) => setForgotUsername(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Username" />
+              <input value={forgotPhone} onChange={(e) => setForgotPhone(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Nomor HP" />
+              <input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Email" />
+              {newPassword ? (
+                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                  <p>Password baru Anda:</p>
+                  <p className="mt-2 text-2xl font-black tracking-[0.16em] text-white">{newPassword}</p>
+                  <p className="mt-2 text-xs text-amber-100">Segera ubah password setelah login.</p>
+                </div>
+              ) : null}
+              {error ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
+              <button type="button" onClick={submitForgotPassword} disabled={loading} className="w-full rounded-2xl bg-brand px-4 py-3 text-sm font-black text-white disabled:opacity-60">
+                {loading ? 'Memproses...' : 'Generate Password Baru'}
+              </button>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center text-xs text-white/55">
+                Jika ada kendala hubungi admin
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (adminWhatsapp) window.open(`https://wa.me/${adminWhatsapp}`, '_blank', 'noopener,noreferrer');
+                  }}
+                  disabled={!adminWhatsapp}
+                  className="mt-2 block w-full rounded-xl bg-[#25D366] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+                >
+                  WhatsApp Admin
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
     </motion.div>
   );
 }

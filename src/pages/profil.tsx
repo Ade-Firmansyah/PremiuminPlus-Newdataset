@@ -1,30 +1,57 @@
-import { BadgeCheck, CalendarClock, Coins, CreditCard, History, ShieldCheck, Sparkles, Wallet } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BadgeCheck, Coins, CreditCard, ShieldCheck, Sparkles, Wallet } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from './dashboardPageKit';
 import { formatCurrency } from '../utils/format';
-
-const metrics = [
-  { label: 'Saldo Aktif', value: 61344, icon: Wallet, tone: 'text-emerald-300 bg-emerald-500/10 ring-emerald-500/20' },
-  { label: 'Transaksi Berhasil', value: 128, icon: BadgeCheck, tone: 'text-sky-300 bg-sky-500/10 ring-sky-500/20' },
-  { label: 'Deposit Masuk', value: 18, icon: Coins, tone: 'text-brand bg-brand/10 ring-brand/20' },
-  { label: 'Order Selesai', value: 97, icon: CreditCard, tone: 'text-amber-300 bg-amber-500/10 ring-amber-500/20' },
-];
-
-const accountDetails = [
-  { label: 'Username', value: 'digitalpanel123' },
-  { label: 'Role', value: 'Member' },
-  { label: 'Status', value: 'Aktif' },
-  { label: 'Level', value: 'Premium User' },
-  { label: 'Nomor WA', value: '6285888009931' },
-  { label: 'Last Login', value: '04 May 2026 - 21:40' },
-];
-
-const recentActivity = [
-  { title: 'Order berhasil', note: 'Capcut 30 Day diproses tanpa kendala.', time: '04 May 2026 - 21:18' },
-  { title: 'Deposit masuk', note: 'Top up QRIS terverifikasi otomatis.', time: '04 May 2026 - 19:02' },
-  { title: 'Login aman', note: 'Perangkat yang dikenal masih aktif.', time: '04 May 2026 - 08:10' },
-];
+import { getApiKey } from '../store/useAuth';
+import { premiuminApi, type DashboardSummaryRecord, type MeRecord } from '../services/api';
 
 export default function Profil() {
+  const [user, setUser] = useState<MeRecord | null>(null);
+  const [summary, setSummary] = useState<DashboardSummaryRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const apiKey = getApiKey();
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      setLoading(true);
+      setError('');
+
+      try {
+        const [meResponse, summaryResponse] = await Promise.all([
+          premiuminApi.me(apiKey || undefined),
+          premiuminApi.dashboardSummary(apiKey || undefined),
+        ]);
+        setUser(meResponse.data);
+        setSummary(summaryResponse.data);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Gagal memuat profil.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadProfile();
+  }, [apiKey]);
+
+  const metrics = useMemo(
+    () => [
+      { label: 'Saldo Aktif', value: user?.saldo || 0, icon: Wallet, tone: 'text-emerald-300 bg-emerald-500/10 ring-emerald-500/20' },
+      { label: 'Total Transaksi', value: summary?.total_transactions || 0, icon: BadgeCheck, tone: 'text-sky-300 bg-sky-500/10 ring-sky-500/20' },
+      { label: 'Total Deposit', value: summary?.total_deposit_amount || 0, icon: Coins, tone: 'text-brand bg-brand/10 ring-brand/20' },
+      { label: 'Total Belanja', value: summary?.total_spent || 0, icon: CreditCard, tone: 'text-amber-300 bg-amber-500/10 ring-amber-500/20' },
+    ],
+    [summary, user],
+  );
+
+  const accountDetails = [
+    { label: 'Username', value: user?.username || '-' },
+    { label: 'Email', value: user?.email || '-' },
+    { label: 'Saldo', value: formatCurrency(user?.saldo || 0) },
+    { label: 'Role', value: user?.role || '-' },
+    { label: 'API Key', value: user?.api_key ? `${user.api_key.slice(0, 8)}...${user.api_key.slice(-4)}` : '-' },
+  ];
+
   return (
     <div className="profil">
       <PageHero
@@ -36,11 +63,13 @@ export default function Profil() {
       />
       <div className="mt-4">
       <PageSection title="Ringkasan akun" subtitle="Ringkasan akun dan aktivitas">
+        {loading ? <p className="mb-3 text-sm text-white/45">Memuat profil dari database...</p> : null}
+        {error ? <div className="mb-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
         <div className="mb-4 rounded-[1.4rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,0,127,0.12),rgba(14,165,233,0.10))] p-5">
           <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">Sub data akun</p>
-          <h3 className="mt-2 text-2xl font-extrabold text-white">Semua info inti akun ada di satu tempat.</h3>
+          <h3 className="mt-2 text-2xl font-extrabold text-white">{user?.username || 'Akun'} tersinkron dengan database.</h3>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">
-            Bagian ini menampilkan saldo aktif, jumlah transaksi berhasil, deposit masuk, dan aktivitas terakhir agar profil terasa lebih hidup dan lebih berguna untuk dipantau.
+            Saldo, role, email, transaksi, dan deposit di halaman ini berasal dari API backend.
           </p>
         </div>
 
@@ -54,7 +83,7 @@ export default function Profil() {
                 </div>
                 <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">{item.label}</p>
                 <p className="mt-2 text-2xl font-black tracking-tight text-white">
-                  {item.label === 'Saldo Aktif' ? formatCurrency(item.value) : item.value}
+                  {item.label.includes('Saldo') || item.label.includes('Deposit') || item.label.includes('Belanja') ? formatCurrency(item.value) : item.value}
                 </p>
               </NeonCard>
             );
@@ -76,32 +105,6 @@ export default function Profil() {
               ))}
             </div>
           </NeonCard>
-
-          <NeonCard>
-            <div className="flex items-center gap-3">
-              <History className="h-5 w-5 text-brand" />
-              <p className="text-sm font-semibold text-white">Aktivitas terbaru</p>
-            </div>
-            <div className="mt-4 space-y-3">
-              {recentActivity.map((item) => (
-                <div key={item.title + item.time} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{item.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-white/55">{item.note}</p>
-                    </div>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
-                      Baru
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-white/40">
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    {item.time}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </NeonCard>
         </div>
 
         <div className="mt-4 rounded-[1.4rem] border border-brand/20 bg-[linear-gradient(145deg,rgba(255,0,127,0.10),rgba(255,255,255,0.03))] p-4">
@@ -110,7 +113,7 @@ export default function Profil() {
             <p className="text-sm font-semibold text-white">Ringkasan cepat</p>
           </div>
           <p className="mt-2 text-sm leading-6 text-white/60">
-            Profil ini disusun agar user bisa langsung lihat status akun, performa transaksi, dan kondisi saldo tanpa harus pindah halaman.
+            Dashboard dan profil memakai endpoint user yang sama, jadi saldo tidak lagi bercabang antar halaman.
           </p>
         </div>
       </PageSection>

@@ -1,16 +1,16 @@
 import { Copy, RotateCw, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { useState } from 'react';
-import { createMockKey, maskKey } from '../utils/format';
+import { maskKey } from '../utils/format';
 
-// Komponen ini menampilkan kartu API key palsu dengan aksi salin dan revoke untuk demo UI.
+// Komponen ini menampilkan API key dari database dengan aksi salin dan toggle tampilan.
 interface ApiKeyCardProps {
   username: string;
+  apiKey: string;
 }
 
-export function ApiKeyCard({ username }: ApiKeyCardProps) {
+export function ApiKeyCard({ username, apiKey }: ApiKeyCardProps) {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [apiKey, setApiKey] = useState(() => createMockKey());
 
   const copyKey = async () => {
     await navigator.clipboard.writeText(apiKey);
@@ -19,7 +19,6 @@ export function ApiKeyCard({ username }: ApiKeyCardProps) {
   };
 
   const revokeKey = () => {
-    setApiKey(createMockKey());
     setVisible(false);
     setCopied(false);
   };
@@ -47,7 +46,7 @@ export function ApiKeyCard({ username }: ApiKeyCardProps) {
       </div>
 
       <p className="mt-4 text-sm leading-6 text-white/70">
-        Gunakan kunci API ini untuk mengintegrasikan website atau bot WhatsApp Anda secara langsung ke sistem Premiumku V2.
+        Gunakan kunci API ini untuk mengintegrasikan website atau bot WhatsApp Anda secara langsung ke sistem Premiumin Plus.
       </p>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-[#0f0b15] px-4 py-4">
@@ -70,7 +69,7 @@ export function ApiKeyCard({ username }: ApiKeyCardProps) {
           className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 transition-transform duration-200 hover:scale-[1.02] hover:bg-white/10"
         >
           <RotateCw className="h-4 w-4" />
-          Revoke
+          Refresh Tampilan
         </button>
       </div>
     </div>

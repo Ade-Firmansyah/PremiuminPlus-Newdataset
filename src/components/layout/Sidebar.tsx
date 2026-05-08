@@ -1,26 +1,19 @@
 import { NavLink } from 'react-router-dom';
-import { CalendarClock, MessageCircle, Send, ShoppingBag, X } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { LogOut, X } from 'lucide-react';
 import type { NavSection } from './AppShell';
 import logoTransparent from '../../asset/logo-upscale.png';
+import { formatCurrency } from '../../utils/format';
 
 // Komponen ini menampilkan menu samping dengan highlight aktif dan versi mobile drawer.
 interface SidebarProps {
   open: boolean;
   sections: NavSection[];
   onClose: () => void;
+  username: string;
+  role: string;
+  saldo?: number;
+  onLogout: () => void;
 }
-
-type SaleItem = {
-  buyer: string;
-  product: string;
-  channel: 'WA' | 'Telegram';
-  time: string;
-};
-
-const products = ['Capcut 7 Day', 'Capcut 30 Day', 'Netflix', 'ChatGPT 1 Bulan', 'YouTube Premium'];
-const channels: SaleItem['channel'][] = ['WA', 'Telegram'];
 
 function getItemTone(label: string) {
   const value = label.toLowerCase();
@@ -33,56 +26,19 @@ function getItemTone(label: string) {
   if (value.includes('mutasi')) return 'from-pink-500/20 to-pink-500/5 text-pink-300';
   if (value.includes('profil')) return 'from-fuchsia-500/20 to-fuchsia-500/5 text-fuchsia-300';
   if (value.includes('kendala')) return 'from-rose-500/20 to-rose-500/5 text-rose-300';
-  if (value.includes('bot')) return 'from-emerald-500/20 to-cyan-500/5 text-cyan-300';
+  if (value.includes('bot')) return 'from-white/15 to-white/5 text-white';
   if (value.includes('dokumen')) return 'from-slate-500/20 to-slate-500/5 text-slate-200';
   return 'from-white/15 to-white/5 text-white';
 }
 
-function makePhone() {
-  const partA = 100 + Math.floor(Math.random() * 900);
-  const partB = 10 + Math.floor(Math.random() * 90);
-  return `+6285${partA}XXX`;
-}
-
-function makeSale(): SaleItem {
-  return {
-    buyer: makePhone(),
-    product: products[Math.floor(Math.random() * products.length)],
-    channel: channels[Math.floor(Math.random() * channels.length)],
-    time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-  };
-}
-
-export function Sidebar({ open, sections, onClose }: SidebarProps) {
-  const initialSale = useMemo(() => makeSale(), []);
-  const [sale, setSale] = useState<SaleItem>(initialSale);
-  const [showSale, setShowSale] = useState(false);
-  const nextTimerRef = useRef<number | null>(null);
-  const hideTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const clearTimers = () => {
-      if (nextTimerRef.current) window.clearTimeout(nextTimerRef.current);
-      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    };
-
-    const scheduleNext = () => {
-      clearTimers();
-      const delay = 20000 + Math.floor(Math.random() * 10001);
-      nextTimerRef.current = window.setTimeout(() => {
-        setSale(makeSale());
-        setShowSale(true);
-        hideTimerRef.current = window.setTimeout(() => {
-          setShowSale(false);
-          scheduleNext();
-        }, 3000);
-      }, delay);
-    };
-
-    scheduleNext();
-
-    return clearTimers;
-  }, []);
+export function Sidebar({ open, sections, onClose, username, role, saldo, onLogout }: SidebarProps) {
+  const initials = username
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || username.slice(0, 2).toUpperCase() || 'US';
 
   return (
     <>
@@ -146,59 +102,26 @@ export function Sidebar({ open, sections, onClose }: SidebarProps) {
             ))}
           </div>
 
-          <div className="relative border-t border-white/10 p-3">
-            <AnimatePresence>
-              {showSale ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 18, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                  transition={{ duration: 0.25 }}
-                  className="pointer-events-none absolute bottom-[84px] left-3 right-3 z-10 rounded-[1.2rem] border border-white/10 bg-[#0b1018]/95 p-3 shadow-[0_18px_40px_rgba(0,0,0,0.3)]"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-emerald-300">
-                      <ShoppingBag className="h-4 w-4" />
-                      <p className="text-xs font-semibold text-white/70">Pesan Terbaru</p>
-                    </div>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      Hidup
-                    </span>
-                  </div>
-                  <div className="mt-3 rounded-[1rem] border border-white/10 bg-[#0d0912] px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 text-xs font-semibold text-white/65">
-                          {sale.channel === 'WA' ? (
-                            <MessageCircle className="h-3.5 w-3.5 text-emerald-300" />
-                          ) : (
-                            <Send className="h-3.5 w-3.5 text-sky-300" />
-                          )}
-                          <span>{sale.buyer}</span>
-                        </div>
-                        <p className="mt-1 text-sm font-semibold text-white">{sale.product}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/35">Selesai</p>
-                        <p className="mt-1 text-xs font-semibold text-white/55">{sale.time}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2 text-[11px] text-white/40">
-                    <CalendarClock className="h-3.5 w-3.5 text-emerald-300" />
-                    <span>aktivitas order terbaru sedang berjalan.</span>
-                  </div>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-
-            <div className="rounded-3xl border border-brand/20 bg-[linear-gradient(145deg,rgba(255,0,127,0.10),rgba(255,255,255,0.03))] p-3.5">
-              <div className="flex items-center gap-2 text-brand">
-                <ShoppingBag className="h-4 w-4" />
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/65">Menu Aktif</p>
+          <div className="relative border-t border-white/10 p-2.5">
+            <div className="rounded-2xl border border-brand/20 bg-[linear-gradient(145deg,rgba(255,0,127,0.10),rgba(255,255,255,0.03))] p-3">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-brand/25 bg-brand/15 text-sm font-black text-white shadow-[0_0_18px_rgba(255,0,127,0.14)]">
+                  {initials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Pengguna</p>
+                  <p className="mt-1 truncate text-sm font-black text-white">{username}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-white/45">{role}</p>
+                </div>
               </div>
-              <p className="mt-2 text-xs leading-5 text-white/70">Panel ini dibuat compact di desktop, tetap nyaman di mobile, dan menjaga fokus pada menu yang penting.</p>
+              {saldo !== undefined ? <p className="mt-3 text-sm font-black text-emerald-200">{formatCurrency(saldo)}</p> : null}
+              <button
+                onClick={onLogout}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/15"
+              >
+                <LogOut className="h-4 w-4" />
+                Keluar
+              </button>
             </div>
           </div>
         </div>

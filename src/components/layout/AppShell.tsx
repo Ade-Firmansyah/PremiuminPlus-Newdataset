@@ -21,26 +21,20 @@ interface AppShellProps {
   subtitle: string;
   username: string;
   role: string;
+  saldo?: number;
   sections: NavSection[];
   onLogout: () => void;
   children: ReactNode;
 }
 
-export function AppShell({ title, subtitle, username, role, sections, onLogout, children }: AppShellProps) {
+export function AppShell({ title, subtitle, username, role, saldo, sections, onLogout, children }: AppShellProps) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#07040a] text-white">
-      <Sidebar open={open} sections={sections} onClose={() => setOpen(false)} />
+      <Sidebar open={open} sections={sections} onClose={() => setOpen(false)} username={username} role={role} saldo={saldo} onLogout={onLogout} />
       <div className="min-h-screen flex flex-col lg:pl-[264px]">
-        <Topbar
-          title={title}
-          subtitle={subtitle}
-          username={username}
-          role={role}
-          onMenuClick={() => setOpen(true)}
-          onLogout={onLogout}
-        />
+        <Topbar title={title} subtitle={subtitle} username={username} role={role} saldo={saldo} onMenuClick={() => setOpen(true)} />
         <main className="flex-1 px-3 py-4 sm:px-4 lg:px-6">
           <div className="mx-auto w-full max-w-[1400px]">{children}</div>
         </main>

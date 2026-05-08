@@ -1,112 +1,262 @@
-import { Bot, MessageCircle, Send, Sparkles, Workflow } from 'lucide-react';
-import { LinkCard, PageHero, PageSection, NeonCard } from './dashboardPageKit';
+import { useEffect, useState } from 'react';
+import { Bot, KeyRound, LogOut, QrCode, RefreshCw, Save, Store, ToggleRight, Wifi } from 'lucide-react';
+import { PageHero, PageSection, NeonCard } from './dashboardPageKit';
+import { getApiKey } from '../store/useAuth';
+import { premiuminApi, type BotSettingsRecord } from '../services/api';
 
-const botOffers = [
-  {
-    title: 'Generate Bot',
-    tagline: 'Bangun dari nol',
-    description: 'Ideal untuk tim yang ingin kontrol penuh, alur custom, dan branding bot yang mengikuti cara kerja sendiri.',
-    href: 'https://wa.me/6285888009931?text=Saya%20ingin%20generate%20bot%20baru',
-    icon: Bot,
-    accent: 'from-emerald-500/20 to-cyan-500/10',
-    benefits: ['Workflow custom', 'Notifikasi transaksi', 'Setup bertahap'],
+const fallback: BotSettingsRecord = {
+  enabled: false,
+  auto_reply_enabled: false,
+  panel_name: 'Premiumin Plus',
+  greeting_message: 'Halo kak, selamat datang di Premiumin Plus.',
+  footer_message: 'Premiumin Plus',
+  keyword_response: 'Untuk melihat stok ketik stok / list.',
+  auto_reply_prompt: 'Jawab pelanggan dengan ramah, validasi format order, lalu arahkan pembayaran melalui dashboard.',
+  order_format: 'ORDER#KODE_PRODUK#QTY#NOMOR_WA',
+  features: {
+    order_status: false,
+    balance_check: false,
+    product_catalog: false,
   },
-  {
-    title: 'Sewa Bot',
-    tagline: 'Langsung jalan',
-    description: 'Pas untuk yang ingin cepat pakai, tanpa ribet setup panjang. Tinggal aktif, jalan, dan monitor hasilnya.',
-    href: 'https://t.me/+1tkWNfTUfEg1MTY1',
-    icon: Workflow,
-    accent: 'from-sky-500/20 to-indigo-500/10',
-    benefits: ['Aktif lebih cepat', 'Support ringan', 'Siap pakai'],
-  },
-];
-
-const quickChannels = [
-  {
-    title: 'WhatsApp Bot',
-    description: 'Respons cepat untuk order, notifikasi, dan follow-up.',
-    href: 'https://wa.me/6285888009931?text=Bot%20WhatsApp%20untuk%20order',
-    icon: MessageCircle,
-  },
-  {
-    title: 'Telegram Bot',
-    description: 'Cocok untuk channel update, broadcast, dan arsip pesan.',
-    href: 'https://t.me/+1tkWNfTUfEg1MTY1',
-    icon: Send,
-  },
-];
+};
 
 export default function BotWA() {
+  const [settings, setSettings] = useState<BotSettingsRecord>(fallback);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [botStatus, setBotStatus] = useState<Awaited<ReturnType<typeof premiuminApi.botSessionStatus>>['data'] | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [apiKeyMasked, setApiKeyMasked] = useState('');
+  const [margin, setMargin] = useState(0);
+  const apiKey = getApiKey();
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const [response, meResponse] = await Promise.all([
+          premiuminApi.myBotSettings(apiKey || undefined),
+          premiuminApi.me(apiKey || undefined),
+        ]);
+        setSettings(response.data);
+        setMargin(meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
+        setApiKeyMasked(meResponse.data.api_key ? `${meResponse.data.api_key.slice(0, 10)}...${meResponse.data.api_key.slice(-6)}` : '-');
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Gagal memuat setting bot.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+  }, [apiKey]);
+
+  useEffect(() => {
+    let active = true;
+    const loadStatus = async () => {
+      try {
+        const response = await premiuminApi.botSessionStatus(apiKey || undefined);
+        if (active) setBotStatus(response.data);
+      } catch {
+        if (active) setBotStatus(null);
+      }
+    };
+    void loadStatus();
+    const timer = window.setInterval(() => void loadStatus(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [apiKey]);
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await premiuminApi.updateMyBotSettings(settings, apiKey || undefined);
+      await premiuminApi.updateMyPreferences({ reseller_margin_percent: margin, markup_percent: margin }, apiKey || undefined);
+      setSettings(response.data);
+      setSuccess('Bot settings dan margin up tersimpan.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal menyimpan setting bot.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveMargin = async () => {
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await premiuminApi.updateMyPreferences({ reseller_margin_percent: margin, markup_percent: margin }, apiKey || undefined);
+      setSuccess('Margin up bot tersimpan.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal menyimpan margin bot.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const connectBot = async () => {
+    setSessionLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await premiuminApi.botSessionConnect(apiKey || undefined);
+      setBotStatus(response.data);
+      setSuccess(response.data.qr ? 'QR bot dibuat. Scan dari WhatsApp pribadi kamu.' : 'Session bot aktif.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal menghubungkan bot.');
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  const logoutBot = async () => {
+    setSessionLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await premiuminApi.botSessionLogout(apiKey || undefined);
+      setBotStatus(response.data);
+      setSuccess('Session bot dihapus. Connect ulang untuk membuat QR baru.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal logout bot.');
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
   return (
-    <div className="bot-wa">
+    <div className="bot-wa space-y-4">
       <PageHero
-        title="Bot WA & Telegram"
-        subtitle="Halaman bot dirancang untuk dua jalur: generate atau sewa."
-        slogan="Kontrol penuh atau tinggal pakai, sama-sama dibuat tampil rapi."
+        title="Bot Wa Setting"
+        subtitle="Hubungkan WhatsApp pribadi, atur margin, pantau QR, dan kelola response bot."
+        slogan="Bot memakai web API sebagai pusat logic, sehingga stok, saldo, margin, dan order tetap sinkron."
         tone="from-cyan-500/15 via-emerald-500/10 to-brand/10"
-        chips={['Generate', 'Sewa', 'Notifikasi']}
+        chips={['WA ready', 'Margin up', 'Prompt']}
       />
-      <div className="mt-4">
-      <PageSection title="Pilihan bot" subtitle="Generate bot atau sewa bot">
-        <div className="mb-4 rounded-[1.4rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,0,127,0.12),rgba(14,165,233,0.10))] p-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">Slogan layanan</p>
-          <h3 className="mt-2 text-2xl font-extrabold text-white">Bangun otomatisasi yang rapi, cepat, dan siap jual.</h3>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">
-            Halaman ini dibuat untuk dua kebutuhan utama: generate bot untuk kontrol penuh, atau sewa bot untuk mulai lebih cepat. Pilih alurnya sesuai ritme bisnismu.
-          </p>
-        </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          {botOffers.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NeonCard key={item.title} className="relative overflow-hidden">
-                <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${item.accent}`} />
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand ring-1 ring-brand/20">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/35">{item.tagline}</p>
-                      <h3 className="mt-1 text-xl font-extrabold text-white">{item.title}</h3>
-                    </div>
-                  </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/70">
-                    Populer
-                  </span>
+      <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
+        <PageSection title="Bot bisnis digital" subtitle="Status, QR, dan identitas toko">
+          <div className="space-y-3">
+            {loading ? <p className="text-sm text-white/45">Memuat setting bot...</p> : null}
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+              <div>
+                <p className="text-sm font-black text-white">{botStatus?.connected ? 'BOT ACTIVE' : 'BOT BELUM CONNECT'}</p>
+                <p className="mt-1 text-xs text-white/45">Session: {botStatus?.status || 'idle'}</p>
+              </div>
+              <ToggleRight className={`h-7 w-7 ${botStatus?.connected ? 'text-emerald-300' : 'text-white/25'}`} />
+            </div>
+            <input
+              value={settings.panel_name || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, panel_name: event.target.value }))}
+              className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Nama panel bot"
+            />
+            <input
+              value={settings.greeting_message}
+              onChange={(event) => setSettings((current) => ({ ...current, greeting_message: event.target.value }))}
+              className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Greeting message"
+            />
+            <input
+              value={settings.keyword_response || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, keyword_response: event.target.value }))}
+              className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Balasan keyword greeting"
+            />
+            <input
+              value={settings.footer_message || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, footer_message: event.target.value }))}
+              className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Footer bot"
+            />
+            <div className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-white">Auto Reply</span>
+                <button type="button" onClick={() => setSettings((current) => ({ ...current, auto_reply_enabled: !current.auto_reply_enabled }))} className="text-brand">
+                  <ToggleRight className={`h-7 w-7 ${settings.auto_reply_enabled ? 'text-brand' : 'rotate-180 text-white/25'}`} />
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={settings.auto_reply_prompt}
+              onChange={(event) => setSettings((current) => ({ ...current, auto_reply_prompt: event.target.value }))}
+              className="min-h-40 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm leading-6 text-white outline-none focus:border-brand/50"
+              placeholder="Prompt balasan otomatis"
+            />
+            {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
+            {success ? <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div> : null}
+            <button onClick={save} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+              <Save className="h-4 w-4" />
+              {saving ? 'Menyimpan...' : 'Simpan Setting Bot'}
+            </button>
+          </div>
+        </PageSection>
+
+        <PageSection title="Session WhatsApp" subtitle="QR login dan status realtime">
+          <div className="space-y-3">
+            <NeonCard>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-black text-white">Status Bot</p>
+                  <p className="mt-1 text-xs text-white/45">{botStatus?.status || 'bot-engine belum tersambung'}</p>
+                  {botStatus?.connected_number ? <p className="mt-2 text-xs font-bold text-emerald-300">{botStatus.connected_number}</p> : null}
+                  {botStatus?.last_active ? <p className="mt-1 text-xs text-white/35">Last active: {botStatus.last_active}</p> : null}
                 </div>
-                <p className="mt-4 text-sm leading-6 text-white/65">{item.description}</p>
+                <Wifi className={`h-5 w-5 ${botStatus?.connected ? 'text-emerald-300' : 'text-white/30'}`} />
+              </div>
+            </NeonCard>
+            {botStatus?.qr ? (
+              <div className="rounded-2xl border border-white/10 bg-white p-3">
+                <img src={botStatus.qr} alt="QR WhatsApp Bot" className="aspect-square w-full rounded-xl object-contain" />
+              </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={connectBot} disabled={sessionLoading} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+                {botStatus?.qr ? <RefreshCw className="h-4 w-4" /> : <QrCode className="h-4 w-4" />}
+                {sessionLoading ? 'Memproses...' : botStatus?.connected ? 'Refresh Status' : 'Connect Bot'}
+              </button>
+              <button onClick={logoutBot} disabled={sessionLoading} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200 disabled:opacity-60">
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
+          </div>
+        </PageSection>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {item.benefits.map((benefit) => (
-                    <span key={benefit} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70">
-                      {benefit}
-                    </span>
-                  ))}
-                </div>
-
-                <a
-                  href={item.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand/20 transition hover:scale-[1.01]"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {item.title === 'Generate Bot' ? 'Mulai Generate' : 'Ajukan Sewa'}
-                </a>
-              </NeonCard>
-            );
-          })}
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {quickChannels.map((item) => (
-            <LinkCard key={item.title} title={item.title} description={item.description} href={item.href} icon={item.icon} />
-          ))}
-        </div>
-      </PageSection>
+        <PageSection title="Margin Up & API" subtitle="Profit bot otomatis">
+          <div className="space-y-3">
+            <NeonCard>
+              <Store className="h-5 w-5 text-brand" />
+              <p className="mt-3 text-sm font-black text-white">Margin Up</p>
+              <p className="mt-1 text-xs text-white/45">Harga jual bot = harga admin + margin role + margin pribadi.</p>
+              <div className="mt-4 flex items-center gap-3">
+                <input type="range" min={0} max={100} value={margin} onChange={(event) => setMargin(Number(event.target.value))} className="w-full accent-brand" />
+                <span className="w-14 text-right text-lg font-black text-white">{margin}%</span>
+              </div>
+            </NeonCard>
+            <button onClick={saveMargin} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+              <Save className="h-4 w-4" />
+              {saving ? 'Menyimpan...' : 'Set Margin Simpan'}
+            </button>
+            <NeonCard>
+              <KeyRound className="h-5 w-5 text-brand" />
+              <p className="mt-3 text-sm font-black text-white">API Key</p>
+              <p className="mt-2 break-all rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs font-semibold text-white/65">{apiKeyMasked}</p>
+            </NeonCard>
+            <NeonCard>
+              <Bot className="h-5 w-5 text-brand" />
+              <p className="mt-3 text-sm leading-6 text-white/55">Command aktif: greeting, stok/list, buy code, cancel invoice, dan cek invoice.</p>
+            </NeonCard>
+          </div>
+        </PageSection>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-// Utilitas kecil ini dipakai untuk merapikan angka, teks, dan kode palsu di UI.
+// Utilitas kecil ini dipakai untuk merapikan angka dan teks UI.
 export function formatCurrency(value: number) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -17,12 +17,6 @@ export function maskKey(value: string) {
   }
 
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
-}
-
-export function createMockKey() {
-  return `pk_live_${Math.random().toString(36).slice(2, 10)}_${Math.random().toString(36).slice(2, 8)}${Math.random()
-    .toString(36)
-    .slice(2, 6)}`.toUpperCase();
 }
 
 export function getGreeting() {

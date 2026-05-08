@@ -4,5 +4,17 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.err
+.vscode/
 .env*
 !.env.example
+
+# Bot runtime state. Keep placeholders only; sessions contain WhatsApp credentials.
+bot-engine/sessions/*
+!bot-engine/sessions/.gitkeep
+bot-engine/qr/*
+!bot-engine/qr/.gitkeep
+bot-engine/queues/*
+!bot-engine/queues/.gitkeep
+bot-engine/websocket/*
+!bot-engine/websocket/.gitkeep
