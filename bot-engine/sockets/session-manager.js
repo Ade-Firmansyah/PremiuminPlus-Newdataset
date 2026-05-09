@@ -107,6 +107,12 @@ export class BotSessionManager {
     return { status: 'sent', lid, session_id: adminSession.id };
   }
 
+  async shutdown() {
+    const sessions = [...this.sessions.values()];
+    await Promise.allSettled(sessions.map((session) => this.cleanup(session)));
+    this.sessions.clear();
+  }
+
   createSession(id, apiKey) {
     return {
       id,
@@ -172,7 +178,7 @@ export class BotSessionManager {
       session.qr = await QRCode.toDataURL(update.qr, { margin: 1, width: 320 });
       session.status = 'qr';
       session.lastActive = new Date().toISOString();
-      this.logger.info(`[QR] generated for ${session.id}`);
+      this.logger.info(`QR generated for ${session.id}`);
     }
 
     if (update.connection === 'open') {
@@ -181,7 +187,7 @@ export class BotSessionManager {
       session.connectedNumber = normalizeJid(session.socket?.user?.id || '');
       session.reconnectAttempt = 0;
       session.lastActive = new Date().toISOString();
-      this.logger.info(`[BOT-SESSION] connected ${session.id}`);
+      this.logger.info(`Session connected ${session.id}`);
     }
 
     if (update.connection === 'close') {
@@ -189,7 +195,13 @@ export class BotSessionManager {
       session.status = code === DisconnectReason.loggedOut ? 'logged_out' : 'disconnected';
       session.connectedNumber = null;
       session.lastActive = new Date().toISOString();
-      this.logger.error(`[BOT-SESSION] disconnected ${session.id}`, { code });
+      this.logger.error(`Session disconnected ${session.id}`, { code });
+      void this.notifyAdmin({
+        title: 'BOT DISCONNECTED',
+        lines: [`session_id: ${session.id}`, `status_code: ${code || 'unknown'}`],
+      }).catch(() => {
+        // Monitoring notification is best-effort and must not affect reconnect.
+      });
 
       await this.cleanupSocketOnly(session);
 
@@ -335,7 +347,7 @@ export class BotSessionManager {
       try {
         await this.startSocket(session);
       } catch (error) {
-        this.logger.error(`[BOT-SESSION] reconnect failed ${session.id}`, { message: error.message });
+        this.logger.error(`Session reconnect failed ${session.id}`, { message: error.message });
         this.scheduleReconnect(session);
       }
     }, delay);

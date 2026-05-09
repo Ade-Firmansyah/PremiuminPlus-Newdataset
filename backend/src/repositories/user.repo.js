@@ -97,13 +97,26 @@ export async function findUserByApiKey(apiKey) {
 }
 
 export async function listUsers() {
-  const rows = await query('SELECT * FROM users ORDER BY id DESC');
-  return Promise.all(
-    rows.map(async (row) => {
-      const counters = await seedUserCounters(row.id);
-      return toPublicUser({ ...row, ...counters });
-    }),
+  const rows = await query(
+    `SELECT
+       u.*,
+       COALESCE(order_stats.total, 0) AS orders,
+       COALESCE(deposit_stats.total, 0) AS deposits
+     FROM users u
+     LEFT JOIN (
+       SELECT user_id, COUNT(*) AS total
+       FROM transactions
+       WHERE transaction_type = 'order'
+       GROUP BY user_id
+     ) order_stats ON order_stats.user_id = u.id
+     LEFT JOIN (
+       SELECT user_id, COUNT(*) AS total
+       FROM deposits
+       GROUP BY user_id
+     ) deposit_stats ON deposit_stats.user_id = u.id
+     ORDER BY u.id DESC`,
   );
+  return rows.map(toPublicUser);
 }
 
 export async function getUserById(id) {

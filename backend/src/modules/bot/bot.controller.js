@@ -4,6 +4,7 @@ import { createOrder } from '../order/order.service.js';
 import { calculateRoleSellPrice } from '../../services/pricing.service.js';
 import env from '../../config/env.js';
 import { cancelDirectPayment, createBotOrderPayment, refreshDirectPaymentStatus } from '../payment/payment.service.js';
+import { remember } from '../../services/cache.service.js';
 
 function assertBotUser(user) {
   if (!user || !['admin', 'reseller', 'member'].includes(user.role)) {
@@ -98,7 +99,8 @@ export async function botProfile(req, res, next) {
 export async function botCatalog(req, res, next) {
   try {
     assertBotUser(req.user);
-    res.json({ status: true, data: await getBotCatalog(req.user) });
+    const data = await remember(`bot:catalog:user:${req.user.id}`, 15, () => getBotCatalog(req.user));
+    res.json({ status: true, data });
   } catch (error) {
     next(error);
   }

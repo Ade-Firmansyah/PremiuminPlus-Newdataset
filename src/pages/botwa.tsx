@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, KeyRound, LogOut, QrCode, RefreshCw, Save, Store, ToggleRight, Wifi } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from './dashboardPageKit';
 import { getApiKey } from '../store/useAuth';
@@ -29,10 +29,15 @@ export default function BotWA() {
   const [botStatus, setBotStatus] = useState<Awaited<ReturnType<typeof premiuminApi.botSessionStatus>>['data'] | null>(null);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [apiKeyMasked, setApiKeyMasked] = useState('');
-  const [margin, setMargin] = useState(0);
+  const [marginDraft, setMarginDraft] = useState(0);
+  const [persistedMargin, setPersistedMargin] = useState(0);
+  const [marginSaving, setMarginSaving] = useState(false);
+  const marginSaveTimer = useRef<number | null>(null);
+  const marginSaveSeq = useRef(0);
   const apiKey = getApiKey();
 
   useEffect(() => {
+    let active = true;
     const load = async () => {
       setLoading(true);
       setError('');
@@ -41,18 +46,61 @@ export default function BotWA() {
           premiuminApi.myBotSettings(apiKey || undefined),
           premiuminApi.me(apiKey || undefined),
         ]);
+        if (!active) return;
+        const resolvedMargin = Number(meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
         setSettings(response.data);
-        setMargin(meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
+        setMarginDraft(resolvedMargin);
+        setPersistedMargin(resolvedMargin);
         setApiKeyMasked(meResponse.data.api_key ? `${meResponse.data.api_key.slice(0, 10)}...${meResponse.data.api_key.slice(-6)}` : '-');
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Gagal memuat setting bot.');
+        if (active) setError(caught instanceof Error ? caught.message : 'Gagal memuat setting bot.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     void load();
+    return () => {
+      active = false;
+      if (marginSaveTimer.current) window.clearTimeout(marginSaveTimer.current);
+    };
   }, [apiKey]);
+
+  const persistMargin = async (value = marginDraft, silent = false) => {
+    const normalized = Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+    const requestSeq = marginSaveSeq.current + 1;
+    marginSaveSeq.current = requestSeq;
+    setMarginSaving(true);
+    if (!silent) {
+      setError('');
+      setSuccess('');
+    }
+    try {
+      const response = await premiuminApi.updateMyPreferences({ reseller_margin_percent: normalized, markup_percent: normalized }, apiKey || undefined);
+      const saved = Number(response.data.reseller_margin_percent ?? response.data.markup_percent ?? normalized);
+      if (requestSeq !== marginSaveSeq.current) return;
+      setPersistedMargin(saved);
+      setMarginDraft(saved);
+      if (!silent) setSuccess('Margin bot tersimpan.');
+    } catch (caught) {
+      if (requestSeq === marginSaveSeq.current) {
+        setError(caught instanceof Error ? caught.message : 'Gagal menyimpan margin bot.');
+      }
+    } finally {
+      if (requestSeq === marginSaveSeq.current) setMarginSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (loading || marginDraft === persistedMargin) return;
+    if (marginSaveTimer.current) window.clearTimeout(marginSaveTimer.current);
+    marginSaveTimer.current = window.setTimeout(() => {
+      void persistMargin(marginDraft, true);
+    }, 700);
+    return () => {
+      if (marginSaveTimer.current) window.clearTimeout(marginSaveTimer.current);
+    };
+  }, [loading, marginDraft, persistedMargin]);
 
   useEffect(() => {
     let active = true;
@@ -78,7 +126,7 @@ export default function BotWA() {
     setSuccess('');
     try {
       const response = await premiuminApi.updateMyBotSettings(settings, apiKey || undefined);
-      await premiuminApi.updateMyPreferences({ reseller_margin_percent: margin, markup_percent: margin }, apiKey || undefined);
+      await persistMargin(marginDraft, true);
       setSettings(response.data);
       setSuccess('Bot settings dan margin up tersimpan.');
     } catch (caught) {
@@ -89,17 +137,9 @@ export default function BotWA() {
   };
 
   const saveMargin = async () => {
-    setSaving(true);
     setError('');
     setSuccess('');
-    try {
-      await premiuminApi.updateMyPreferences({ reseller_margin_percent: margin, markup_percent: margin }, apiKey || undefined);
-      setSuccess('Margin up bot tersimpan.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Gagal menyimpan margin bot.');
-    } finally {
-      setSaving(false);
-    }
+    await persistMargin(marginDraft);
   };
 
   const connectBot = async () => {
@@ -136,10 +176,10 @@ export default function BotWA() {
     <div className="bot-wa space-y-4">
       <PageHero
         title="Bot Wa Setting"
-        subtitle="Hubungkan WhatsApp pribadi, atur margin, pantau QR, dan kelola response bot."
-        slogan="Bot memakai web API sebagai pusat logic, sehingga stok, saldo, margin, dan order tetap sinkron."
+        subtitle="WhatsApp bot, margin jual, dan API key dalam satu panel ringan."
+        slogan="Margin tersimpan otomatis dan sinkron ke database."
         tone="from-cyan-500/15 via-emerald-500/10 to-brand/10"
-        chips={['WA ready', 'Margin up', 'Prompt']}
+        chips={['WA ready', 'Margin realtime', 'API']}
       />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
@@ -185,12 +225,6 @@ export default function BotWA() {
                 </button>
               </div>
             </div>
-            <textarea
-              value={settings.auto_reply_prompt}
-              onChange={(event) => setSettings((current) => ({ ...current, auto_reply_prompt: event.target.value }))}
-              className="min-h-40 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm leading-6 text-white outline-none focus:border-brand/50"
-              placeholder="Prompt balasan otomatis"
-            />
             {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
             {success ? <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div> : null}
             <button onClick={save} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
@@ -231,20 +265,34 @@ export default function BotWA() {
           </div>
         </PageSection>
 
-        <PageSection title="Margin Up & API" subtitle="Profit bot otomatis">
+        <PageSection title="Margin Naik & API" subtitle="Atur margin bot">
           <div className="space-y-3">
             <NeonCard>
-              <Store className="h-5 w-5 text-brand" />
-              <p className="mt-3 text-sm font-black text-white">Margin Up</p>
-              <p className="mt-1 text-xs text-white/45">Harga jual bot = harga admin + margin role + margin pribadi.</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Store className="h-5 w-5 text-brand" />
+                  <p className="mt-3 text-sm font-black text-white">Margin Naik</p>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-white">
+                  {marginDraft}%
+                </span>
+              </div>
               <div className="mt-4 flex items-center gap-3">
-                <input type="range" min={0} max={100} value={margin} onChange={(event) => setMargin(Number(event.target.value))} className="w-full accent-brand" />
-                <span className="w-14 text-right text-lg font-black text-white">{margin}%</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={marginDraft}
+                  onChange={(event) => setMarginDraft(Math.max(0, Math.min(100, Number(event.target.value))))}
+                  className="w-full accent-brand"
+                  aria-label="Margin bot"
+                />
               </div>
             </NeonCard>
-            <button onClick={saveMargin} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+            <button onClick={saveMargin} disabled={marginSaving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
               <Save className="h-4 w-4" />
-              {saving ? 'Menyimpan...' : 'Set Margin Simpan'}
+              {marginSaving ? 'Menyimpan...' : 'Atur Margin Simpan'}
             </button>
             <NeonCard>
               <KeyRound className="h-5 w-5 text-brand" />
@@ -258,6 +306,7 @@ export default function BotWA() {
           </div>
         </PageSection>
       </div>
+
     </div>
   );
 }

@@ -181,9 +181,16 @@ Stok produk:
 
 Realtime dashboard:
 
-- Admin dashboard refresh otomatis setiap 10 detik.
-- Dashboard member/reseller refresh otomatis setiap 15 detik.
+- Admin dan dashboard member/reseller refresh otomatis setiap 30 detik.
+- Backend memakai cache ringan agar refresh tidak membebani Premku atau database.
+- Produk lokal/cache stok disimpan 15 detik, sinkron Premku 60 detik, analytics dashboard 30 detik, dan cek status pembayaran diberi guard 5 detik per invoice.
 - Data yang ikut dipantau: order terbaru, payment pending, user terbaru, saldo, dan produk.
+
+Pemeliharaan data:
+
+- Backend menjalankan scheduler otomatis setiap hari.
+- Riwayat operasional detail seperti transaksi, mutasi, QR terminal, log realtime, dan cache polling yang lebih dari 7 hari akan dibersihkan.
+- Saldo user, data user, produk, setting admin, order credential, dan ringkasan finance admin tidak dihapus.
 
 Pengiriman WhatsApp:
 

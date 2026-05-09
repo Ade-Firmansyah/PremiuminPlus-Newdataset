@@ -132,6 +132,8 @@ export interface AdminUserRecord {
   lastLogin?: string;
   notes?: string;
   api_key?: string;
+  markup_percent?: number;
+  reseller_margin_percent?: number;
 }
 
 export interface MarkupSettingRecord {
@@ -306,7 +308,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
 
     if (trimmed.startsWith('<')) {
-      console.error('Invalid HTML response from API', { path, raw });
+      console.error('[FRONTEND]', { event: 'invalid-html-response', path, raw });
       throw new Error('Invalid API response (HTML returned)');
     }
 
@@ -314,7 +316,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     try {
       parsed = JSON.parse(trimmed) as Record<string, unknown>;
     } catch (parseError) {
-      console.error('Invalid JSON response from API', { path, raw, parseError });
+      console.error('[FRONTEND]', { event: 'invalid-json-response', path, raw, parseError });
       throw new Error('Invalid API response (JSON parse failed)');
     }
 

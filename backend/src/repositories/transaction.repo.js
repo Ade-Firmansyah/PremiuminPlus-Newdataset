@@ -1,5 +1,6 @@
 import { execute, query, transaction } from '../config/db.js';
 import { parseDbJson } from '../config/db.js';
+import { deleteCachePrefix } from '../services/cache.service.js';
 
 function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -171,6 +172,12 @@ export async function refundTransaction(invoice, externalResponse = {}, notes = 
       [current.user_id, amount, before, after, `${invoice}-refund`, notes],
     );
     await connection.query(
+      `INSERT INTO saldo_mutations
+        (user_id, mutation_type, amount, balance_before, balance_after, reference)
+       VALUES (?, 'refund', ?, ?, ?, ?)`,
+      [current.user_id, amount, before, after, `${invoice}-refund`],
+    );
+    await connection.query(
       `UPDATE transactions
        SET status = 'failed', external_status_response = ?, refund_at = ?, updated_at = CURRENT_TIMESTAMP
        WHERE invoice = ?`,
@@ -178,6 +185,10 @@ export async function refundTransaction(invoice, externalResponse = {}, notes = 
     );
 
     const [updatedRows] = await connection.query('SELECT * FROM transactions WHERE invoice = ? LIMIT 1', [invoice]);
-    return toTransaction(updatedRows[0] || current);
+    const updated = toTransaction(updatedRows[0] || current);
+    deleteCachePrefix(`dashboard:user:${current.user_id}`);
+    deleteCachePrefix('leaderboard:');
+    deleteCachePrefix('admin:summary');
+    return updated;
   });
 }

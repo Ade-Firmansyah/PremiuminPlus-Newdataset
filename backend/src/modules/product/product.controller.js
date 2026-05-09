@@ -3,6 +3,7 @@ import { getDiscountSetting, getMarkupSetting } from '../../repositories/setting
 import { calculateRoleSellPrice } from '../../services/pricing.service.js';
 import { premku } from '../../services/premku.service.js';
 import { requireFields } from '../../utils/validator.js';
+import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 
 function normalizeExternalProduct(item, index) {
   const basePrice = Number(item.price_base ?? item.price ?? item.harga ?? item.price_sell ?? item.nominal ?? 0);
@@ -56,17 +57,22 @@ async function applyMarkup(products, user = {}) {
 }
 
 export async function getProducts(_req, res) {
-  let products = await listProducts();
+  let products = await remember('products:local', 15, () => listProducts());
   let source = 'local';
 
   try {
-    const payload = await premku('products');
+    const syncedProducts = await remember('premku:products:synced', 60, async () => {
+      const payload = await premku('products');
       const externalProducts = extractProducts(payload);
-      if (externalProducts.length) {
-        products = externalProducts.map(normalizeExternalProduct);
-        await replaceProducts(products);
-        source = 'premku';
-      }
+      if (!externalProducts.length) return null;
+      await replaceProducts(externalProducts.map(normalizeExternalProduct));
+      deleteCachePrefix('products:');
+      return listProducts();
+    });
+    if (syncedProducts?.length) {
+      products = syncedProducts;
+      source = 'premku';
+    }
   } catch {
     source = 'local';
   }
@@ -82,6 +88,8 @@ export async function adminCreateProduct(req, res, next) {
   try {
     requireFields(req.body, ['name', 'code', 'price_base']);
     const data = await createProduct(req.body);
+    deleteCachePrefix('products:');
+    deleteCachePrefix('dashboard:');
     res.status(201).json({ status: true, data });
   } catch (error) {
     next(error);
@@ -94,6 +102,8 @@ export async function adminUpdateProduct(req, res, next) {
     if (!data) {
       return res.status(404).json({ status: false, message: 'Produk tidak ditemukan' });
     }
+    deleteCachePrefix('products:');
+    deleteCachePrefix('dashboard:');
     return res.json({ status: true, data });
   } catch (error) {
     return next(error);
@@ -106,6 +116,8 @@ export async function adminDeleteProduct(req, res, next) {
     if (!data) {
       return res.status(404).json({ status: false, message: 'Produk tidak ditemukan' });
     }
+    deleteCachePrefix('products:');
+    deleteCachePrefix('dashboard:');
     return res.json({ status: true, data });
   } catch (error) {
     return next(error);

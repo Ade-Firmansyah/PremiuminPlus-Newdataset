@@ -45,7 +45,7 @@ export function AdminDashboardHome() {
     };
 
     void load();
-    const timer = window.setInterval(() => void load(true), 10000);
+    const timer = window.setInterval(() => void load(true), 30000);
     return () => {
       active = false;
       window.clearInterval(timer);

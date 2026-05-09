@@ -42,10 +42,13 @@ Premiumin Plus menjual produk digital dari provider Premku melalui dashboard lok
 4. Jika saldo cukup, order memakai `/api/order`.
 5. Jika saldo kurang, UI menampilkan pilihan QRIS langsung.
 6. Backend membuat row `payments`, memanggil Premku `/pay`, lalu UI menampilkan `total_bayar`.
-7. Polling `/api/payments/:invoice/status`.
-8. Jika sukses, backend mengunci payment, membuat transaction `payment`, mengirim order ke Premku, membuat transaction `order`, menyimpan row `orders`.
-9. Credential akun disimpan di `orders.email_account` dan `orders.password_account`.
-10. Delivery WhatsApp diproses atau menjadi `manual_pending`.
+7. QRIS order berlaku 5 menit mengikuti `PAYMENT_QR_TTL_MINUTES`.
+8. Polling `/api/payments/:invoice/status`.
+9. Jika timer habis dan provider belum sukses, backend mengunci payment menjadi `expired`, mengosongkan QR payload, dan transaksi dianggap gagal/harus order ulang.
+10. Jika pembayaran sukses, QR tidak ditampilkan lagi untuk mencegah double payment.
+11. Jika sukses, backend mengunci payment, membuat transaction `payment`, mengirim order ke Premku, membuat transaction `order`, menyimpan row `orders`.
+12. Credential akun disimpan di `orders.email_account` dan `orders.password_account`.
+13. Delivery WhatsApp diproses atau menjadi `manual_pending`.
 
 ## Flow Order Reseller
 
@@ -66,6 +69,7 @@ Premiumin Plus menjual produk digital dari provider Premku melalui dashboard lok
 5. Polling `/api/deposit/:invoice`.
 6. Jika sukses, backend lock deposit dan user, update saldo, insert `transactions`, `saldo_logs`, `saldo_mutations`.
 7. `processed_at` mencegah saldo dobel.
+8. Jika QR deposit melewati timer dan belum sukses, status menjadi `expired` dan QR payload dihapus. Saldo tidak berubah.
 
 ## Flow Dashboard Statistik
 
@@ -102,9 +106,32 @@ base_price + admin_margin + markup_role_admin + margin_pribadi_user
 - Bot Wa Setting tersedia untuk `member` dan `reseller`.
 - Setiap akun memiliki setting bot sendiri di `settings` key `bot_settings:user:{id}`.
 - Setiap akun dapat menyimpan margin pribadi dalam persen lewat menu Bot Wa Setting.
+- Slider margin memakai satu state canonical: `marginDraft`.
+- Teks persen berubah langsung saat slider digeser.
+- Frontend menyimpan margin otomatis dengan debounce ringan dan tombol simpan tetap bisa memaksa sinkron.
+- Backend menyimpan nilai ke `users.markup_percent`, `users.markup_custom`, dan `users.reseller_margin_percent` agar API, database, dan bot catalog tidak mismatch.
 - Harga katalog bot mengikuti harga admin + markup role admin + margin pribadi akun.
 - Order bot memakai API backend sebagai pusat logic; bot engine tidak boleh update saldo, payment, order, atau stok langsung.
 - Profit margin bot masuk ke saldo akun dan tampil di Mutasi Saldo.
+
+## Flow Cache Dan Polling
+
+- Produk lokal/cache DB: 15 detik untuk stok ringan.
+- Sinkron produk Premku: 60 detik, tidak menulis ulang DB pada setiap request.
+- Dashboard user/admin analytics: 30 detik.
+- Bot catalog: 15 detik per user.
+- Premku payment/deposit status diberi guard 5 detik per invoice agar polling ganda dari frontend dan bot tidak spam provider.
+- Payment realtime tetap polling aman 5-10 detik dari UI/bot.
+
+## Flow Maintenance Data
+
+- Backend menjalankan maintenance scheduler saat `npm run backend` start.
+- Default interval scheduler: 1 hari (`MAINTENANCE_INTERVAL_MINUTES = 1440`).
+- Default retensi histori: 7 hari (`DATA_RETENTION_DAYS`).
+- Sebelum menghapus transaksi lama, backend mengarsipkan agregat harian ke `finance_daily_summaries`.
+- Data operasional yang lewat retensi dihapus otomatis: `transactions`, `saldo_mutations`, terminal `payments`, terminal `deposits`, `activity_logs`, `webhook_logs`, `websocket_events`, `temp_notifications`, `realtime_cache`, `polling_logs`.
+- Data yang tidak dihapus scheduler: `users.saldo`, user, produk, settings admin, `saldo_logs`, `orders`, credential order, dan summary finance harian.
+- Konsekuensi: riwayat detail tetap ringan 7 hari, tetapi admin analytics total tetap membaca summary lama.
 
 ## Flow Notifikasi
 

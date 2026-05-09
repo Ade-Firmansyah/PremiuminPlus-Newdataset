@@ -12,7 +12,12 @@ async function getApiKey() {
 
 async function parseResponse(response, url) {
   const raw = await response.text();
-  logger('PREMKU', { url: url.toString(), status: response.status, raw });
+  logger('PREMKU', {
+    endpoint: url.pathname.replace(/\/+$/, '').split('/').pop(),
+    status: response.status,
+    bytes: raw.length,
+    preview: raw.slice(0, 240),
+  });
 
   const trimmed = raw.trim();
   if (!trimmed) {

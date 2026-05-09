@@ -1,6 +1,7 @@
 import { query } from '../../config/db.js';
 import { listSaldoLogsByUser } from '../../repositories/wallet.repo.js';
 import { listUsers, updateUser } from '../../repositories/user.repo.js';
+import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 
 export function me(req, res) {
   res.json({
@@ -40,6 +41,10 @@ export async function updateMyPreferences(req, res, next) {
     }
 
     const data = await updateUser(req.user.id, payload);
+    deleteCachePrefix(`dashboard:user:${req.user.id}`);
+    deleteCachePrefix(`bot:catalog:user:${req.user.id}`);
+    deleteCachePrefix('leaderboard:');
+    deleteCachePrefix('admin:users');
     res.json({ status: true, data });
   } catch (error) {
     next(error);
@@ -88,7 +93,7 @@ function buildDailySeries(rows, valueKey, length = 10) {
 }
 
 async function listTopAccounts(limit = 10) {
-  const users = await listUsers();
+  const users = await remember('leaderboard:accounts', 30, () => listUsers());
   const rows = users
     .filter((user) => ['member', 'reseller'].includes(String(user.role || '').toLowerCase()))
     .filter((user) => !['suspended', 'blocked', 'deleted'].includes(String(user.status || '').toLowerCase()))
@@ -114,101 +119,99 @@ export async function saldoLogs(req, res) {
 export async function topAccounts(_req, res) {
   res.json({
     status: true,
-    data: await listTopAccounts(10),
+    data: await remember('leaderboard:top10', 30, () => listTopAccounts(10)),
   });
 }
 
 export async function dashboardSummary(req, res) {
   const userId = Number(req.user.id);
-  const [transactionRows] = await query(
-    `SELECT
-      COUNT(*) AS total_transactions,
-      COALESCE(SUM(CASE WHEN status NOT IN ('failed', 'refunded') THEN total_price ELSE 0 END), 0) AS total_spent
-     FROM transactions
-     WHERE user_id = ?
-       AND ${ORDER_TRANSACTION_FILTER}`,
-    [userId],
-  );
-  const [depositRows] = await query(
-    `SELECT
-      COUNT(*) AS total_deposits,
-      COALESCE(SUM(amount), 0) AS total_deposit_amount
-     FROM deposits
-     WHERE user_id = ? AND status = 'success'`,
-    [userId],
-  );
-  const [saldoInRows] = await query(
-    `SELECT COALESCE(SUM(amount), 0) AS saldo_masuk
-     FROM saldo_logs
-     WHERE user_id = ? AND type IN ('credit', 'refund', 'adjustment')`,
-    [userId],
-  );
-  const [saldoOutRows] = await query(
-    `SELECT COALESCE(SUM(amount), 0) AS saldo_keluar
-     FROM saldo_logs
-     WHERE user_id = ? AND type = 'debit'`,
-    [userId],
-  );
-  const [lastDepositRows] = await query(
-    `SELECT invoice, amount, total_bayar, status, created_at, processed_at
-     FROM deposits
-     WHERE user_id = ?
-     ORDER BY id DESC
-     LIMIT 1`,
-    [userId],
-  );
-  const depositChartRows = await query(
-    `SELECT DATE(created_at) AS day, COALESCE(SUM(amount), 0) AS total
-     FROM deposits
-     WHERE user_id = ?
-       AND status = 'success'
-       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
-     GROUP BY DATE(created_at)
-     ORDER BY day ASC`,
-    [userId],
-  );
-  const spendingChartRows = await query(
-    `SELECT DATE(created_at) AS day, COALESCE(SUM(total_price), 0) AS total
-     FROM transactions
-     WHERE user_id = ?
-       AND ${ORDER_TRANSACTION_FILTER}
-       AND status NOT IN ('failed', 'refunded')
-       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
-     GROUP BY DATE(created_at)
-     ORDER BY day ASC`,
-    [userId],
-  );
-  const orderChartRows = await query(
-    `SELECT DATE(created_at) AS day, COUNT(*) AS total
-     FROM transactions
-     WHERE user_id = ?
-       AND ${ORDER_TRANSACTION_FILTER}
-       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
-     GROUP BY DATE(created_at)
-     ORDER BY day ASC`,
-    [userId],
-  );
-  const [productRows] = await query(
-    `SELECT COUNT(*) AS active_products
-     FROM products
-     WHERE status IN ('active', 'Aktif', 'ready')`,
-  );
-  const productStockRows = await query(
-    `SELECT stock
-     FROM products
-     WHERE status IN ('active', 'Aktif', 'ready')
-     ORDER BY id DESC
-     LIMIT 10`,
-  );
-  const topAccountRows = await listTopAccounts(10);
+  const data = await remember(`dashboard:user:${userId}`, 30, async () => {
+    const [transactionRows] = await query(
+      `SELECT
+        COUNT(*) AS total_transactions,
+        COALESCE(SUM(CASE WHEN status NOT IN ('failed', 'refunded') THEN total_price ELSE 0 END), 0) AS total_spent
+       FROM transactions
+       WHERE user_id = ?
+         AND ${ORDER_TRANSACTION_FILTER}`,
+      [userId],
+    );
+    const [depositRows] = await query(
+      `SELECT
+        COUNT(*) AS total_deposits,
+        COALESCE(SUM(amount), 0) AS total_deposit_amount
+       FROM deposits
+       WHERE user_id = ? AND status = 'success'`,
+      [userId],
+    );
+    const [saldoInRows] = await query(
+      `SELECT COALESCE(SUM(amount), 0) AS saldo_masuk
+       FROM saldo_logs
+       WHERE user_id = ? AND type IN ('credit', 'refund', 'adjustment')`,
+      [userId],
+    );
+    const [saldoOutRows] = await query(
+      `SELECT COALESCE(SUM(amount), 0) AS saldo_keluar
+       FROM saldo_logs
+       WHERE user_id = ? AND type = 'debit'`,
+      [userId],
+    );
+    const [lastDepositRows] = await query(
+      `SELECT invoice, amount, total_bayar, status, created_at, processed_at
+       FROM deposits
+       WHERE user_id = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [userId],
+    );
+    const depositChartRows = await query(
+      `SELECT DATE(created_at) AS day, COALESCE(SUM(amount), 0) AS total
+       FROM deposits
+       WHERE user_id = ?
+         AND status = 'success'
+         AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY day ASC`,
+      [userId],
+    );
+    const spendingChartRows = await query(
+      `SELECT DATE(created_at) AS day, COALESCE(SUM(total_price), 0) AS total
+       FROM transactions
+       WHERE user_id = ?
+         AND ${ORDER_TRANSACTION_FILTER}
+         AND status NOT IN ('failed', 'refunded')
+         AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY day ASC`,
+      [userId],
+    );
+    const orderChartRows = await query(
+      `SELECT DATE(created_at) AS day, COUNT(*) AS total
+       FROM transactions
+       WHERE user_id = ?
+         AND ${ORDER_TRANSACTION_FILTER}
+         AND created_at >= DATE_SUB(CURDATE(), INTERVAL 9 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY day ASC`,
+      [userId],
+    );
+    const [productRows] = await query(
+      `SELECT COUNT(*) AS active_products
+       FROM products
+       WHERE status IN ('active', 'Aktif', 'ready')`,
+    );
+    const productStockRows = await query(
+      `SELECT stock
+       FROM products
+       WHERE status IN ('active', 'Aktif', 'ready')
+       ORDER BY id DESC
+       LIMIT 10`,
+    );
+    const topAccountRows = await remember('leaderboard:top10', 30, () => listTopAccounts(10));
 
-  const activeProducts = Number(productRows?.active_products || 0);
-  const productStockSeries = productStockRows.map((row) => Number(row.stock || 0)).reverse();
+    const activeProducts = Number(productRows?.active_products || 0);
+    const productStockSeries = productStockRows.map((row) => Number(row.stock || 0)).reverse();
 
-  res.json({
-    status: true,
-    data: {
-      saldo: Number(req.user.saldo || 0),
+    return {
       total_transactions: Number(transactionRows?.total_transactions || 0),
       total_spent: Number(transactionRows?.total_spent || 0),
       total_deposits: Number(depositRows?.total_deposits || 0),
@@ -224,6 +227,14 @@ export async function dashboardSummary(req, res) {
         products: productStockSeries.length ? productStockSeries : [activeProducts],
       },
       top_accounts: topAccountRows,
+    };
+  });
+
+  res.json({
+    status: true,
+    data: {
+      ...data,
+      saldo: Number(req.user.saldo || 0),
     },
   });
 }

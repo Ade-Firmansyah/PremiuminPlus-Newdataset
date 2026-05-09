@@ -21,6 +21,9 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api', routes);
+app.use('/api', (_req, res) => {
+  res.status(404).json({ status: false, message: 'API route tidak ditemukan' });
+});
 app.use(errorMiddleware);
 
 export default app;

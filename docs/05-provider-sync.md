@@ -19,19 +19,26 @@ Frontend must not show credentials until `order_status = success`.
 
 1. Member creates QRIS payment.
 2. Backend creates `payments` row with `status = pending`.
-3. Frontend polls `/api/payments/:invoice/status`.
-4. If Premku pay status is success:
+3. Backend stores `expired_at` with a 5 minute app timer by default.
+4. Frontend polls `/api/payments/:invoice/status`.
+5. If timer is already expired:
+   - backend checks provider once
+   - if provider is still pending, local status becomes `expired`
+   - QR payload is cleared
+   - user must create a new order/payment
+6. If Premku pay status is success:
    - backend sets `payments.status = success`
+   - backend clears `payments.qr_image` and `payments.qr_raw`
    - backend creates provider order with unique `ref_id`
    - backend creates/updates `orders.payment_status = success`
    - backend sets `orders.order_status = processing` unless provider already returned success
-5. Frontend shows:
+7. Frontend shows:
    - payment success
    - provider processing
    - no credentials yet
-6. Polling continues.
-7. Backend checks Premku `/status`.
-8. Only after provider success:
+8. Polling continues.
+9. Backend checks Premku `/status`.
+10. Only after provider success:
    - email/password saved
    - transaction order status becomes success
    - order history displays credentials
@@ -64,6 +71,18 @@ Frontend must not show credentials until `order_status = success`.
 - `transactions.invoice` is unique.
 - frontend QR polling uses a ref lock.
 - history/dashboard updates are event-driven plus lightweight polling fallback.
+- web-core guards duplicate Premku status checks with a 5 second per-invoice cache.
+- bot and frontend may poll safely, but provider calls remain throttled.
+
+## Cache Windows
+
+```text
+products local read       15s
+Premku product sync       60s
+dashboard analytics       30s
+bot catalog               15s
+payment/deposit sync       5s
+```
 
 ## Failure Rule
 

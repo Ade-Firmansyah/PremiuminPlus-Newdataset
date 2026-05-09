@@ -57,7 +57,7 @@ export function createBotHttpServer({ manager, logger }) {
   });
 
   app.use((error, _req, res, _next) => {
-    logger.error('[ERROR] bot engine request failed', { message: error.message });
+    logger.error('Bot engine request failed', { message: error.message });
     res.status(error.statusCode || 500).json({
       status: false,
       message: error.message || 'Bot engine error',

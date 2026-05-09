@@ -1,4 +1,5 @@
 import { transaction } from '../config/db.js';
+import { deleteCachePrefix } from './cache.service.js';
 
 function resolveUserId(userOrId) {
   if (!userOrId) return null;
@@ -20,7 +21,7 @@ async function changeSaldo(userOrId, amount, reference, type, notes = '') {
   const userId = resolveUserId(userOrId);
   const value = assertPositiveAmount(amount);
 
-  return transaction(async (connection) => {
+  const result = await transaction(async (connection) => {
     const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
     const user = rows[0];
 
@@ -55,6 +56,10 @@ async function changeSaldo(userOrId, amount, reference, type, notes = '') {
 
     return { before, after };
   });
+  deleteCachePrefix(`dashboard:user:${userId}`);
+  deleteCachePrefix('leaderboard:');
+  deleteCachePrefix('admin:summary');
+  return result;
 }
 
 export async function deductSaldo(userOrId, amount, reference = '', notes = '') {
@@ -82,7 +87,7 @@ export async function setSaldo(userOrId, nextSaldo, reference = 'admin-adjustmen
     throw error;
   }
 
-  return transaction(async (connection) => {
+  const result = await transaction(async (connection) => {
     const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
     const user = rows[0];
 
@@ -113,4 +118,8 @@ export async function setSaldo(userOrId, nextSaldo, reference = 'admin-adjustmen
 
     return value;
   });
+  deleteCachePrefix(`dashboard:user:${userId}`);
+  deleteCachePrefix('leaderboard:');
+  deleteCachePrefix('admin:summary');
+  return result;
 }

@@ -38,9 +38,12 @@ export default function Order() {
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [paymentSecondsLeft, setPaymentSecondsLeft] = useState(0);
   const checkingPaymentRef = useRef(false);
+  const expiryCheckRef = useRef('');
   const mountedRef = useRef(true);
   const apiKey = getApiKey();
   const waOrderLink = adminWhatsapp ? `https://wa.me/${adminWhatsapp}?text=Masih%20ada%20slot%20join%20reseller%20%3F` : '';
+  const directQrSource = renderQrSource(directPayment?.qr_image || directPayment?.qr_raw);
+  const canShowDirectQr = Boolean(directPayment?.status === 'pending' && paymentSecondsLeft > 0 && directQrSource);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -181,6 +184,7 @@ export default function Order() {
   useEffect(() => {
     if (!directPayment?.expired_at || directPayment.status !== 'pending') {
       setPaymentSecondsLeft(0);
+      expiryCheckRef.current = '';
       return;
     }
     const update = () => {
@@ -191,6 +195,15 @@ export default function Order() {
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
   }, [directPayment?.expired_at, directPayment?.status]);
+
+  useEffect(() => {
+    if (!directPayment?.invoice || directPayment.status !== 'pending' || paymentSecondsLeft > 0) return;
+    const expiry = new Date(directPayment.expired_at || '').getTime();
+    if (!Number.isFinite(expiry) || expiry > Date.now()) return;
+    if (expiryCheckRef.current === directPayment.invoice) return;
+    expiryCheckRef.current = directPayment.invoice;
+    void checkDirectPayment(directPayment.invoice);
+  }, [directPayment?.expired_at, directPayment?.invoice, directPayment?.status, paymentSecondsLeft]);
 
   const startDirectPayment = async () => {
     if (!selectedProduct) return;
@@ -489,11 +502,17 @@ export default function Order() {
               </span>
             </div>
             <div className="grid gap-4 p-5 sm:grid-cols-[210px_1fr]">
-              <div className="rounded-[1.2rem] border border-white/10 bg-white p-3">
-                {renderQrSource(directPayment.qr_image || directPayment.qr_raw) ? (
-                  <img src={renderQrSource(directPayment.qr_image || directPayment.qr_raw)} alt="QRIS" className="aspect-square w-full rounded-xl object-contain" />
+              <div className={`rounded-[1.2rem] border p-3 ${canShowDirectQr ? 'border-white/10 bg-white' : 'border-white/10 bg-white/5'}`}>
+                {canShowDirectQr ? (
+                  <img src={directQrSource} alt="QRIS" className="aspect-square w-full rounded-xl object-contain" />
                 ) : (
-                  <div className="grid aspect-square place-items-center rounded-xl bg-slate-100 text-sm font-bold text-slate-500">QR tidak tersedia</div>
+                  <div className="grid aspect-square place-items-center rounded-xl bg-black/20 px-4 text-center text-sm font-bold text-white/60">
+                    {directPayment.status === 'success'
+                      ? 'QR disembunyikan setelah pembayaran sukses'
+                      : directPayment.status === 'pending'
+                        ? 'QR kedaluwarsa'
+                        : 'QR tidak aktif'}
+                  </div>
                 )}
               </div>
               <div className="space-y-3">

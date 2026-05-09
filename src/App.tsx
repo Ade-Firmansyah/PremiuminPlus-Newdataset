@@ -1,12 +1,13 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
-import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { AdminPanelPage } from './pages/AdminPanelPage';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { premiuminApi } from './services/api';
 import { clearApiKey, saveApiKey } from './store/useAuth';
 
 // Komponen ini menjaga sesi login sederhana tanpa API, cukup untuk UI dan navigasi.
+const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const AdminPanelPage = lazy(() => import('./pages/AdminPanelPage').then((module) => ({ default: module.AdminPanelPage })));
+
 type SessionRole = 'member' | 'reseller' | 'admin';
 
 interface Session {
@@ -58,6 +59,18 @@ function ProtectedRoute({
   }
 
   return <>{children}</>;
+}
+
+function AppLoading() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#03030a] px-6 text-white">
+      <div className="w-full max-w-sm rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-5 shadow-[0_0_28px_rgba(255,45,139,0.12)]">
+        <div className="h-3 w-28 animate-pulse rounded-full bg-white/10" />
+        <div className="mt-4 h-8 w-48 animate-pulse rounded-xl bg-white/10" />
+        <div className="mt-3 h-3 w-full animate-pulse rounded-full bg-white/10" />
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -136,27 +149,29 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="/login" element={<LoginPage onLogin={handleLogin} initialUsername={rememberedUsername} />} />
-        <Route
-          path="/dashboard/*"
-          element={
-            <ProtectedRoute session={session}>
-              <DashboardPage session={session!} onLogout={handleLogout} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/*"
-          element={
-            <ProtectedRoute session={session} adminOnly>
-              <AdminPanelPage session={session!} onLogout={handleLogout} />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <Suspense fallback={<AppLoading />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<LoginPage onLogin={handleLogin} initialUsername={rememberedUsername} />} />
+          <Route
+            path="/dashboard/*"
+            element={
+              <ProtectedRoute session={session}>
+                <DashboardPage session={session!} onLogout={handleLogout} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute session={session} adminOnly>
+                <AdminPanelPage session={session!} onLogout={handleLogout} />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

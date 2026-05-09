@@ -15,6 +15,9 @@ File `.env` lokal berisi variabel:
 - `BOT_RESELLER_API_KEY` optional untuk bot-engine
 - `BOT_SESSION_ID` optional untuk bot-engine
 - `ADMIN_MONITORING_LID` optional, default `64957102211197@lid`
+- `DATA_RETENTION_DAYS` optional, default `7`
+- `MAINTENANCE_INTERVAL_MINUTES` optional, default `1440`
+- `PAYMENT_QR_TTL_MINUTES` optional, default `5`
 
 Nilai rahasia tidak ditulis ulang di dokumentasi. Untuk contoh publik gunakan `.env.example`.
 
@@ -47,6 +50,10 @@ backend/
     workers/
 ```
 
+`backend/src/services/cache.service.js` adalah cache memory ringan untuk produk, dashboard, bot catalog, leaderboard, admin summary, dan guard status payment.
+
+`backend/src/services/maintenance.service.js` berjalan otomatis saat backend start. Service ini meng-expire QR pending yang melewati timer, mengarsipkan summary finance harian, dan menghapus histori operasional lama sesuai retensi.
+
 ## Bot Engine Scaffold
 
 Struktur bot dipisah dari web-core:
@@ -73,6 +80,14 @@ Schema fase ada di:
 - `database/schema.mysql.sql`
 
 Schema runtime paling aman tetap berasal dari `backend/src/config/db.js` karena backend melakukan auto validation dan migration saat startup. File `database/schema.mysql.sql` hanya referensi manual.
+
+Tabel runtime tambahan untuk performa:
+
+- `finance_daily_summaries`
+- `websocket_events`
+- `temp_notifications`
+- `realtime_cache`
+- `polling_logs`
 
 ## Dokumen Fase Canonical
 

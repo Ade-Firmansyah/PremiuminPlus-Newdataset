@@ -47,3 +47,6 @@ Admin:
 - Order tidak boleh dikirim ke Premku sebelum pembayaran/saldo valid.
 - Polling sukses tidak boleh menggandakan saldo, payment, order, atau delivery.
 - WhatsApp delivery tidak boleh dianggap terkirim jika gateway belum dikonfigurasi. Statusnya harus `manual_pending`.
+- Slider margin Bot Wa Setting adalah state bisnis nyata, bukan dekorasi UI. Nilai slider, teks persen, payload API, dan database `users.markup_percent`/`users.reseller_margin_percent` wajib sinkron. Preview modal/harga/profit tidak ditampilkan di UI agar halaman tetap ringan.
+- Data operasional detail hanya disimpan 7 hari secara default untuk menjaga dashboard tetap ringan. Saldo user, data user, produk, order credential, dan ringkasan finance admin tidak ikut dihapus.
+- Premku API tidak boleh dipanggil berlebihan. Produk, stok, dashboard, bot catalog, dan status pembayaran wajib lewat cache/guard ringan.

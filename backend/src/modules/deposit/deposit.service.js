@@ -5,6 +5,8 @@ import { createInvoice } from '../../utils/invoice.js';
 import { transaction, parseDbJson } from '../../config/db.js';
 import { logger } from '../../utils/logger.js';
 import { notifyAdmin } from '../../services/notification.service.js';
+import env from '../../config/env.js';
+import { deleteCachePrefix, getCache, setCache } from '../../services/cache.service.js';
 
 function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -44,13 +46,20 @@ function resolvePremkuInvoice(payment, fallback) {
   return String(payment?.invoice ?? payment?.data?.invoice ?? payment?.ref_id ?? payment?.data?.ref_id ?? fallback);
 }
 
-function resolveExpiredAt(payment) {
+function resolveExpiredAt(payment, ttlMinutes = env.PAYMENT_QR_TTL_MINUTES) {
   const raw = payment?.expired_at ?? payment?.expires_at ?? payment?.data?.expired_at ?? payment?.data?.expires_at ?? null;
+  const localExpiry = new Date(Date.now() + Math.max(1, Number(ttlMinutes || 5)) * 60 * 1000);
   if (raw) {
     const date = new Date(raw);
-    if (!Number.isNaN(date.getTime())) return toMysqlDate(date);
+    if (!Number.isNaN(date.getTime())) return toMysqlDate(date.getTime() < localExpiry.getTime() ? date : localExpiry);
   }
-  return toMysqlDate(new Date(Date.now() + 15 * 60 * 1000));
+  return toMysqlDate(localExpiry);
+}
+
+function isExpiredAt(value) {
+  if (!value) return false;
+  const expiry = new Date(value).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
 }
 
 export async function createDeposit(user, amount) {
@@ -143,7 +152,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
 
     await connection.query(
       `UPDATE deposits
-       SET status = 'success', external_status_response = ?, processed_at = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'success', external_status_response = ?, processed_at = ?, qr_data = NULL, qr_image = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE invoice = ? AND processed_at IS NULL AND status <> 'success'`,
       [JSON.stringify(externalResponse ?? parseDbJson(deposit.external_response, null)), processedAt, invoice],
     );
@@ -197,6 +206,10 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
       status: 'SUCCESS',
     });
 
+    deleteCachePrefix(`dashboard:user:${deposit.user_id}`);
+    deleteCachePrefix('leaderboard:');
+    deleteCachePrefix('admin:summary');
+
     const [updatedRows] = await connection.query('SELECT * FROM deposits WHERE invoice = ? LIMIT 1', [invoice]);
     return mapDepositRow(updatedRows[0] || deposit);
   });
@@ -211,6 +224,7 @@ export async function updateDepositStatus(invoice, status, externalResponse = {}
   return updateDeposit(invoice, {
     status: normalizedStatus,
     external_status_response: externalResponse,
+    clear_qr: normalizedStatus !== 'pending',
   });
 }
 
@@ -224,9 +238,43 @@ export async function refreshDepositStatus(invoice) {
     return deposit;
   }
 
+  if (deposit.status === 'pending' && isExpiredAt(deposit.expired_at)) {
+    let statusResponse = {};
+    try {
+      statusResponse = await premkuPayStatus(invoice);
+    } catch (error) {
+      statusResponse = { message: error instanceof Error ? error.message : 'Premku pay status failed before expiry lock' };
+    }
+
+    const providerStatus = normalizeDepositStatus(statusResponse?.pay_status ?? statusResponse?.status ?? statusResponse?.data?.status);
+    if (providerStatus === 'success') {
+      return applyDepositSuccess(invoice, statusResponse);
+    }
+
+    try {
+      await premkuCancelPay(invoice);
+    } catch {
+      // Provider cancel is best-effort; local expiry still prevents stale QR reuse.
+    }
+
+    const updated = await updateDeposit(invoice, {
+      status: providerStatus === 'pending' ? 'expired' : providerStatus,
+      external_status_response: statusResponse,
+      canceled_at: toMysqlDate(),
+      clear_qr: true,
+    });
+    return updated || findDepositByInvoice(invoice);
+  }
+
+  const syncCacheKey = `sync:deposit:${invoice}`;
+  if (deposit.status === 'pending' && getCache(syncCacheKey)) {
+    return deposit;
+  }
+
   let statusResponse;
   try {
     statusResponse = await premkuPayStatus(invoice);
+    setCache(syncCacheKey, true, 5);
   } catch (error) {
     const updated = await updateDeposit(invoice, {
       external_status_response: { message: error instanceof Error ? error.message : 'Premku pay status failed' },
@@ -242,6 +290,7 @@ export async function refreshDepositStatus(invoice) {
   const updated = await updateDeposit(invoice, {
     status: nextStatus || 'pending',
     external_status_response: statusResponse,
+    clear_qr: nextStatus && nextStatus !== 'pending',
   });
   return updated || findDepositByInvoice(invoice);
 }
@@ -277,6 +326,7 @@ export async function cancelDeposit(invoice, user) {
     status: 'canceled',
     external_status_response: cancelResponse,
     canceled_at: toMysqlDate(),
+    clear_qr: true,
   });
 
   await createActivityLog({

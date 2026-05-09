@@ -9,12 +9,14 @@ import { query } from '../../config/db.js';
 import { setSaldo } from '../../services/wallet.service.js';
 import { premkuProfile } from '../../services/premku.service.js';
 import { requireFields } from '../../utils/validator.js';
+import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 
 export async function users(_req, res) {
-  res.json({ status: true, data: await listUsers() });
+  res.json({ status: true, data: await remember('admin:users', 30, () => listUsers()) });
 }
 
 export async function adminSummary(_req, res) {
+  const data = await remember('admin:summary', 30, async () => {
   const [userRows] = await query(
     `SELECT
       COUNT(*) AS total_users,
@@ -25,9 +27,9 @@ export async function adminSummary(_req, res) {
   );
   const [transactionRows] = await query(
     `SELECT
-      COUNT(*) AS total_transactions,
-      COALESCE(SUM(total_price), 0) AS total_revenue,
-      COALESCE(SUM(profit), 0) AS system_profit
+      COUNT(*) + (SELECT COALESCE(SUM(total_transactions), 0) FROM finance_daily_summaries) AS total_transactions,
+      COALESCE(SUM(total_price), 0) + (SELECT COALESCE(SUM(total_revenue), 0) FROM finance_daily_summaries) AS total_revenue,
+      COALESCE(SUM(profit), 0) + (SELECT COALESCE(SUM(system_profit), 0) FROM finance_daily_summaries) AS system_profit
      FROM transactions
      WHERE status IN ('processing', 'success')
        AND transaction_type = 'order'
@@ -64,9 +66,7 @@ export async function adminSummary(_req, res) {
      LIMIT 5`,
   );
 
-  res.json({
-    status: true,
-    data: {
+    return {
       total_users: Number(userRows?.total_users || 0),
       active_resellers: Number(userRows?.active_resellers || 0),
       total_reseller_balance: Number(userRows?.total_reseller_balance || 0),
@@ -78,13 +78,15 @@ export async function adminSummary(_req, res) {
       recent_orders: recentOrders,
       pending_payments: pendingPayments,
       recent_users: recentUsers,
-    },
+    };
   });
+
+  res.json({ status: true, data });
 }
 
 export async function premkuFinanceProfile(_req, res) {
   try {
-    const payload = await premkuProfile();
+    const payload = await remember('premku:profile', 30, () => premkuProfile());
     const source = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
     const saldo = source?.saldo ?? source?.balance ?? source?.api_balance ?? null;
     const username = source?.username ?? source?.name ?? null;
@@ -129,6 +131,8 @@ export async function createAdminUser(req, res) {
     }
 
     const data = await createUser(req.body);
+    deleteCachePrefix('admin:');
+    deleteCachePrefix('leaderboard:');
     if (Number.isFinite(initialSaldo) && initialSaldo > 0) {
       await setSaldo(data, initialSaldo, `admin-user-${data.id}-initial-saldo`);
       data.saldo = initialSaldo;
@@ -163,6 +167,9 @@ export async function updateAdminUser(req, res) {
       await setSaldo(data, req.body.saldo, `admin-user-${data.id}-saldo-adjustment`);
       data.saldo = Number(req.body.saldo);
     }
+    deleteCachePrefix('admin:');
+    deleteCachePrefix('leaderboard:');
+    deleteCachePrefix(`dashboard:user:${data.id}`);
 
     res.json({ status: true, data: { ...data, password: undefined } });
   } catch (error) {
@@ -286,7 +293,11 @@ export async function updateMarkup(req, res) {
       return res.status(400).json({ status: false, message: 'markup anggota atau reseller wajib diisi' });
     }
 
-    res.json({ status: true, data: await setMarkupSetting(payload) });
+    const data = await setMarkupSetting(payload);
+    deleteCachePrefix('products:');
+    deleteCachePrefix('bot:catalog:');
+    deleteCachePrefix('dashboard:');
+    res.json({ status: true, data });
   } catch (error) {
     res.status(error.statusCode || 500).json({
       status: false,
@@ -301,7 +312,9 @@ export async function getDiscount(_req, res) {
 
 export async function updateDiscount(req, res) {
   try {
-    res.json({ status: true, data: await setDiscountSetting({ discount_percent: req.body?.discount_percent }) });
+    const data = await setDiscountSetting({ discount_percent: req.body?.discount_percent });
+    deleteCachePrefix('products:');
+    res.json({ status: true, data });
   } catch (error) {
     res.status(error.statusCode || 500).json({
       status: false,
@@ -451,3 +464,5 @@ export async function updateMyBotSettings(req, res, next) {
     next(error);
   }
 }
+    deleteCachePrefix('admin:');
+    deleteCachePrefix('leaderboard:');

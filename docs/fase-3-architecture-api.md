@@ -102,6 +102,13 @@ Admin:
 - `GET/PATCH /api/admin/premku-key`
 - `GET/PATCH /api/admin/bot-settings`
 
+## Performance Contract
+
+- Product API may return local data while Premku sync cache is fresh.
+- Dashboard/admin summary endpoints are cached for 30 seconds.
+- Payment and deposit status endpoints are idempotent and protected from repeated provider calls with a short per-invoice guard.
+- Frontend should prefer event refresh after order/balance changes and avoid aggressive global polling.
+
 ## Frontend Bridge
 
 - `src/services/api.ts`: API wrapper.

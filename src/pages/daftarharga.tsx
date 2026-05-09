@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Code2, ImageIcon, Tag, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getApiKey } from '../store/useAuth';
@@ -12,17 +12,45 @@ const roleLabel: Record<string, string> = {
   admin: 'admin',
 };
 
-function ProductCard({ product, highlighted = false }: { product: ProductRecord; highlighted?: boolean }) {
+const fallbackPalettes = [
+  { glow: 'rgba(255,0,127,0.18)', soft: 'rgba(255,0,127,0.10)', border: 'rgba(255,79,135,0.28)' },
+  { glow: 'rgba(16,185,129,0.16)', soft: 'rgba(16,185,129,0.09)', border: 'rgba(52,211,153,0.25)' },
+  { glow: 'rgba(14,165,233,0.16)', soft: 'rgba(14,165,233,0.09)', border: 'rgba(56,189,248,0.25)' },
+  { glow: 'rgba(168,85,247,0.17)', soft: 'rgba(168,85,247,0.09)', border: 'rgba(192,132,252,0.25)' },
+  { glow: 'rgba(245,158,11,0.16)', soft: 'rgba(245,158,11,0.08)', border: 'rgba(251,191,36,0.24)' },
+];
+
+function hashText(value = '') {
+  return [...value].reduce((total, char) => total + char.charCodeAt(0), 0);
+}
+
+function productPalette(product: ProductRecord) {
+  const value = `${product.name} ${product.code} ${product.tag}`.toLowerCase();
+  if (value.includes('spotify')) return { glow: 'rgba(30,215,96,0.20)', soft: 'rgba(30,215,96,0.10)', border: 'rgba(30,215,96,0.28)' };
+  if (value.includes('prime') || value.includes('zoom')) return { glow: 'rgba(0,168,225,0.18)', soft: 'rgba(0,168,225,0.09)', border: 'rgba(56,189,248,0.25)' };
+  if (value.includes('nitro') || value.includes('canva')) return { glow: 'rgba(139,92,246,0.18)', soft: 'rgba(139,92,246,0.09)', border: 'rgba(167,139,250,0.26)' };
+  if (value.includes('viu') || value.includes('wetv')) return { glow: 'rgba(245,158,11,0.18)', soft: 'rgba(245,158,11,0.09)', border: 'rgba(251,191,36,0.24)' };
+  if (value.includes('capcut') || value.includes('grok') || value.includes('chatgpt')) return { glow: 'rgba(255,0,127,0.20)', soft: 'rgba(255,0,127,0.10)', border: 'rgba(255,79,135,0.30)' };
+  return fallbackPalettes[hashText(value) % fallbackPalettes.length];
+}
+
+function ProductCard({ product }: { product: ProductRecord }) {
   const ready = product.status === 'active' && product.stock > 0;
   const discountPercent = Number(product.discount_percent ?? 10);
   const label = product.tag || product.code || 'Produk';
+  const palette = productPalette(product);
+  const cardStyle = {
+    '--product-glow': palette.glow,
+    '--product-soft': palette.soft,
+    '--product-border': palette.border,
+  } as CSSProperties;
 
   return (
     <article
+      style={cardStyle}
       className={[
-        'group relative min-h-[232px] overflow-hidden rounded-[1.35rem] border bg-[#090a0f]/90 p-5 transition duration-200',
-        'border-white/10 shadow-[0_18px_36px_rgba(0,0,0,0.22)] hover:-translate-y-1 hover:border-brand/45 hover:shadow-[0_0_34px_rgba(255,0,127,0.14)]',
-        highlighted ? 'border-brand/70 bg-[linear-gradient(145deg,rgba(255,0,127,0.16),rgba(9,10,15,0.94))] shadow-[0_0_32px_rgba(255,0,127,0.22)]' : '',
+        'group relative min-h-[232px] overflow-hidden rounded-[1.35rem] border border-[color:var(--product-border)] bg-[radial-gradient(circle_at_12%_0%,var(--product-glow),transparent_13rem),linear-gradient(145deg,var(--product-soft),rgba(9,10,15,0.94)_54%,rgba(9,10,15,0.98))] p-5 transition duration-200',
+        'shadow-[0_18px_36px_rgba(0,0,0,0.22)] hover:-translate-y-1 hover:border-brand/45 hover:shadow-[0_0_34px_rgba(255,0,127,0.14)]',
       ].join(' ')}
     >
       <div className="absolute right-0 top-0 rounded-bl-2xl bg-[linear-gradient(135deg,#ff4f87,#b91552)] px-3 py-2 text-[10px] font-black uppercase text-white shadow-[0_10px_24px_rgba(255,0,96,0.28)]">
@@ -133,8 +161,8 @@ export default function DaftarHarga() {
       {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {visibleCatalog.map((product, index) => (
-          <ProductCard key={product.id || product.code || product.name} product={product} highlighted={page === 1 && index === 4} />
+        {visibleCatalog.map((product) => (
+          <ProductCard key={product.id || product.code || product.name} product={product} />
         ))}
       </div>
 

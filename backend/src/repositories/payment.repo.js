@@ -71,7 +71,14 @@ export async function updatePayment(invoice, payload = {}) {
 
   await execute(
     `UPDATE payments
-     SET status = ?, status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
+     SET status = ?,
+         status_response = CAST(? AS JSON),
+         order_invoice = ?,
+         processed_at = ?,
+         canceled_at = ?,
+         qr_image = CASE WHEN ? THEN NULL ELSE qr_image END,
+         qr_raw = CASE WHEN ? THEN NULL ELSE qr_raw END,
+         updated_at = CURRENT_TIMESTAMP
      WHERE invoice = ?`,
     [
       payload.status || current.status,
@@ -79,6 +86,8 @@ export async function updatePayment(invoice, payload = {}) {
       payload.order_invoice ?? current.order_invoice ?? null,
       payload.processed_at ?? current.processed_at ?? null,
       payload.canceled_at ?? current.canceled_at ?? null,
+      payload.clear_qr ? 1 : 0,
+      payload.clear_qr ? 1 : 0,
       invoice,
     ],
   );

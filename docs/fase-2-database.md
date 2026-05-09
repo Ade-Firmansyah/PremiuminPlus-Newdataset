@@ -16,6 +16,8 @@ Backend memakai MySQL dan menjalankan schema validator saat startup. Jika table/
 - `notifications`: notification center dan broadcast admin.
 - `settings`: API key Premku, markup anggota/reseller, bot settings.
 - `activity_logs`: audit activity login/register/admin/system.
+- `finance_daily_summaries`: agregat lama agar cleanup 7 hari tidak menghilangkan total analytics admin.
+- `websocket_events`, `temp_notifications`, `realtime_cache`, `polling_logs`: data realtime sementara yang aman dibersihkan.
 
 ## Kolom Penting
 
@@ -93,3 +95,12 @@ erDiagram
 - `orders.payment_invoice`
 - `notifications.target_role`
 - `activity_logs.created_at`
+- `transactions.user_id, transaction_type, created_at`
+- `payments.status, expired_at`
+
+## Retention
+
+- Detail `transactions` dan `saldo_mutations` disimpan 7 hari.
+- Terminal `payments` dan `deposits` disimpan 7 hari.
+- `orders` tidak dihapus otomatis karena menyimpan credential dan data admin.
+- Sebelum cleanup, total harian diarsipkan ke `finance_daily_summaries`.

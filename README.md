@@ -11,7 +11,8 @@ Premiumin Plus adalah platform SaaS reseller/member untuk produk digital dengan 
 - Premku integration: `/pay`, `/pay_status`, `/cancel_pay`, `/products`, `/order`, `/status`, `/profile`.
 - UI theme: fixed Premiumin Plus dark neon theme. Light-mode toggle and theme persistence are intentionally removed for stability.
 - Notification management: admin can create, edit, delete, pin, and activate/deactivate notifications.
-- Realtime monitoring: lightweight polling refreshes admin/user dashboard data without Socket.IO overhead.
+- Realtime monitoring: lightweight polling plus backend cache refreshes admin/user dashboard data without Socket.IO overhead.
+- Performance guardrails: 60s Premku product sync cache, 15s stock/catalog cache, 30s dashboard cache, 5s payment status guard, and daily 7-day cleanup for operational history.
 
 ## Local Installation
 
@@ -38,6 +39,9 @@ WHATSAPP_DELIVERY_WEBHOOK=
 WHATSAPP_DELIVERY_TOKEN=
 BOT_ENGINE_URL=http://localhost:4100
 BOT_ENGINE_TOKEN=
+DATA_RETENTION_DAYS=7
+MAINTENANCE_INTERVAL_MINUTES=1440
+PAYMENT_QR_TTL_MINUTES=5
 ```
 
 Start MySQL on this machine:
@@ -73,6 +77,8 @@ The backend validates schema on startup and auto-creates or patches missing colu
 Canonical concepts:
 
 - `users`: `role`, `saldo`, `markup_percent`
+- `finance_daily_summaries`: archived daily finance totals retained after detail cleanup
+- `websocket_events`, `temp_notifications`, `realtime_cache`, `polling_logs`: temporary realtime/cache tables cleaned by scheduler
 - `transactions`: `transaction_type`, `amount`, `total_price`, `profit`, `invoice`, `status`
 - `deposits`: `invoice`, `amount`, `qr_image`, `qr_data`, `status`, `expired_at`
 - `payments`: direct QRIS payment invoices for member checkout
@@ -141,11 +147,11 @@ WhatsApp delivery:
 - If `WHATSAPP_DELIVERY_WEBHOOK` is configured, backend posts the order credential payload to that gateway.
 - If no gateway is configured, delivery is marked `manual_pending`; the system never fakes a sent status.
 
-Realtime admin monitoring:
+Realtime monitoring and cache:
 
-- Admin dashboard polls every 10 seconds.
-- User dashboard polls every 15 seconds.
-- Admin cards include recent orders, pending payments, and recent users.
+- Admin/user dashboards refresh every 30 seconds and use backend cache.
+- Product local reads are cached 15 seconds; Premku product sync is cached 60 seconds.
+- Payment/deposit provider status checks are protected by a 5 second per-invoice guard.
 - This keeps Railway deployment lightweight without requiring Socket.IO.
 
 Withdraw:
@@ -170,6 +176,7 @@ Bot Wa Setting:
 - Available for both `member` and `reseller`.
 - Personal bot settings are saved under `settings.bot_settings:user:{id}`.
 - Personal margin is saved to `users.markup_percent`, `users.markup_custom`, and `users.reseller_margin_percent`.
+- Margin slider updates percentage text, API payload, and database state from the same React state.
 - Bot catalog pricing uses `base_price + admin_margin + role markup from admin settings + personal margin`.
 - Dashboard Daftar Harga uses `base_price + admin_margin + role markup from admin settings` only.
 - Bot margin profit is credited into local saldo and appears in Mutasi Saldo.
@@ -282,6 +289,9 @@ WHATSAPP_DELIVERY_WEBHOOK=
 WHATSAPP_DELIVERY_TOKEN=
 BOT_ENGINE_URL=
 BOT_ENGINE_TOKEN=
+DATA_RETENTION_DAYS=7
+MAINTENANCE_INTERVAL_MINUTES=1440
+PAYMENT_QR_TTL_MINUTES=5
 ```
 
 Build command:
@@ -302,6 +312,7 @@ Stability guardrails:
 
 - React Error Boundary prevents blank pages.
 - QR polling uses cleanup and duplicate-check guards.
+- Daily cleanup archives admin finance totals and deletes old operational detail after 7 days.
 - Member dashboard hides reseller-only mutation/withdraw/bot menus.
 - Bot-engine runs as a separate Railway service.
 - Payment success and provider order success are separate states; credentials appear only after provider success.
@@ -328,18 +339,19 @@ ADMIN_MONITORING_LID=64957102211197@lid
 Standard scopes:
 
 ```text
-[LOGIN]
-[REGISTER]
-[DEPOSIT]
+[FRONTEND]
+[BACKEND]
+[AUTH]
 [PAYMENT]
-[DELIVERY]
-[NOTIFICATION]
-[STOCK]
-[REALTIME]
-[WITHDRAW]
 [ORDER]
-[ADMIN]
-[SYSTEM]
+[PREMKU]
+[BOT]
+[SESSION]
+[SYNC]
+[WEBSOCKET]
+[QUEUE]
+[CACHE]
+[CLEANUP]
 [ERROR]
 ```
 

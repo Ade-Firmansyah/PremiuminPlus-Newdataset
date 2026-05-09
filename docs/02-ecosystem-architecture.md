@@ -77,6 +77,28 @@ All money movement must pass through backend services:
 
 Bot engine must call API endpoints and must not update saldo, transactions, deposits, payments, or orders directly.
 
+## Performance Layer
+
+Web-core memakai cache memory ringan tanpa dependency tambahan:
+
+- `products:local` TTL 15 detik.
+- `premku:products:synced` TTL 60 detik.
+- `dashboard:user:{id}` TTL 30 detik.
+- `admin:summary` TTL 30 detik.
+- `bot:catalog:user:{id}` TTL 15 detik.
+- `sync:payment:{invoice}` dan `sync:deposit:{invoice}` TTL 5 detik.
+
+Cache dihapus saat user, produk, saldo, markup, discount, payment, atau deposit berubah. Jika Redis diperlukan nanti, key dan TTL ini menjadi kontrak migrasi.
+
+## Retention Layer
+
+Scheduler cleanup berjalan di web-core setelah database siap:
+
+- expire QR pending yang sudah lewat `expired_at`.
+- archive total lama ke `finance_daily_summaries`.
+- hapus detail operasional lebih dari 7 hari.
+- tidak menghapus saldo, order credential, produk, user, atau settings admin.
+
 ## Bot API Contract
 
 Current bot-safe endpoints:
@@ -105,7 +127,7 @@ Admin monitoring destination:
 64957102211197@lid
 ```
 
-Events that should be emitted as the next production step:
+Events emitted best-effort:
 
 - new member registered
 - reseller registered
@@ -114,7 +136,7 @@ Events that should be emitted as the next production step:
 - reseller order
 - member order
 - withdraw request
-- payment failed
+- failed payment
 - bot disconnected
 
 ## QRIS Nominal Rule

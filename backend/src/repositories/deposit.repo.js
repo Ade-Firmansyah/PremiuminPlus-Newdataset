@@ -72,8 +72,8 @@ export async function updateDeposit(invoice, payload) {
      WHERE invoice = ? AND processed_at IS NULL AND status <> 'success'`,
     [
       payload.status || current.status,
-      payload.qr_data !== undefined ? payload.qr_data : current.qr_data,
-      payload.qr_image !== undefined ? payload.qr_image : current.qr_image,
+      payload.clear_qr ? null : payload.qr_data !== undefined ? payload.qr_data : current.qr_data,
+      payload.clear_qr ? null : payload.qr_image !== undefined ? payload.qr_image : current.qr_image,
       JSON.stringify(payload.external_response ?? parseDbJson(current.external_response, null)),
       JSON.stringify(payload.external_status_response ?? parseDbJson(current.external_status_response, null)),
       payload.processed_at || current.processed_at || null,

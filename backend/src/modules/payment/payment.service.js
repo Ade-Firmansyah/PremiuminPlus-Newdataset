@@ -10,6 +10,8 @@ import { logger } from '../../utils/logger.js';
 import { sendOrderDelivery, validateWhatsapp } from '../../services/delivery.service.js';
 import { notifyAdmin } from '../../services/notification.service.js';
 import { refreshOrderStatus } from '../order/order.service.js';
+import env from '../../config/env.js';
+import { deleteCachePrefix, getCache, setCache } from '../../services/cache.service.js';
 
 function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -43,13 +45,20 @@ function resolvePremkuInvoice(payment, fallback) {
   return String(payment?.invoice ?? payment?.data?.invoice ?? payment?.ref_id ?? payment?.data?.ref_id ?? fallback);
 }
 
-function resolveExpiredAt(payment) {
+function resolveExpiredAt(payment, ttlMinutes = env.PAYMENT_QR_TTL_MINUTES) {
   const raw = payment?.expired_at ?? payment?.expires_at ?? payment?.data?.expired_at ?? payment?.data?.expires_at ?? null;
+  const localExpiry = new Date(Date.now() + Math.max(1, Number(ttlMinutes || 5)) * 60 * 1000);
   if (raw) {
     const date = new Date(raw);
-    if (!Number.isNaN(date.getTime())) return toMysqlDate(date);
+    if (!Number.isNaN(date.getTime())) return toMysqlDate(date.getTime() < localExpiry.getTime() ? date : localExpiry);
   }
-  return toMysqlDate(new Date(Date.now() + 15 * 60 * 1000));
+  return toMysqlDate(localExpiry);
+}
+
+function isExpiredAt(value) {
+  if (!value) return false;
+  const expiry = new Date(value).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
 }
 
 async function getMemberProductPricing(productId, qty = 1) {
@@ -198,7 +207,7 @@ export async function createBotOrderPayment(user, payload) {
     modal_price: modal,
     sell_price: total,
     reseller_profit: resellerProfit,
-    expired_at: toMysqlDate(new Date(Date.now() + 5 * 60 * 1000)),
+    expired_at: resolveExpiredAt(payment),
   });
 }
 
@@ -247,7 +256,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 
     await connection.query(
       `UPDATE payments
-       SET status = 'success', status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'success', status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, qr_image = NULL, qr_raw = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE invoice = ?`,
       [JSON.stringify(statusResponse ?? null), orderInvoice, processedAt, invoice],
     );
@@ -351,6 +360,9 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 
     const [updatedPaymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
     const [orderRows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [orderInvoice]);
+    deleteCachePrefix(`dashboard:user:${payment.user_id}`);
+    deleteCachePrefix('leaderboard:');
+    deleteCachePrefix('admin:summary');
     logger('ORDER', { invoice: orderInvoice, payment_invoice: invoice, user_id: payment.user_id, order_status: orderStatus });
     void notifyAdmin(orderStatus === 'success' ? 'order success' : 'provider processing', {
       user_id: payment.user_id,
@@ -408,7 +420,55 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     };
   }
 
+  if (payment.status === 'pending' && isExpiredAt(payment.expired_at)) {
+    let statusResponse = {};
+    try {
+      statusResponse = await premkuPayStatus(invoice);
+    } catch (error) {
+      statusResponse = { message: error instanceof Error ? error.message : 'Premku pay status failed before expiry lock' };
+    }
+
+    const providerStatus = normalizePaymentStatus(statusResponse);
+    if (providerStatus === 'success') {
+      const result = await processSuccessfulPayment(invoice, statusResponse);
+      return {
+        ...payment,
+        status: 'success',
+        qr_image: null,
+        qr_raw: null,
+        processed_at: result.payment.processed_at,
+        order_invoice: result.payment.order_invoice,
+        order: result.order,
+      };
+    }
+
+    try {
+      await premkuCancelPay(invoice);
+    } catch {
+      // Provider cancel is best-effort; local expiry remains authoritative.
+    }
+
+    const updated = await updatePayment(invoice, {
+      status: providerStatus === 'pending' ? 'expired' : providerStatus,
+      status_response: statusResponse,
+      clear_qr: true,
+      canceled_at: toMysqlDate(),
+    });
+    void notifyAdmin('failed payment', {
+      user_id: payment.user_id,
+      invoice,
+      status: providerStatus === 'pending' ? 'expired' : providerStatus,
+      payment_type: payment.payment_type,
+    });
+    return updated;
+  }
+
+  const syncCacheKey = `sync:payment:${invoice}`;
+  if (payment.status === 'pending' && getCache(syncCacheKey)) {
+    return payment;
+  }
   const statusResponse = await premkuPayStatus(invoice);
+  setCache(syncCacheKey, true, 5);
   const nextStatus = normalizePaymentStatus(statusResponse);
   if (nextStatus === 'success') {
     const result = await processSuccessfulPayment(invoice, statusResponse);
@@ -447,7 +507,16 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     };
   }
 
-  return updatePayment(invoice, { status: nextStatus, status_response: statusResponse });
+  const updated = await updatePayment(invoice, { status: nextStatus, status_response: statusResponse, clear_qr: nextStatus !== 'pending' });
+  if (['failed', 'expired', 'canceled'].includes(nextStatus)) {
+    void notifyAdmin('failed payment', {
+      user_id: payment.user_id,
+      invoice,
+      status: nextStatus,
+      payment_type: payment.payment_type,
+    });
+  }
+  return updated;
 }
 
 export async function cancelDirectPayment(invoice, user) {
@@ -475,5 +544,11 @@ export async function cancelDirectPayment(invoice, user) {
     response = { message: error instanceof Error ? error.message : 'Premku cancel_pay failed' };
   }
   logger('PAYMENT', { invoice, user_id: user.id, status: 'canceled' });
-  return updatePayment(invoice, { status: 'canceled', status_response: response, canceled_at: toMysqlDate() });
+  void notifyAdmin('failed payment', {
+    user: user.username,
+    invoice,
+    status: 'canceled',
+    payment_type: payment.payment_type,
+  });
+  return updatePayment(invoice, { status: 'canceled', status_response: response, canceled_at: toMysqlDate(), clear_qr: true });
 }

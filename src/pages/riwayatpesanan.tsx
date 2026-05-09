@@ -38,25 +38,28 @@ export default function RiwayatPesanan() {
   const apiKey = getApiKey();
 
   useEffect(() => {
-    const loadOrders = async () => {
-      setLoading(true);
+    let active = true;
+    const loadOrders = async (silent = false) => {
+      if (!silent) setLoading(true);
       setError('');
       try {
         const response = await premiuminApi.transactions(apiKey || undefined);
+        if (!active) return;
         setOrders(response.data);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Gagal memuat riwayat pesanan.');
+        if (active) setError(caught instanceof Error ? caught.message : 'Gagal memuat riwayat pesanan.');
       } finally {
-        setLoading(false);
+        if (active && !silent) setLoading(false);
       }
     };
 
     void loadOrders();
-    const timer = window.setInterval(() => void loadOrders(), 10000);
-    const refresh = () => void loadOrders();
+    const timer = window.setInterval(() => void loadOrders(true), 30000);
+    const refresh = () => void loadOrders(true);
     window.addEventListener('premiuminplus:orders-updated', refresh);
     window.addEventListener('premiuminplus:balance-updated', refresh);
     return () => {
+      active = false;
       window.clearInterval(timer);
       window.removeEventListener('premiuminplus:orders-updated', refresh);
       window.removeEventListener('premiuminplus:balance-updated', refresh);

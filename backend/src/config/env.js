@@ -24,6 +24,9 @@ const env = {
   BOT_ENGINE_URL: process.env.BOT_ENGINE_URL || 'http://localhost:4100',
   BOT_ENGINE_TOKEN: process.env.BOT_ENGINE_TOKEN || '',
   ADMIN_MONITORING_LID: process.env.ADMIN_MONITORING_LID || '64957102211197@lid',
+  DATA_RETENTION_DAYS: Number(process.env.DATA_RETENTION_DAYS || 7),
+  MAINTENANCE_INTERVAL_MINUTES: Number(process.env.MAINTENANCE_INTERVAL_MINUTES || 1440),
+  PAYMENT_QR_TTL_MINUTES: Number(process.env.PAYMENT_QR_TTL_MINUTES || 5),
 };
 
 export default env;

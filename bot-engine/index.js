@@ -9,10 +9,23 @@ const webCoreBaseUrl = process.env.BOT_API_BASE_URL || 'http://localhost:4000/ap
 const manager = new BotSessionManager({ logger, webCoreBaseUrl });
 const app = createBotHttpServer({ manager, logger });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info(`Bot engine running on port ${port}`);
   logger.info(`Web-core API: ${webCoreBaseUrl}`);
 });
+
+async function shutdown(signal) {
+  logger.info(`Shutdown requested ${signal}`);
+  await manager.shutdown();
+  server.close(() => {
+    logger.info(`Bot engine stopped ${signal}`);
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 if (process.env.BOT_RESELLER_API_KEY) {
   const sessionId = process.env.BOT_SESSION_ID || 'default';
@@ -22,9 +35,9 @@ if (process.env.BOT_RESELLER_API_KEY) {
       apiKey: process.env.BOT_RESELLER_API_KEY,
     })
     .then((status) => {
-      logger.info(`[BOT-SESSION] auto connect requested ${status.session_id}`);
+      logger.info(`Session auto connect requested ${status.session_id}`);
     })
     .catch((error) => {
-      logger.error('[BOT-SESSION] auto connect failed', { message: error.message });
+      logger.error('Session auto connect failed', { message: error.message });
     });
 }

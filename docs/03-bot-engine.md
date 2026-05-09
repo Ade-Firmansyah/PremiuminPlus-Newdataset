@@ -67,6 +67,7 @@ Bot QRIS:
 6. buyer can send `cek INVOICE` or `cancel INVOICE`.
 7. status check calls `GET /api/bot/payments/:invoice/status`.
 8. success processing is locked in web-core and creates order, transaction, order history, and account profit mutation.
+9. QRIS buyer berlaku 5 menit. Jika lewat waktu dan belum sukses, web-core menandai `payments.status = expired` dan bot memberi pesan gagal/order ulang.
 
 Saldo order:
 
@@ -124,6 +125,7 @@ Rule:
 - Bot sends QR image only after web-core creates a payment.
 - Bot polls only through web-core.
 - Bot never processes success locally.
+- After payment success/expired/canceled, web-core clears QR payload so dashboard/API no longer exposes QR lama.
 
 ## Bot Margin And Profit
 
@@ -147,6 +149,23 @@ When a bot QRIS order succeeds:
 - `saldo_logs` gets a credit entry with `-profit` reference.
 - `saldo_mutations` gets an adjustment entry for profit.
 - dashboard Mutasi Saldo can show bot margin profit for member/reseller.
+
+## Margin Slider Sync
+
+Bot Wa Setting uses realtime slider text and debounced persistence:
+
+```text
+slider -> marginDraft -> percentage text -> debounce PATCH /me/preferences -> users.reseller_margin_percent -> bot catalog cache invalidation
+```
+
+The visible percentage, payload, database value, and bot catalog price must always come from the same margin value. No separate decorative percentage state is allowed.
+
+## Polling Strategy
+
+- Bot payment watch polls web-core every 10 seconds.
+- Web-core guards Premku payment status checks with a 5 second per-invoice cache.
+- Bot catalog is cached per user for 15 seconds.
+- QR payments expire after 5 minutes unless provider already confirms success.
 
 ## Baileys Adapter
 

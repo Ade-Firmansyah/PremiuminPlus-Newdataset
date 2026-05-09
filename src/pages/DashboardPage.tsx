@@ -652,7 +652,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
     };
 
     void loadDashboardData();
-    const timer = window.setInterval(() => void loadDashboardData(), 15000);
+    const timer = window.setInterval(() => void loadDashboardData(), 30000);
 
     const handleBalanceRefresh = () => {
       void loadDashboardData();

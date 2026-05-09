@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise';
 import env from './env.js';
 import { hashPassword } from '../utils/password.js';
 import crypto from 'node:crypto';
+import { logger } from '../utils/logger.js';
 
 const pool = mysql.createPool({
   host: env.DB_HOST,
@@ -32,7 +33,7 @@ async function ensureDatabaseExists() {
     if (!canContinueWithExistingDatabase) {
       throw error;
     }
-    console.warn('[SYSTEM] Database create skipped; using configured Railway/MySQL database');
+    logger('BACKEND', { event: 'database-create-skipped', reason: 'using configured Railway/MySQL database' });
   } finally {
     await connection.end();
   }
@@ -327,6 +328,52 @@ function ensureTableStatements() {
       INDEX idx_activity_logs_actor_id (actor_id),
       INDEX idx_activity_logs_created_at (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS finance_daily_summaries (
+      summary_date DATE PRIMARY KEY,
+      total_transactions BIGINT NOT NULL DEFAULT 0,
+      total_revenue BIGINT NOT NULL DEFAULT 0,
+      system_profit BIGINT NOT NULL DEFAULT 0,
+      reseller_profit BIGINT NOT NULL DEFAULT 0,
+      total_deposit_amount BIGINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS websocket_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      channel VARCHAR(80) NOT NULL DEFAULT 'system',
+      event_type VARCHAR(80) NOT NULL DEFAULT 'message',
+      payload JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_websocket_events_created_at (created_at),
+      INDEX idx_websocket_events_channel (channel)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS temp_notifications (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NULL,
+      type VARCHAR(80) NOT NULL DEFAULT 'temp',
+      payload JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_temp_notifications_created_at (created_at),
+      INDEX idx_temp_notifications_user_id (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS realtime_cache (
+      cache_key VARCHAR(160) PRIMARY KEY,
+      payload JSON NULL,
+      expires_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_realtime_cache_expires_at (expires_at),
+      INDEX idx_realtime_cache_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS polling_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      scope VARCHAR(80) NOT NULL DEFAULT 'payment',
+      reference VARCHAR(120) NULL,
+      status VARCHAR(40) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_polling_logs_created_at (created_at),
+      INDEX idx_polling_logs_reference (reference)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ];
 }
 
@@ -360,6 +407,8 @@ async function ensureSchema(connection) {
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS product_image TEXT NULL`,
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS description TEXT NULL`,
+    `ALTER TABLE transactions ADD INDEX idx_transactions_user_type_created (user_id, transaction_type, created_at)`,
+    `ALTER TABLE transactions ADD INDEX idx_transactions_type_status_created (transaction_type, status, created_at)`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS external_response JSON NULL`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS external_status_response JSON NULL`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
@@ -383,6 +432,9 @@ async function ensureSchema(connection) {
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS expired_at DATETIME NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceled_at DATETIME NULL`,
+    `ALTER TABLE payments ADD INDEX idx_payments_created_at (created_at)`,
+    `ALTER TABLE payments ADD INDEX idx_payments_expired_at (expired_at)`,
+    `ALTER TABLE payments ADD INDEX idx_payments_status_expired (status, expired_at)`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_invoice VARCHAR(80) NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id INT NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider_invoice VARCHAR(100) NULL`,
@@ -393,6 +445,9 @@ async function ensureSchema(connection) {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_status ENUM('pending', 'sent', 'failed', 'manual_pending') NOT NULL DEFAULT 'pending'`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_time DATETIME NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_price BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE orders ADD INDEX idx_orders_created_at (created_at)`,
+    `ALTER TABLE deposits ADD INDEX idx_deposits_created_at (created_at)`,
+    `ALTER TABLE deposits ADD INDEX idx_deposits_expired_at (expired_at)`,
     `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_role ENUM('all', 'admin', 'reseller', 'member') NOT NULL DEFAULT 'all'`,
     `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS created_by INT NULL`,
     `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS type VARCHAR(40) NOT NULL DEFAULT 'broadcast'`,
@@ -404,6 +459,11 @@ async function ensureSchema(connection) {
     `ALTER TABLE settings ADD COLUMN IF NOT EXISTS value JSON NULL`,
     `ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS activity VARCHAR(255) NULL`,
     `ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64) NULL`,
+    `ALTER TABLE finance_daily_summaries ADD COLUMN IF NOT EXISTS reseller_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE finance_daily_summaries ADD COLUMN IF NOT EXISTS total_deposit_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE websocket_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(80) NOT NULL DEFAULT 'message'`,
+    `ALTER TABLE temp_notifications ADD COLUMN IF NOT EXISTS type VARCHAR(80) NOT NULL DEFAULT 'temp'`,
+    `ALTER TABLE realtime_cache ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`,
     `UPDATE users SET markup_percent = markup_custom WHERE markup_percent = 0 AND markup_custom > 0`,
     `UPDATE users SET reseller_margin_percent = markup_percent WHERE reseller_margin_percent = 0 AND markup_percent > 0`,
     `UPDATE products SET base_price = price_base WHERE base_price = 0 AND price_base > 0`,
@@ -555,12 +615,12 @@ async function ensureCanonicalSchema(connection) {
     ['notifications', 'created_at', '`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'],
   ];
 
-  console.log('[SYSTEM] Checking database schema...');
+  logger('BACKEND', { event: 'schema-check' });
   let repaired = false;
   for (const [table, column, definition] of requiredColumns) {
     const exists = await columnExists(connection, table, column);
     if (!exists) {
-      console.log(`[SYSTEM] Missing column detected: ${column}`);
+      logger('BACKEND', { event: 'schema-column-missing', table, column });
       await ensureColumn(connection, table, column, definition);
       repaired = true;
     }
@@ -577,9 +637,9 @@ async function ensureCanonicalSchema(connection) {
   await connection.query('UPDATE activity_logs SET activity = message WHERE activity IS NULL AND message IS NOT NULL');
 
   if (repaired) {
-    console.log('[SYSTEM] Auto repaired schema');
+    logger('BACKEND', { event: 'schema-auto-repaired' });
   }
-  console.log('[SYSTEM] Database synchronized');
+  logger('BACKEND', { event: 'database-synchronized' });
 }
 
 async function seedDefaults(connection) {

@@ -1,4 +1,5 @@
 import { execute, query, parseDbJson } from '../config/db.js';
+import { logger } from '../utils/logger.js';
 
 function toActivity(row) {
   if (!row) return null;
@@ -25,7 +26,7 @@ export async function safeCreateActivityLog(payload) {
   try {
     await createActivityLog(payload);
   } catch (error) {
-    console.warn('[SYSTEM]', {
+    logger('BACKEND', {
       message: 'Activity log skipped',
       error: error instanceof Error ? error.message : 'unknown error',
     });

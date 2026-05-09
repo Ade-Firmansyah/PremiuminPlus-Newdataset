@@ -1,26 +1,43 @@
 const allowedScopes = new Set([
-  'LOGIN',
-  'REGISTER',
-  'ADMIN',
-  'ORDER',
-  'WD',
-  'SYSTEM',
-  'ERROR',
-  'PREMKU',
-  'DEPOSIT',
+  'FRONTEND',
+  'BACKEND',
+  'AUTH',
   'PAYMENT',
-  'CANCEL',
-  'SALDO',
-  'RESELLER',
-  'NOTIFICATION',
-  'STOCK',
-  'DELIVERY',
-  'REALTIME',
+  'ORDER',
+  'PREMKU',
+  'BOT',
+  'SESSION',
+  'SYNC',
+  'WEBSOCKET',
+  'QUEUE',
+  'CACHE',
+  'CLEANUP',
+  'ERROR',
+]);
+
+const scopeAliases = new Map([
+  ['LOGIN', 'AUTH'],
+  ['REGISTER', 'AUTH'],
+  ['ADMIN', 'BACKEND'],
+  ['WD', 'BACKEND'],
+  ['SYSTEM', 'BACKEND'],
+  ['DEPOSIT', 'PAYMENT'],
+  ['CANCEL', 'PAYMENT'],
+  ['SALDO', 'PAYMENT'],
+  ['RESELLER', 'BACKEND'],
+  ['NOTIFICATION', 'SYNC'],
+  ['STOCK', 'SYNC'],
+  ['DELIVERY', 'SYNC'],
+  ['REALTIME', 'WEBSOCKET'],
+  ['BOTSESSION', 'SESSION'],
+  ['QR', 'SESSION'],
+  ['ORDERWORKER', 'QUEUE'],
 ]);
 
 function normalizeScope(scope) {
   const value = String(scope || 'SYSTEM').toUpperCase().replace(/[^A-Z]/g, '');
-  return allowedScopes.has(value) ? value : 'SYSTEM';
+  const normalized = scopeAliases.get(value) || value;
+  return allowedScopes.has(normalized) ? normalized : 'BACKEND';
 }
 
 function scrub(value) {
