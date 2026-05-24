@@ -1073,7 +1073,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
   return (
     <AppShell
       title="Dashboard"
-      subtitle={`${greeting}, ${session.username}. Kelola transaksi dan akses API kamu dengan mudah di Premiumin Plus.`}
+      subtitle={`${greeting}, ${session.username}. Kelola transaksi dan akses API kamu dengan mudah di Premiumin Pluus.`}
       username={session.username}
       role={accountLabel}
       saldo={saldo}
@@ -1087,7 +1087,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
               {greeting}, <span className="text-brand">{session.username}</span>
             </h2>
             <p className="mt-2 text-sm text-white/55 sm:text-base">
-              Kelola transaksi dan akses API kamu dengan mudah di Premiumin Plus.
+              Kelola transaksi dan akses API kamu dengan mudah di Premiumin Pluus.
             </p>
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-300 lg:flex">
@@ -1277,9 +1277,10 @@ developer@premiumin:~$`}
         </section>
 
         <footer className="py-2 text-center text-xs text-white/45">
-          © 2026 Premiumin Plus. All rights reserved.
+          © 2026 Premiumin Pluus. All rights reserved.
         </footer>
       </div>
     </AppShell>
   );
 }
+

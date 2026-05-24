@@ -16,7 +16,7 @@ export function validateWhatsapp(value) {
 
 export function buildDeliveryMessage(order) {
   return [
-    'Pesanan Premiumin Plus berhasil.',
+    'Pesanan Premiumin Pluus berhasil.',
     `Invoice: ${order.invoice}`,
     `Produk: ${order.product_name || '-'}`,
     `Email: ${order.email_account || '-'}`,
@@ -64,3 +64,4 @@ export async function sendOrderDelivery(order) {
   logger('DELIVERY', { invoice: order.invoice, target, status: 'sent' });
   return { status: 'sent', target_whatsapp: target };
 }
+

@@ -2,7 +2,7 @@
 
 Updated: 2026-05-13
 
-Premiumin Plus treats backend as the only finance authority.
+Premiumin Pluus treats backend as the only finance authority.
 
 ## Balance Concepts
 
@@ -92,3 +92,4 @@ Menu riwayat pesanan must not show:
 - QRIS Payment.
 - Deposit.
 - Topup saldo.
+

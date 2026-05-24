@@ -18,7 +18,7 @@ const env = {
   PREMKU_PAY_STATUS_CACHE_MS: envMs('PREMKU_PAY_STATUS_CACHE_MS', 25000, 5000),
   PREMKU_ORDER_STATUS_CACHE_MS: envMs('PREMKU_ORDER_STATUS_CACHE_MS', 30000, 10000),
   PREMKU_WEBHOOK_SECRET: process.env.PREMKU_WEBHOOK_SECRET || '',
-  JWT_SECRET: process.env.JWT_SECRET || process.env.SESSION_SECRET || 'premiumin-plus-local-dev-secret',
+  JWT_SECRET: process.env.JWT_SECRET || process.env.SESSION_SECRET || 'premiumin-pluus-local-dev-secret',
   DB_HOST: process.env.DB_HOST || '127.0.0.1',
   DB_PORT: Number(process.env.DB_PORT || 3306),
   DB_USER: process.env.DB_USER || 'root',

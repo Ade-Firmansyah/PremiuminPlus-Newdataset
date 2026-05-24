@@ -2,11 +2,11 @@ const THEMES = new Set(['theme_1', 'theme_2', 'theme_3', 'theme_4', 'theme_5']);
 
 export const DEFAULT_BOT_TEMPLATE_RENDERER_SETTINGS = {
   active_theme: 'theme_1',
-  store_name: 'Premiumin Plus',
+  store_name: 'Premiumin Pluus',
   opening_hour: '08.00',
   closing_hour: '22.00',
   admin_whatsapp: '',
-  footer_text: 'Premiumin Plus',
+  footer_text: 'Premiumin Pluus',
 };
 
 export function formatCurrency(value) {
@@ -284,7 +284,7 @@ const renderers = {
         '',
         '════════════════════',
         '',
-        '💎 Benefit Premiumin Plus',
+        '💎 Benefit Premiumin Pluus',
         '',
         '✔ Harga termurah',
         '✔ Auto proses realtime',
@@ -759,3 +759,4 @@ export function renderGenericError(template = {}, variables = {}) {
   const message = variables.message || 'Transaksi belum bisa diproses.';
   return ['╭━━━〔 ⚠️ SISTEM INFO 〕━━━⬣', '', message, '', 'Silakan coba beberapa saat lagi atau ketik admin untuk bantuan.', '', '╰━━━━━━━━━━━━━━━━━━⬣'].join('\n');
 }
+

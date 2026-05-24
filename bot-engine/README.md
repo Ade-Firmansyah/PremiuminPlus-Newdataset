@@ -1,6 +1,6 @@
-# Premiumin Plus Bot Engine
+# Premiumin Pluus Bot Engine
 
-Isolated WhatsApp transport for Premiumin Plus.
+Isolated WhatsApp transport for Premiumin Pluus.
 
 - Uses Baileys Multi Device with `useMultiFileAuthState`.
 - Stores one session folder per user in `bot-engine/sessions/{userId}`.
@@ -28,3 +28,4 @@ Port contract:
 - Bot-engine calls backend core through `WEB_CORE_URL`.
 - Backend core calls bot-engine through `BOT_ENGINE_URL`.
 - The frontend can leave `VITE_BOT_ENGINE_URL` empty because QR/status connect is proxied through backend core.
+

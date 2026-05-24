@@ -12,7 +12,7 @@ app.use(rateLimit());
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => {
-  res.json({ status: true, service: 'premiumin-plus-backend' });
+  res.json({ status: true, service: 'premiumin-pluus-backend' });
 });
 
 app.use('/api', routes);

@@ -1,5 +1,5 @@
 {
-  "name": "premiumin-plus",
+  "name": "premiumin-pluus",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -34,7 +34,8 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.14.1",
     "vite": "^6.4.2",
-    "ws": "^8.20.1"
+    "ws": "^8.20.1",
+    "mongodb": "^5.7.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

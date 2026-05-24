@@ -48,9 +48,10 @@ if (globalThis[globalKey]) {
   server.listen(env.PORT, () => {
     startMaintenanceScheduler();
     startProviderSyncScheduler();
-    console.log(`Premiumin Plus backend running on port ${env.PORT}`);
+    console.log(`Premiumin Pluus backend running on port ${env.PORT}`);
   });
 
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
+

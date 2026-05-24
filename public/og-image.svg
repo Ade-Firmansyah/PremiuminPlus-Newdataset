@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Premiumin Plus">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Premiumin Pluus">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
       <stop offset="0" stop-color="#050711"/>
@@ -30,3 +30,4 @@
   <text x="150" y="520" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="900">Platform Produk Digital Premium</text>
   <text x="150" y="570" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="600">Dashboard, wallet realtime, order otomatis, dan bot WhatsApp.</text>
 </svg>
+

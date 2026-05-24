@@ -2,11 +2,11 @@
 
 Updated: 2026-05-13
 
-This document is the end-to-end description of Premiumin Plus as it stands now. It should be treated as the current implementation target after the finance, bot, and realtime stabilization work.
+This document is the end-to-end description of Premiumin Pluus as it stands now. It should be treated as the current implementation target after the finance, bot, and realtime stabilization work.
 
 ## 1. Product Summary
 
-Premiumin Plus is a digital product marketplace and reseller/member dashboard. Users can deposit balance through QRIS, buy digital products, receive account credentials, monitor mutations, and optionally run a personal WhatsApp bot connected to the same account balance.
+Premiumin Pluus is a digital product marketplace and reseller/member dashboard. Users can deposit balance through QRIS, buy digital products, receive account credentials, monitor mutations, and optionally run a personal WhatsApp bot connected to the same account balance.
 
 The project has three major surfaces:
 
@@ -291,3 +291,4 @@ Admin/member/reseller:
 - Prefer moving `BOT_SESSIONS_DIR` outside the project folder in development and production.
 - Existing legacy session folders can be deleted after logout if QR generation is stuck.
 - Existing historical records may need one-time migration to backfill saldo mutations.
+

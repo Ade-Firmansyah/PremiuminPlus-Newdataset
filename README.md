@@ -1,6 +1,6 @@
-# Premiumin Plus
+# Premiumin Pluus
 
-Premiumin Plus adalah platform SaaS reseller/member untuk produk digital dengan React, Express, MySQL, dan integrasi Premku API.
+Premiumin Pluus adalah platform SaaS reseller/member untuk produk digital dengan React, Express, MySQL, dan integrasi Premku API.
 
 ## Fitur Utama
 
@@ -9,7 +9,7 @@ Premiumin Plus adalah platform SaaS reseller/member untuk produk digital dengan 
 - Member dashboard: buy product, direct QRIS payment when saldo is not enough, transaction history, account settings.
 - Finance safety: MySQL transaction, row locking, idempotent deposit success, saldo mutation audit.
 - Premku integration: `/pay`, `/pay_status`, `/cancel_pay`, `/products`, `/order`, `/status`, `/profile`.
-- UI theme: fixed Premiumin Plus dark neon theme. Light-mode toggle and theme persistence are intentionally removed for stability.
+- UI theme: fixed Premiumin Pluus dark neon theme. Light-mode toggle and theme persistence are intentionally removed for stability.
 - Notification management: admin can create, edit, delete, pin, and activate/deactivate notifications.
 - Realtime monitoring: backend WebSocket events plus guarded fallback polling keep dashboard updates lightweight.
 
@@ -217,7 +217,7 @@ Premku is never used for user registration or password reset.
 
 ## Theme System
 
-The app uses only the default Premiumin Plus dark neon theme. There is no dark/light toggle and no theme persistence logic.
+The app uses only the default Premiumin Pluus dark neon theme. There is no dark/light toggle and no theme persistence logic.
 
 ## REST API
 
@@ -336,3 +336,4 @@ Standard scopes:
 ```
 
 Sensitive fields such as password, token, secret, and API key are redacted by the logger.
+

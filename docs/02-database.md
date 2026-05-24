@@ -1,4 +1,4 @@
-# Premiumin Plus v3.2 Database
+# Premiumin Pluus v3.2 Database
 
 Runtime source of truth: `backend/src/config/db.js`.
 SQL reference: `database/schema.mysql.sql`.
@@ -59,3 +59,4 @@ Data sementara yang boleh dibersihkan:
 - old `webhook_logs`
 - temporary activity scopes untuk system/provider polling
 - pending QR yang sudah expired di-mark `expired`, bukan dihapus.
+

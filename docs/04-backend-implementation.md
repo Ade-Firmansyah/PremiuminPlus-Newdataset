@@ -1,4 +1,4 @@
-# Premiumin Plus v3.2 Backend Implementation
+# Premiumin Pluus v3.2 Backend Implementation
 
 ## Startup
 
@@ -82,3 +82,4 @@ Withdraw:
 - Frontend build command: `npm run build`.
 - Typecheck command: `npm run lint`.
 - MySQL must be reachable before backend starts.
+

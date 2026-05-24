@@ -1,4 +1,4 @@
-# Premiumin Plus Public Deploy Checklist
+# Premiumin Pluus Public Deploy Checklist
 
 ## DNS
 
@@ -61,3 +61,4 @@ sudo systemctl status certbot.timer
 - Bot connect shows QR and stays connected after frontend tab closes.
 - Realtime saldo/order updates work.
 - No mixed-content errors in browser console.
+

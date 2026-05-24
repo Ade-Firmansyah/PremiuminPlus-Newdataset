@@ -34,7 +34,7 @@ export function renderGreeting({ name, storeName, openHour } = {}, template = {}
   return renderTemplateGreeting(templateFromSettings(template, { store_name: storeName, open_hour: openHour }), { username: name });
 }
 
-export function renderCatalog(products = [], storeName = 'Premiumin Plus', template = {}) {
+export function renderCatalog(products = [], storeName = 'Premiumin Pluus', template = {}) {
   return renderStock(templateFromSettings(template, { store_name: storeName }), { products });
 }
 
@@ -83,3 +83,4 @@ export function renderStockEmpty(template = {}) {
 export function renderGenericError(message = 'Transaksi belum bisa diproses.', template = {}) {
   return renderTemplateGenericError(templateFromSettings(template), { message });
 }
+

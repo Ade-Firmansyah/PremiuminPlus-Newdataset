@@ -1,4 +1,4 @@
--- Premiumin Plus canonical MySQL schema reference.
+-- Premiumin Pluus canonical MySQL schema reference.
 -- Runtime source of truth remains backend/src/config/db.js because it auto-validates and repairs schema on startup.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -356,3 +356,4 @@ CREATE TABLE IF NOT EXISTS webhook_logs (
   INDEX idx_webhook_logs_status (status),
   INDEX idx_webhook_logs_retention (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

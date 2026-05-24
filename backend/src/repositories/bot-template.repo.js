@@ -4,11 +4,11 @@ export const BOT_TEMPLATE_THEMES = ['theme_1', 'theme_2', 'theme_3', 'theme_4', 
 
 export const DEFAULT_BOT_TEMPLATE = {
   active_theme: 'theme_1',
-  store_name: 'Premiumin Plus',
+  store_name: 'Premiumin Pluus',
   opening_hour: '08.00',
   closing_hour: '22.00',
   admin_whatsapp: '',
-  footer_text: 'Premiumin Plus',
+  footer_text: 'Premiumin Pluus',
 };
 
 function normalizeRow(row, fallback = {}) {
@@ -60,3 +60,4 @@ export async function upsertBotTemplate(userId, payload = {}) {
   const rows = await query('SELECT * FROM bot_template_settings WHERE user_id = ? OR id = ? LIMIT 1', [Number(userId), Number(id)]);
   return normalizeRow(rows[0] || null, { ...data, user_id: Number(userId) });
 }
+

@@ -44,7 +44,7 @@ export class SessionManager {
       auth: state,
       printQRInTerminal: false,
       logger: Pino({ level: process.env.BOT_LOG_LEVEL || 'silent' }),
-      browser: ['Premiumin Plus', 'Chrome', '1.0.0'],
+      browser: ['Premiumin Pluus', 'Chrome', '1.0.0'],
       syncFullHistory: false,
       markOnlineOnConnect: false,
     });
@@ -224,3 +224,4 @@ export class SessionManager {
     };
   }
 }
+

@@ -113,7 +113,7 @@ export function SettingMarkupPage() {
     <div className="space-y-4">
       <PageHero
         title="Setting Markup"
-        subtitle="Markup anggota dan reseller dipisah sesuai flow bisnis Premiumin Plus."
+        subtitle="Markup anggota dan reseller dipisah sesuai flow bisnis Premiumin Pluus."
         slogan="Member memakai harga anggota. Reseller memakai harga reseller dan tetap wajib saldo."
         tone="from-amber-500/15 via-brand/10 to-sky-500/10"
         chips={['Markup anggota', 'Markup reseller', 'DB sync']}
@@ -293,3 +293,4 @@ export function SettingMarkupPage() {
     </div>
   );
 }
+

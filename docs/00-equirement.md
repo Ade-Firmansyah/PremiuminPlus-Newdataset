@@ -1,8 +1,8 @@
-# Premiumin Plus v3.2 Requirement
+# Premiumin Pluus v3.2 Requirement
 
 Note: this is a historical v3.2 requirement snapshot. For the current project rules, use `docs/11-current-project-prd.md` and `docs/01-prd.md`.
 
-Premiumin Plus v3.2 adalah SaaS produk digital berbasis React, Express, MySQL, JWT, dan integrasi Premku melalui backend-only provider service.
+Premiumin Pluus v3.2 adalah SaaS produk digital berbasis React, Express, MySQL, JWT, dan integrasi Premku melalui backend-only provider service.
 
 ## Requirement Utama
 
@@ -56,3 +56,4 @@ WebSocket push dan Redis adalah opsi scaling masa depan, bukan dependency runtim
 - No fake sent delivery: WhatsApp delivery tanpa webhook menjadi `manual_pending`.
 - No provider key leak: Premku key hanya di backend.
 - No destructive migration: schema repair bersifat additive.
+

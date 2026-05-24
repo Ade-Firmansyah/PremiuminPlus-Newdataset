@@ -1,6 +1,6 @@
 # 10 Deployment Guide
 
-Premiumin Plus production deploy uses a hybrid model:
+Premiumin Pluus production deploy uses a hybrid model:
 
 ```text
 Frontend  -> Vercel
@@ -185,7 +185,7 @@ sudo systemctl status certbot.timer
 WhatsApp auth state must live on persistent disk:
 
 ```text
-BOT_SESSIONS_DIR=/var/lib/premiumin-plus/bot-sessions
+BOT_SESSIONS_DIR=/var/lib/premiumin-pluus/bot-sessions
 ```
 
 Default local/VPS path is also valid:
@@ -213,3 +213,4 @@ Detailed checklist: `deploy/DEPLOY-CHECKLIST.md`.
 - Bot QR login works and session survives frontend close.
 - `pm2 status` shows `premiumin-api` and `premiumin-bot` online.
 - `pm2 save` has been run after processes are online.
+

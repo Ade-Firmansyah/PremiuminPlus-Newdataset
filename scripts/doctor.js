@@ -74,7 +74,7 @@ function print(name, result, detail = '') {
 
 const checks = [];
 
-console.log('Premiumin Plus Doctor');
+console.log('Premiumin Pluus Doctor');
 console.log(`Ports: frontend=${config.frontendPort}, backend=${config.backendPort}, bot=${config.botPort}, mysql=${config.dbPort}`);
 console.log(`API URL: ${config.apiUrl}`);
 console.log(`Bot Engine URL: ${config.botEngineUrl}`);
@@ -99,3 +99,4 @@ if (failed) {
 }
 
 console.log('Doctor passed: stack ports, health endpoints, and database are reachable.');
+

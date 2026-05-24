@@ -54,7 +54,7 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-console.log(`[all] Starting Premiumin Plus stack: backend ${services[0].port}, bot-engine ${services[1].port}, frontend ${services[2].port}`);
+console.log(`[all] Starting Premiumin Pluus stack: backend ${services[0].port}, bot-engine ${services[1].port}, frontend ${services[2].port}`);
 for (const service of services) {
   if (await isPortOpen(service.port)) {
     const stopped = await freePortForDev(service, { logPrefix: 'all' });
@@ -73,3 +73,4 @@ for (const service of services) {
 if (!children.length) {
   console.log('[all] All services are already running.');
 }
+

@@ -180,7 +180,7 @@ export class MessageHandler {
       await this.sock.sendMessage(jid, {
         text: renderGreeting({
           name: message.pushName || normalizePhone(jid),
-          storeName: settings.store_name || 'Premiumin Plus',
+          storeName: settings.store_name || 'Premiumin Pluus',
           openHour: settings.open_hour || '07.30 WIB - 21.45 WIB',
         }, botTemplate),
       });
@@ -199,7 +199,7 @@ export class MessageHandler {
 
     if (STOCK.has(command)) {
       const products = await this.api.catalog();
-      await this.sock.sendMessage(jid, { text: renderCatalog(products, settings.store_name || 'Premiumin Plus', botTemplate) });
+      await this.sock.sendMessage(jid, { text: renderCatalog(products, settings.store_name || 'Premiumin Pluus', botTemplate) });
       return;
     }
 
@@ -245,7 +245,7 @@ export class MessageHandler {
         if (error?.statusCode === 402 || messageText.includes('saldo') || messageText.includes('insufficient')) {
           await this.sock.sendMessage(jid, {
             text: renderInsufficientBalance({
-              storeName: settings.store_name || 'Premiumin Plus',
+              storeName: settings.store_name || 'Premiumin Pluus',
             }, botTemplate),
           });
           return;
@@ -335,3 +335,4 @@ export class MessageHandler {
     this.paymentLocks.set(invoice, state);
   }
 }
+

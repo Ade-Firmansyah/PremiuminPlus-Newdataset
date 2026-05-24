@@ -1,4 +1,4 @@
-# Premiumin Plus v3.2 Architecture & API
+# Premiumin Pluus v3.2 Architecture & API
 
 ## Architecture
 
@@ -116,3 +116,4 @@ System:
 
 - `GET /health`
 - `GET /api/docs`
+
