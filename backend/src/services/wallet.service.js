@@ -1,4 +1,11 @@
 import { query, transaction } from '../config/db.js';
+const USE_MONGO = Boolean(process.env.MONGODB_URI || process.env.MONGO_URI);
+let mongoRepo = null;
+if (USE_MONGO) {
+  // lazy import to avoid requiring mongo in non-mongo environments
+  // eslint-disable-next-line global-require
+  mongoRepo = await import('../repositories/wallet.mongo.repo.js');
+}
 import { publishUserRefresh } from './realtime.service.js';
 
 export const BOT_LOCKS = {
@@ -43,43 +50,47 @@ function assertPositiveAmount(amount) {
 async function changeSaldo(userOrId, amount, reference, type, notes = '', mutationType = null) {
   const userId = resolveUserId(userOrId);
   const value = assertPositiveAmount(amount);
+  let result;
+  if (USE_MONGO && mongoRepo?.changeSaldo) {
+    result = await mongoRepo.changeSaldo(userId, value, reference, type, notes, mutationType);
+  } else {
+    result = await transaction(async (connection) => {
+      const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
+      const user = rows[0];
 
-  const result = await transaction(async (connection) => {
-    const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
-    const user = rows[0];
+      if (!user) {
+        const error = new Error('User tidak ditemukan');
+        error.statusCode = 404;
+        throw error;
+      }
 
-    if (!user) {
-      const error = new Error('User tidak ditemukan');
-      error.statusCode = 404;
-      throw error;
-    }
+      const before = getSaldoUtama(user);
+      const usableBefore = getUsableBalance(user);
+      const after = type === 'debit' ? before - value : before + value;
 
-    const before = getSaldoUtama(user);
-    const usableBefore = getUsableBalance(user);
-    const after = type === 'debit' ? before - value : before + value;
+      if (type === 'debit' && value > usableBefore) {
+        const error = new Error('Saldo tidak cukup');
+        error.statusCode = 400;
+        throw error;
+      }
 
-    if (type === 'debit' && value > usableBefore) {
-      const error = new Error('Saldo tidak cukup');
-      error.statusCode = 400;
-      throw error;
-    }
+      await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [after, after, userId]);
+      await connection.query(
+        `INSERT INTO saldo_logs
+          (user_id, type, amount, balance_before, balance_after, reference, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [userId, type, value, before, after, reference || null, notes || null],
+      );
+      await connection.query(
+        `INSERT INTO saldo_mutations
+          (user_id, mutation_type, amount, balance_before, balance_after, reference)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [userId, mutationType || (type === 'debit' ? 'order' : 'adjustment'), value, before, after, reference || null],
+      );
 
-    await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [after, after, userId]);
-    await connection.query(
-      `INSERT INTO saldo_logs
-        (user_id, type, amount, balance_before, balance_after, reference, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, type, value, before, after, reference || null, notes || null],
-    );
-    await connection.query(
-      `INSERT INTO saldo_mutations
-        (user_id, mutation_type, amount, balance_before, balance_after, reference)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, mutationType || (type === 'debit' ? 'order' : 'adjustment'), value, before, after, reference || null],
-    );
-
-    return { before, after };
-  });
+      return { before, after };
+    });
+  }
 
   if (!result || !Number.isFinite(Number(result.after))) {
     const rows = await query('SELECT saldo_utama FROM users WHERE id = ? LIMIT 1', [userId]);
@@ -123,38 +134,42 @@ export async function setSaldo(userOrId, nextSaldo, reference = 'admin-adjustmen
     error.statusCode = 400;
     throw error;
   }
+  let result;
+  if (USE_MONGO && mongoRepo?.setSaldo) {
+    result = await mongoRepo.setSaldo(userId, value, reference);
+  } else {
+    result = await transaction(async (connection) => {
+      const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
+      const user = rows[0];
 
-  const result = await transaction(async (connection) => {
-    const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
-    const user = rows[0];
+      if (!user) {
+        const error = new Error('User tidak ditemukan');
+        error.statusCode = 404;
+        throw error;
+      }
 
-    if (!user) {
-      const error = new Error('User tidak ditemukan');
-      error.statusCode = 404;
-      throw error;
-    }
+      const before = getSaldoUtama(user);
+      if (before === value) {
+        return { userId, value, changed: false };
+      }
 
-    const before = getSaldoUtama(user);
-    if (before === value) {
-      return { userId, value, changed: false };
-    }
+      await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [value, value, userId]);
+      await connection.query(
+        `INSERT INTO saldo_logs
+          (user_id, type, amount, balance_before, balance_after, reference, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [userId, value > before ? 'credit' : 'debit', Math.abs(value - before), before, value, reference || null, 'adjustment'],
+      );
+      await connection.query(
+        `INSERT INTO saldo_mutations
+          (user_id, mutation_type, amount, balance_before, balance_after, reference)
+         VALUES (?, 'adjustment', ?, ?, ?, ?)`,
+        [userId, Math.abs(value - before), before, value, reference || null],
+      );
 
-    await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [value, value, userId]);
-    await connection.query(
-      `INSERT INTO saldo_logs
-        (user_id, type, amount, balance_before, balance_after, reference, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, value > before ? 'credit' : 'debit', Math.abs(value - before), before, value, reference || null, 'adjustment'],
-    );
-    await connection.query(
-      `INSERT INTO saldo_mutations
-        (user_id, mutation_type, amount, balance_before, balance_after, reference)
-       VALUES (?, 'adjustment', ?, ?, ?, ?)`,
-      [userId, Math.abs(value - before), before, value, reference || null],
-    );
-
-    return { userId, value, changed: true };
-  });
+      return { userId, value, changed: true };
+    });
+  }
 
   if (result.changed) {
     publishUserRefresh(result.userId, 'wallet_updated', { scope: 'wallet', entity: 'saldo', id: reference || null });
@@ -165,69 +180,73 @@ export async function setSaldo(userOrId, nextSaldo, reference = 'admin-adjustmen
 export async function setBotBalanceLock(userOrId, enabled) {
   const userId = resolveUserId(userOrId);
   const wantsEnabled = Boolean(enabled);
+  let result;
+  if (USE_MONGO && mongoRepo?.setBotBalanceLock) {
+    result = await mongoRepo.setBotBalanceLock(userId, wantsEnabled);
+  } else {
+    result = await transaction(async (connection) => {
+      const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
+      const user = rows[0];
 
-  const result = await transaction(async (connection) => {
-    const [rows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [userId]);
-    const user = rows[0];
+      if (!user) {
+        const error = new Error('User tidak ditemukan');
+        error.statusCode = 404;
+        throw error;
+      }
 
-    if (!user) {
-      const error = new Error('User tidak ditemukan');
-      error.statusCode = 404;
-      throw error;
-    }
+      const role = String(user.role || 'member').toLowerCase();
+      const required = getBotLockRequired(role);
+      const saldo = getSaldoUtama(user);
+      const previousLocked = getLockedBalance(user);
+      const nextLocked = wantsEnabled ? required : 0;
+      const nextUsable = Math.max(0, saldo - nextLocked);
+      const nextBotRole = role === 'member' ? 'member' : 'reseller';
 
-    const role = String(user.role || 'member').toLowerCase();
-    const required = getBotLockRequired(role);
-    const saldo = getSaldoUtama(user);
-    const previousLocked = getLockedBalance(user);
-    const nextLocked = wantsEnabled ? required : 0;
-    const nextUsable = Math.max(0, saldo - nextLocked);
-    const nextBotRole = role === 'member' ? 'member' : 'reseller';
+      if (wantsEnabled && saldo < required) {
+        const error = new Error(`Saldo minimal Rp${required.toLocaleString('id-ID')} diperlukan untuk mengaktifkan bot.`);
+        error.statusCode = 400;
+        throw error;
+      }
 
-    if (wantsEnabled && saldo < required) {
-      const error = new Error(`Saldo minimal Rp${required.toLocaleString('id-ID')} diperlukan untuk mengaktifkan bot.`);
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await connection.query(
-      `UPDATE users
-       SET locked_balance = ?, bot_enabled = ?, bot_role = ?
-       WHERE id = ?`,
-      [nextLocked, wantsEnabled ? 1 : 0, nextBotRole, userId],
-    );
-
-    if (previousLocked !== nextLocked || Boolean(user.bot_enabled) !== wantsEnabled) {
       await connection.query(
-        `INSERT INTO activity_logs (actor_id, user_id, scope, message, activity, metadata)
-         VALUES (?, ?, 'BOT', ?, ?, ?)`,
-        [
-          userId,
-          userId,
-          wantsEnabled ? 'Bot balance locked' : 'Bot balance unlocked',
-          wantsEnabled ? 'Bot balance locked' : 'Bot balance unlocked',
-          JSON.stringify({
-            role,
-            saldo,
-            locked_balance_before: previousLocked,
-            locked_balance_after: nextLocked,
-            usable_balance: nextUsable,
-          }),
-        ],
+        `UPDATE users
+         SET locked_balance = ?, bot_enabled = ?, bot_role = ?
+         WHERE id = ?`,
+        [nextLocked, wantsEnabled ? 1 : 0, nextBotRole, userId],
       );
-    }
 
-    return {
-      id: userId,
-      role,
-      saldo,
-      locked_balance: nextLocked,
-      usable_balance: nextUsable,
-      bot_enabled: wantsEnabled,
-      bot_role: nextBotRole,
-      changed: previousLocked !== nextLocked || Boolean(user.bot_enabled) !== wantsEnabled,
-    };
-  });
+      if (previousLocked !== nextLocked || Boolean(user.bot_enabled) !== wantsEnabled) {
+        await connection.query(
+          `INSERT INTO activity_logs (actor_id, user_id, scope, message, activity, metadata)
+           VALUES (?, ?, 'BOT', ?, ?, ?)`,
+          [
+            userId,
+            userId,
+            wantsEnabled ? 'Bot balance locked' : 'Bot balance unlocked',
+            wantsEnabled ? 'Bot balance locked' : 'Bot balance unlocked',
+            JSON.stringify({
+              role,
+              saldo,
+              locked_balance_before: previousLocked,
+              locked_balance_after: nextLocked,
+              usable_balance: nextUsable,
+            }),
+          ],
+        );
+      }
+
+      return {
+        id: userId,
+        role,
+        saldo,
+        locked_balance: nextLocked,
+        usable_balance: nextUsable,
+        bot_enabled: wantsEnabled,
+        bot_role: nextBotRole,
+        changed: previousLocked !== nextLocked || Boolean(user.bot_enabled) !== wantsEnabled,
+      };
+    });
+  }
 
   if (result.changed) {
     publishUserRefresh(result.id, 'bot_settings_updated', { scope: 'bot', entity: 'bot_lock' });
