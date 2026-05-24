@@ -5,6 +5,7 @@ import { validateProductionEnv } from './src/config/validate-env.js';
 import { closePool, ensureInitialized } from './src/config/db.js';
 import { connectMongo, closeMongo } from './src/config/mongo.js';
 import { startMaintenanceScheduler, stopMaintenanceScheduler } from './src/workers/maintenance.scheduler.js';
+import { startCleanupScheduler, stopCleanupScheduler } from './src/workers/cleanup.scheduler.js';
 import { startProviderSyncScheduler, stopProviderSyncScheduler } from './src/workers/provider-sync.scheduler.js';
 import { closeRealtime, initRealtime } from './src/services/realtime.service.js';
 
@@ -35,6 +36,7 @@ if (globalThis[globalKey]) {
     closeRealtime();
     server.close(async () => {
       try {
+        stopCleanupScheduler();
         await closeMongo();
         await closePool();
       } finally {
@@ -56,6 +58,7 @@ if (globalThis[globalKey]) {
   initRealtime(server);
   server.listen(env.PORT, () => {
     startMaintenanceScheduler();
+    startCleanupScheduler({ intervalMs: 24 * 60 * 60 * 1000, retentionDays: Number(env.CLEANUP_RETENTION_DAYS || 7) });
     startProviderSyncScheduler();
     console.log(`Premiumin Pluus backend running on port ${env.PORT}`);
   });
