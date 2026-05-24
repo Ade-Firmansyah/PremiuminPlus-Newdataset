@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Premiumin Plus">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="54" x2="440" y2="458" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#050711"/>
+      <stop offset="0.58" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#1a071d"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="94" y1="132" x2="386" y2="364" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff2e88"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="386" cy="120" r="116" fill="#ff2e88" opacity=".16"/>
+  <circle cx="106" cy="398" r="130" fill="#8b5cf6" opacity=".13"/>
+  <g filter="url(#glow)">
+    <path d="M128 148h136c65 0 101 39 84 94-16 51-62 82-128 82h-48l-25 93H75l72-269h110c24 0 39 12 34 31-5 18-23 30-48 30h-41l-15 56h52c25 0 42-11 48-31 6-21-9-34-41-34H114z" fill="url(#mark)"/>
+    <path d="M319 318h56v-57h47v57h57v47h-57v57h-47v-57h-56z" fill="#ff4db8"/>
+  </g>
+</svg>

@@ -1,13 +1,50 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, Link2, Loader2, Power, Save, Unlink, X } from 'lucide-react';
+import { Bot, CheckCircle2, Eye, Link2, Loader2, Palette, Power, Save, Unlink, X } from 'lucide-react';
 import { PageSection } from './dashboardPageKit';
 import { getApiKey } from '../store/useAuth';
 import { premiuminApi, type BotSettingsRecord } from '../services/api';
 import { startAdaptivePolling } from '../services/adaptivePolling';
 import { subscribeSocket } from '../services/socketManager';
 
-const botEngineUrl = String(import.meta.env.VITE_BOT_ENGINE_URL || 'http://localhost:4010').replace(/\/+$/, '');
+function resolveBotEngineUrl() {
+  const configured = String(import.meta.env.VITE_BOT_ENGINE_URL || '').trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      const browserHost = typeof window !== 'undefined' ? window.location.hostname : '';
+      const configuredIsLocal = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+      const browserIsLocal = ['localhost', '127.0.0.1', '::1', ''].includes(browserHost);
+      if (configuredIsLocal && !browserIsLocal) {
+        url.hostname = browserHost;
+        url.protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        return url.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      return configured.replace(/\/+$/, '');
+    }
+    return configured.replace(/\/+$/, '');
+  }
+
+  if (typeof window === 'undefined') return 'http://localhost:4010';
+  if (window.location.protocol === 'https:' && !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
+    return '';
+  }
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const hostname = window.location.hostname || 'localhost';
+  return `${protocol}//${hostname}:4010`;
+}
+
+const botEngineUrl = resolveBotEngineUrl();
 type BotLoginState = 'idle' | 'connecting' | 'waiting_qr' | 'connected' | 'expired' | 'failed';
+type BotTheme = NonNullable<BotSettingsRecord['active_theme']>;
+
+const botThemeOptions: Array<{ value: BotTheme; label: string; description: string }> = [
+  { value: 'theme_1', label: 'Theme 1 Default', description: 'Classic Premiumin box style.' },
+  { value: 'theme_2', label: 'Theme 2 Bold Box', description: 'Tampilan tebal dengan live stock list.' },
+  { value: 'theme_3', label: 'Theme 3 Minimal', description: 'Format pendek, bersih, dan cepat dibaca.' },
+  { value: 'theme_4', label: 'Theme 4 Luxury', description: 'Style premium dengan diamond separator.' },
+  { value: 'theme_5', label: 'Theme 5 Console', description: 'Style compact seperti terminal.' },
+];
 
 const fallback: BotSettingsRecord = {
   enabled: false,
@@ -22,6 +59,10 @@ const fallback: BotSettingsRecord = {
   store_name: 'Premiumin Plus',
   admin_whatsapp: '',
   open_hour: '08.00 - 22.00 WIB',
+  active_theme: 'theme_1',
+  opening_hour: '08.00',
+  closing_hour: '22.00',
+  footer_text: 'Premiumin Plus',
   bot_session_status: 'disconnected',
   features: {
     order_status: false,
@@ -39,7 +80,7 @@ function statusCopy(status?: string) {
 }
 
 function realtimeUrlForSession(sessionId?: number) {
-  if (!sessionId) return '';
+  if (!sessionId || !botEngineUrl) return '';
   try {
     const url = new URL(botEngineUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -55,13 +96,18 @@ function isBotPending(status?: string) {
   return status === 'connecting' || status === 'qr';
 }
 
-async function readEngineError(response: Response) {
-  try {
-    const payload = await response.json();
-    return typeof payload?.message === 'string' ? payload.message : `Bot-engine error ${response.status}`;
-  } catch {
-    return `Bot-engine error ${response.status}`;
-  }
+function mergeBotSettings(data: BotSettingsRecord): BotSettingsRecord {
+  const template = data.bot_template || ({} as NonNullable<BotSettingsRecord['bot_template']>);
+  return {
+    ...fallback,
+    ...data,
+    active_theme: data.active_theme || template.active_theme || fallback.active_theme,
+    store_name: data.store_name || template.store_name || fallback.store_name,
+    opening_hour: data.opening_hour || template.opening_hour || fallback.opening_hour,
+    closing_hour: data.closing_hour || template.closing_hour || fallback.closing_hour,
+    admin_whatsapp: data.admin_whatsapp || template.admin_whatsapp || fallback.admin_whatsapp,
+    footer_text: data.footer_text || template.footer_text || fallback.footer_text,
+  };
 }
 
 export default function BotWA() {
@@ -74,6 +120,8 @@ export default function BotWA() {
   const [lastConnectedAt, setLastConnectedAt] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [themePreview, setThemePreview] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
   const loginStateRef = useRef<BotLoginState>('idle');
   const apiKey = getApiKey();
   const requiredLock = Number(settings.lock_required || 0);
@@ -89,7 +137,7 @@ export default function BotWA() {
     setError('');
     try {
       const settingsResponse = await premiuminApi.myBotSettings(apiKey || undefined);
-      setSettings({ ...fallback, ...settingsResponse.data });
+      setSettings(mergeBotSettings(settingsResponse.data));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal memuat setting bot.');
     } finally {
@@ -100,6 +148,37 @@ export default function BotWA() {
   useEffect(() => {
     void load();
   }, [apiKey]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true);
+      try {
+        const response = await premiuminApi.botTemplatePreview(
+          {
+            active_theme: settings.active_theme || 'theme_1',
+            store_name: settings.store_name || 'Premiumin Plus',
+            opening_hour: settings.opening_hour || '08.00',
+            closing_hour: settings.closing_hour || '22.00',
+            admin_whatsapp: settings.admin_whatsapp || '',
+            footer_text: settings.footer_text || 'Premiumin Plus',
+          },
+          apiKey || undefined,
+        );
+        setThemePreview(response.data.preview);
+      } catch (caught) {
+        const statusCode = (caught as Error & { statusCode?: number })?.statusCode;
+        if (statusCode === 404) {
+          setThemePreview('Preview theme belum bisa dimuat karena backend belum memuat endpoint terbaru. Restart backend atau jalankan npm run all.');
+        } else {
+          setThemePreview(caught instanceof Error ? `Preview theme gagal dimuat: ${caught.message}` : 'Preview theme belum bisa dimuat. Pastikan backend aktif.');
+        }
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [apiKey, settings.active_theme, settings.admin_whatsapp, settings.closing_hour, settings.footer_text, settings.opening_hour, settings.store_name]);
 
   useEffect(() => {
     if (!realtimeUrl) return undefined;
@@ -170,9 +249,7 @@ export default function BotWA() {
         setSettings((current) => ({ ...current, ...response.data }));
 
         if (response.data.user_id && isBotPending(response.data.bot_session_status)) {
-          const engineResponse = await fetch(`${botEngineUrl}/sessions/${response.data.user_id}/status`);
-          const enginePayload = await engineResponse.json();
-          const nextQr = typeof enginePayload?.data?.qr_image === 'string' ? enginePayload.data.qr_image : '';
+          const nextQr = typeof response.data.qr_image === 'string' ? response.data.qr_image : '';
           if (nextQr) {
             setQrImage(nextQr);
             setLoginState('waiting_qr');
@@ -200,7 +277,7 @@ export default function BotWA() {
     setMessage('');
     try {
       const response = await premiuminApi.updateMyBotSettings(settings, apiKey || undefined);
-      setSettings({ ...fallback, ...response.data });
+      setSettings(mergeBotSettings(response.data));
       setMessage('Setting bot tersimpan.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal menyimpan setting bot.');
@@ -218,20 +295,20 @@ export default function BotWA() {
     try {
       const response = await premiuminApi.botSessionConnect(apiKey || undefined);
       setSettings((current) => ({ ...current, ...response.data, enabled: true }));
-      if (response.data.user_id) {
-        const engineResponse = await fetch(`${botEngineUrl}/sessions/${response.data.user_id}/connect`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ apiKey }),
-        });
-        if (!engineResponse.ok) {
-          throw new Error(await readEngineError(engineResponse));
-        }
+      if (response.data.qr_image) {
+        setQrImage(response.data.qr_image);
+        setLoginState('waiting_qr');
       }
       setMessage('Session dibuat. QR akan tampil realtime saat bot-engine mengirim pairing code.');
     } catch (caught) {
       setLoginState('failed');
-      setError(caught instanceof TypeError ? `Bot-engine belum aktif atau tidak bisa diakses di ${botEngineUrl}. Jalankan npm run bot.` : caught instanceof Error ? caught.message : 'Gagal connect device.');
+      setError(
+        caught instanceof TypeError
+          ? `Bot-engine tidak bisa diakses di ${botEngineUrl}. Pastikan npm run bot aktif dan buka web memakai host yang sama dengan server, bukan localhost dari HP.`
+          : caught instanceof Error
+            ? caught.message
+            : 'Gagal connect device.',
+      );
     } finally {
       setBusy(false);
     }
@@ -243,9 +320,6 @@ export default function BotWA() {
     setMessage('');
     try {
       const response = await premiuminApi.botSessionLogout(apiKey || undefined);
-      if (settings.user_id) {
-        await fetch(`${botEngineUrl}/sessions/${settings.user_id}/disconnect`, { method: 'POST' }).catch(() => {});
-      }
       setSettings((current) => ({ ...current, ...response.data }));
       setQrImage('');
       setLoginState('idle');
@@ -327,6 +401,26 @@ export default function BotWA() {
               </button>
             </label>
             <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
+              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45">
+                <Palette className="h-4 w-4 text-brand" />
+                Bot Theme Settings
+              </span>
+              <select
+                value={settings.active_theme || 'theme_1'}
+                onChange={(event) => setSettings((current) => ({ ...current, active_theme: event.target.value as BotTheme }))}
+                className="mt-3 w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-3 text-sm font-bold text-white outline-none"
+              >
+                {botThemeOptions.map((theme) => (
+                  <option key={theme.value} value={theme.value}>
+                    {theme.label}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-2 block text-xs text-white/40">
+                {botThemeOptions.find((theme) => theme.value === (settings.active_theme || 'theme_1'))?.description}
+              </span>
+            </label>
+            <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
               <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Nama Toko</span>
               <input
                 value={settings.store_name || ''}
@@ -356,24 +450,47 @@ export default function BotWA() {
                 placeholder="628xxxxxxxxxx"
               />
             </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Jam Buka</span>
+                <input
+                  value={settings.opening_hour || ''}
+                  onChange={(event) => setSettings((current) => ({ ...current, opening_hour: event.target.value }))}
+                  className="mt-2 w-full bg-transparent text-sm font-bold text-white outline-none"
+                  placeholder="08.00"
+                />
+              </label>
+              <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Jam Tutup</span>
+                <input
+                  value={settings.closing_hour || ''}
+                  onChange={(event) => setSettings((current) => ({ ...current, closing_hour: event.target.value }))}
+                  className="mt-2 w-full bg-transparent text-sm font-bold text-white outline-none"
+                  placeholder="22.00"
+                />
+              </label>
+            </div>
             <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
-              <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Jam Operasional</span>
+              <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Footer Text</span>
               <input
-                value={settings.open_hour || ''}
-                onChange={(event) => setSettings((current) => ({ ...current, open_hour: event.target.value }))}
+                value={settings.footer_text || ''}
+                onChange={(event) => setSettings((current) => ({ ...current, footer_text: event.target.value }))}
                 className="mt-2 w-full bg-transparent text-sm font-bold text-white outline-none"
-                placeholder="08.00 - 22.00 WIB"
+                placeholder="Premiumin Plus"
               />
             </label>
-            <label className="block rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
-              <span className="text-xs font-black uppercase tracking-[0.16em] text-white/45">Greeting Template</span>
-              <textarea
-                value={settings.greeting_template || ''}
-                onChange={(event) => setSettings((current) => ({ ...current, greeting_template: event.target.value }))}
-                className="mt-2 min-h-28 w-full bg-transparent text-sm leading-6 text-white outline-none"
-                placeholder="Greeting Template"
-              />
-            </label>
+            <div className="rounded-2xl border border-white/10 bg-[#0b0f1a] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45">
+                  <Eye className="h-4 w-4 text-brand" />
+                  Preview Theme
+                </span>
+                {previewLoading ? <Loader2 className="h-4 w-4 animate-spin text-white/45" /> : null}
+              </div>
+              <pre className="mt-3 max-h-[360px] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/35 p-3 font-mono text-[11px] leading-5 text-white/80">
+                {themePreview || 'Preview sedang dimuat...'}
+              </pre>
+            </div>
             <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
               <span>
                 <span className="block text-sm font-bold text-white">Balas Grup Terdaftar</span>
@@ -454,7 +571,7 @@ export default function BotWA() {
                   : loginState === 'connected'
                     ? 'Session tersimpan dan status dashboard akan sinkron.'
                     : loginState === 'failed'
-                      ? 'Pastikan backend core dan bot-engine aktif, lalu klik Connect Device lagi.'
+                      ? `Pastikan backend core dan bot-engine aktif. Target bot-engine: ${botEngineUrl}`
                       : 'Bot-engine sedang menyiapkan session terisolasi.'}
               </div>
             </div>

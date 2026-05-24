@@ -6,6 +6,8 @@ import { formatCurrency } from '../utils/format';
 import { getApiKey } from '../store/useAuth';
 import { premiuminApi, type AppRole, type DirectPaymentRecord, type ProductRecord } from '../services/api';
 
+const PAYMENT_STATUS_POLL_MS = 25000;
+
 function renderQrSource(value?: string | null) {
   if (!value) return '';
   return value.startsWith('data:') ? value : `data:image/png;base64,${value}`;
@@ -125,7 +127,7 @@ export default function Order() {
 
   useEffect(() => {
     if (!directPayment || directPayment.status !== 'pending') return;
-    const timer = window.setInterval(() => void checkDirectPayment(directPayment.invoice), 10000);
+    const timer = window.setInterval(() => void checkDirectPayment(directPayment.invoice), PAYMENT_STATUS_POLL_MS);
     return () => window.clearInterval(timer);
   }, [directPayment?.invoice, directPayment?.status]);
 
@@ -194,6 +196,13 @@ export default function Order() {
       setUsableBalance(meResponse.data.usable_balance ?? meResponse.data.saldo);
       window.dispatchEvent(new Event('premiuminplus:balance-updated'));
     } catch (caught) {
+      const errorCode = (caught as Error & { code?: string; statusCode?: number })?.code;
+      const statusCode = (caught as Error & { code?: string; statusCode?: number })?.statusCode;
+      if (role === 'member' && (errorCode === 'MEMBER_DIRECT_QRIS_AVAILABLE' || statusCode === 402)) {
+        setShowDirectConfirm(true);
+        setError('');
+        return;
+      }
       setError(caught instanceof Error ? caught.message : 'Gagal membuat order.');
     } finally {
       setOrdering(false);

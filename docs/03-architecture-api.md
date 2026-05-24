@@ -35,18 +35,27 @@ bot-engine/
 
 - UI session: `Authorization: Bearer <jwt>`.
 - Reseller API: `x-api-key`.
-- JWT includes user id, role, username, token version, iat, exp.
-- Password reset increments token version through user update flow.
+- JWT includes user id, web session id, role, username, token version, iat, exp.
+- Web dashboard sessions expire after 30 minutes of idle time by default. This does not affect WhatsApp bot sessions or API-key worker traffic.
+- Password reset validates username, email, and WhatsApp against database, allows max 1 reset per user per 24 hours, stores `last_password_reset_at` and `password_reset_count`, increments `token_version`, and invalidates old web JWT sessions.
 
 ## API Contract
 
 Auth:
 
 - `POST /api/login`
+- `POST /api/logout`
 - `POST /api/register`
 - `POST /api/forgot-password`
 - `GET /api/me`
 - `PATCH /api/me/preferences`
+
+Register validation:
+
+- `username`, `password`, `email`, and `phone` are required for self-register member flow.
+- `email` must use a valid address format such as `user@gmail.com`.
+- `phone` stores the WhatsApp number only as digits and accepts only `08xxxxxxxxxx` or `628xxxxxxxxxx`.
+- Backend revalidates and rejects invalid email/WhatsApp values even if the frontend is bypassed.
 
 Products/orders:
 
@@ -87,6 +96,7 @@ Admin:
 - `PATCH /api/admin/update-user/:id`
 - `DELETE /api/admin/delete-user/:id`
 - `GET /api/admin/transactions`
+- `GET /api/admin/activity-logs`
 - `GET /api/admin/deposits`
 - `GET /api/admin/withdraws`
 - `PATCH /api/admin/withdraws/:id/approve`

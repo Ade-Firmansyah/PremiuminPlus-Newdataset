@@ -7,7 +7,7 @@ Backend melakukan schema validation dan additive repair saat startup. Semua tabe
 
 ## Canonical Tables
 
-- `users`: auth, role, saldo, `locked_balance`, `api_key`, status, `token_version`.
+- `users`: auth, role, saldo, `locked_balance`, `api_key`, status, `token_version`, `last_password_reset_at`, `password_reset_count`.
 - `products`: catalog lokal, Premku id, base price, admin margin, `member_price`, `reseller_price`, stock, status.
 - `deposits`: QRIS top up, invoice, amount, total bayar, QR payload, status, `processed_at`.
 - `payments`: direct QRIS order member, invoice, product, status, order invoice, guard fields.
@@ -19,6 +19,7 @@ Backend melakukan schema validation dan additive repair saat startup. Semua tabe
 - `notifications`: broadcast/pinned notifications.
 - `settings`: key/value JSON settings.
 - `activity_logs`: operational/user activity log.
+- Password reset audit scopes: `PASSWORD_RESET_SUCCESS`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET_RATE_LIMIT`.
 - `webhook_logs`: temporary provider callback log.
 
 ## Finance Safety

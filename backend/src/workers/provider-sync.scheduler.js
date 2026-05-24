@@ -1,11 +1,13 @@
 import { query } from '../config/db.js';
+import env from '../config/env.js';
 import { refreshOrderStatus } from '../modules/order/order.service.js';
 import { replaceProducts } from '../repositories/product.repo.js';
 import { premku } from '../services/premku.service.js';
 import { logger } from '../utils/logger.js';
 
-const DEFAULT_INTERVAL_MS = 60 * 1000;
-const PRODUCT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_INTERVAL_MS = env.PROVIDER_SYNC_INTERVAL_MS;
+const PRODUCT_SYNC_INTERVAL_MS = env.PROVIDER_PRODUCT_SYNC_INTERVAL_MS;
+let schedulerHandle = null;
 
 function normalizeExternalProduct(item, index) {
   const basePrice = Number(item.price_base ?? item.price ?? item.harga ?? item.price_sell ?? item.nominal ?? 0);
@@ -92,6 +94,8 @@ export async function runProviderSyncOnce() {
 }
 
 export function startProviderSyncScheduler({ intervalMs = DEFAULT_INTERVAL_MS } = {}) {
+  if (schedulerHandle) return schedulerHandle;
+
   syncProviderProductsOnce().catch((error) => {
     logger('ERROR', { task: 'provider-product-sync', message: error instanceof Error ? error.message : 'provider product sync failed' });
   });
@@ -110,5 +114,16 @@ export function startProviderSyncScheduler({ intervalMs = DEFAULT_INTERVAL_MS } 
 
   timer.unref?.();
   productTimer.unref?.();
-  return timer;
+  schedulerHandle = {
+    stop() {
+      clearInterval(timer);
+      clearInterval(productTimer);
+      schedulerHandle = null;
+    },
+  };
+  return schedulerHandle;
+}
+
+export function stopProviderSyncScheduler() {
+  schedulerHandle?.stop();
 }

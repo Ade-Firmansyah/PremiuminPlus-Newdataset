@@ -1,8 +1,9 @@
 import { query } from '../../config/db.js';
-import { listSaldoLogsByUser } from '../../repositories/wallet.repo.js';
+import { getSaldoMutationSummaryByUser, listSaldoLogsByUser } from '../../repositories/wallet.repo.js';
 import { updateUser } from '../../repositories/user.repo.js';
 import { getCache, setCache } from '../../services/cache.service.js';
-import { getSaldoUtama } from '../../services/wallet.service.js';
+import { getLockedBalance, getSaldoUtama, getUsableBalance } from '../../services/wallet.service.js';
+import env from '../../config/env.js';
 
 const ORDER_HISTORY_FILTER = `
   COALESCE(transaction_type, 'order') = 'order'
@@ -11,8 +12,32 @@ const ORDER_HISTORY_FILTER = `
   AND LOWER(COALESCE(channel, '')) NOT IN ('deposit', 'qris', 'payment')
 `;
 
+const USER_ORDER_AMOUNT = `
+  COALESCE(
+    NULLIF(total_price, 0),
+    NULLIF(price_sell * qty, 0),
+    NULLIF(final_amount, 0),
+    NULLIF(payment_amount, 0),
+    NULLIF(amount, 0),
+    0
+  )
+`;
+
+const TOP_USER_ORDER_AMOUNT = `
+  COALESCE(
+    NULLIF(t.total_price, 0),
+    NULLIF(t.price_sell * t.qty, 0),
+    NULLIF(t.final_amount, 0),
+    NULLIF(t.payment_amount, 0),
+    NULLIF(t.amount, 0),
+    0
+  )
+`;
+
 export function me(req, res) {
   const saldoUtama = getSaldoUtama(req.user);
+  const lockedBalance = getLockedBalance(req.user);
+  const usableBalance = getUsableBalance(req.user);
   res.json({
     status: true,
     data: {
@@ -21,8 +46,8 @@ export function me(req, res) {
       email: req.user.email || '',
       saldo_utama: saldoUtama,
       saldo: saldoUtama,
-      locked_balance: Number(req.user.locked_balance || 0),
-      usable_balance: saldoUtama,
+      locked_balance: lockedBalance,
+      usable_balance: usableBalance,
       role: req.user.role,
       api_key: req.user.api_key,
       markup_percent: Number(req.user.markup_percent ?? req.user.markup_custom ?? 0),
@@ -58,25 +83,34 @@ export async function updateMyPreferences(req, res, next) {
 
 export function saldo(req, res) {
   const saldoUtama = getSaldoUtama(req.user);
+  const lockedBalance = getLockedBalance(req.user);
+  const usableBalance = getUsableBalance(req.user);
   res.json({
     status: true,
     saldo_utama: saldoUtama,
     saldo: saldoUtama,
-    locked_balance: Number(req.user.locked_balance || 0),
-    usable_balance: saldoUtama,
+    locked_balance: lockedBalance,
+    usable_balance: usableBalance,
   });
 }
 
 export async function saldoLogs(req, res) {
+  const [data, summary] = await Promise.all([
+    listSaldoLogsByUser(req.user.id),
+    getSaldoMutationSummaryByUser(req.user.id),
+  ]);
   res.json({
     status: true,
-    data: await listSaldoLogsByUser(req.user.id),
+    data,
+    summary,
   });
 }
 
 export async function dashboardSummary(req, res) {
   const userId = Number(req.user.id);
   const saldoUtama = getSaldoUtama(req.user);
+  const lockedBalance = getLockedBalance(req.user);
+  const usableBalance = getUsableBalance(req.user);
   const cacheKey = `dashboard-summary:${userId}:${saldoUtama}:${req.user.locked_balance}`;
   const cached = getCache(cacheKey);
   if (cached) {
@@ -86,9 +120,32 @@ export async function dashboardSummary(req, res) {
   const [transactionRows] = await query(
     `SELECT
       COUNT(*) AS total_transactions,
-      COALESCE(SUM(total_price), 0) AS total_spent
+      COALESCE(SUM(${USER_ORDER_AMOUNT}), 0) AS total_spent,
+      COALESCE(SUM(${USER_ORDER_AMOUNT}), 0) AS total_revenue,
+      COALESCE(SUM(user_profit), 0) AS total_income,
+      COALESCE(SUM(admin_profit), 0) AS platform_profit
      FROM transactions
      WHERE user_id = ?
+       AND status IN ('processing', 'success')
+       AND ${ORDER_HISTORY_FILTER}`,
+    [userId],
+  );
+  const [profitTodayRows] = await query(
+    `SELECT COALESCE(SUM(user_profit), 0) AS profit_today
+     FROM transactions
+     WHERE user_id = ?
+       AND status IN ('processing', 'success')
+       AND DATE(created_at) = CURRENT_DATE()
+       AND ${ORDER_HISTORY_FILTER}`,
+    [userId],
+  );
+  const [profitMonthRows] = await query(
+    `SELECT COALESCE(SUM(user_profit), 0) AS profit_month
+     FROM transactions
+     WHERE user_id = ?
+       AND status IN ('processing', 'success')
+       AND YEAR(created_at) = YEAR(CURRENT_DATE())
+       AND MONTH(created_at) = MONTH(CURRENT_DATE())
        AND ${ORDER_HISTORY_FILTER}`,
     [userId],
   );
@@ -102,14 +159,20 @@ export async function dashboardSummary(req, res) {
   );
   const [saldoInRows] = await query(
     `SELECT COALESCE(SUM(amount), 0) AS saldo_masuk
-     FROM saldo_logs
-     WHERE user_id = ? AND type IN ('credit', 'refund', 'adjustment')`,
+     FROM saldo_mutations
+     WHERE user_id = ? AND mutation_type IN ('deposit', 'payment_in', 'refund', 'adjustment')`,
     [userId],
   );
   const [saldoOutRows] = await query(
     `SELECT COALESCE(SUM(amount), 0) AS saldo_keluar
-     FROM saldo_logs
-     WHERE user_id = ? AND type = 'debit'`,
+     FROM saldo_mutations
+     WHERE user_id = ? AND mutation_type IN ('provider_purchase', 'order', 'withdraw')`,
+    [userId],
+  );
+  const [incomeRows] = await query(
+    `SELECT COALESCE(SUM(amount), 0) AS profit_income
+     FROM saldo_mutations
+     WHERE user_id = ? AND mutation_type IN ('profit_income', 'bot_profit')`,
     [userId],
   );
   const [lastDepositRows] = await query(
@@ -130,7 +193,7 @@ export async function dashboardSummary(req, res) {
       u.id AS user_id,
       u.username,
       COUNT(t.id) AS total_orders,
-      COALESCE(SUM(t.total_price), 0) AS total_sales
+      COALESCE(SUM(${TOP_USER_ORDER_AMOUNT}), 0) AS total_sales
      FROM transactions t
      JOIN users u ON u.id = t.user_id
      WHERE t.status IN ('processing', 'success')
@@ -148,14 +211,20 @@ export async function dashboardSummary(req, res) {
     data: {
       saldo_utama: saldoUtama,
       saldo: saldoUtama,
-      locked_balance: Number(req.user.locked_balance || 0),
-      usable_balance: saldoUtama,
+      locked_balance: lockedBalance,
+      usable_balance: usableBalance,
       total_transactions: Number(transactionRows?.total_transactions || 0),
       total_spent: Number(transactionRows?.total_spent || 0),
+      total_revenue: Number(transactionRows?.total_revenue || 0),
+      total_income: Number(transactionRows?.total_income || 0),
+      platform_profit: Number(transactionRows?.platform_profit || 0),
+      profit_today: Number(profitTodayRows?.profit_today || 0),
+      profit_month: Number(profitMonthRows?.profit_month || 0),
       total_deposits: Number(depositRows?.total_deposits || 0),
       total_deposit_amount: Number(depositRows?.total_deposit_amount || 0),
       saldo_masuk: Number(saldoInRows?.saldo_masuk || 0),
       saldo_keluar: Number(saldoOutRows?.saldo_keluar || 0),
+      profit_income: Number(incomeRows?.profit_income || 0),
       last_deposit: lastDepositRows || null,
       active_products: Number(productRows?.active_products || 0),
       top_users: topUsers.map((row) => ({
@@ -166,6 +235,6 @@ export async function dashboardSummary(req, res) {
       })),
     },
   };
-  setCache(cacheKey, response, 15 * 1000);
+  setCache(cacheKey, response, env.DASHBOARD_CACHE_MS);
   return res.json(response);
 }

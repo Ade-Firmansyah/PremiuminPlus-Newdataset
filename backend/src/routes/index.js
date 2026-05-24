@@ -1,10 +1,10 @@
 import express from 'express';
-import { forgotPassword, login, registerMember } from '../modules/auth/auth.controller.js';
+import { forgotPassword, login, logout, registerMember } from '../modules/auth/auth.controller.js';
 import { adminAddManualStock, adminCreateProduct, adminDeleteProduct, adminUpdateProduct, getProducts } from '../modules/product/product.controller.js';
 import { myOrders, order, orderStatus, myActiveCart } from '../modules/order/order.controller.js';
 import { deposit, depositCancel, depositStatus, myDeposits } from '../modules/deposit/deposit.controller.js';
 import { cancelDirectPaymentController, createDirectOrderPaymentController, directPaymentStatusController } from '../modules/payment/payment.controller.js';
-import { withdraw } from '../modules/withdraw/withdraw.controller.js';
+import { myWithdraws, withdraw } from '../modules/withdraw/withdraw.controller.js';
 import { dashboardSummary, me, saldo, saldoLogs, updateMyPreferences } from '../modules/wallet/wallet.controller.js';
 import {
   createAdminUser,
@@ -20,6 +20,7 @@ import {
   rejectWithdraw,
   withdraws,
   transactions,
+  activityLogs,
   adminSummary,
   premkuFinanceProfile,
   updateDiscount,
@@ -46,6 +47,7 @@ import {
   botSessionUpdate,
   botSettingsGet,
   botSettingsUpdate,
+  botTemplatePreview,
 } from '../modules/bot/bot.controller.js';
 import { auth } from '../middlewares/auth.middleware.js';
 import { adminOnly } from '../middlewares/admin.middleware.js';
@@ -53,6 +55,7 @@ import { adminOnly } from '../middlewares/admin.middleware.js';
 const router = express.Router();
 
 router.post('/login', login);
+router.post('/logout', auth, logout);
 router.post('/register', registerMember);
 router.post('/forgot-password', forgotPassword);
 router.get('/config/public', (_req, res) => {
@@ -85,6 +88,7 @@ router.post('/deposit/:invoice/cancel', auth, depositCancel);
 router.get('/deposits', auth, myDeposits);
 router.get('/deposit/:invoice', auth, depositStatus);
 router.post('/withdraw', auth, withdraw);
+router.get('/withdraws', auth, myWithdraws);
 router.get('/saldo', auth, saldo);
 router.get('/saldo-logs', auth, saldoLogs);
 router.get('/saldo/logs', auth, saldoLogs);
@@ -101,6 +105,7 @@ router.post('/bot/session/status', auth, botSessionUpdate);
 router.post('/bot/session/logout', auth, botSessionLogout);
 router.get('/bot/settings', auth, botSettingsGet);
 router.patch('/bot/settings', auth, botSettingsUpdate);
+router.post('/bot/template/preview', auth, botTemplatePreview);
 
 router.get('/admin/users', auth, adminOnly, users);
 router.get('/admin/summary', auth, adminOnly, adminSummary);
@@ -109,6 +114,7 @@ router.post('/admin/create-user', auth, adminOnly, createAdminUser);
 router.patch('/admin/update-user/:id', auth, adminOnly, updateAdminUser);
 router.delete('/admin/delete-user/:id', auth, adminOnly, deleteAdminUser);
 router.get('/admin/transactions', auth, adminOnly, transactions);
+router.get('/admin/activity-logs', auth, adminOnly, activityLogs);
 router.post('/admin/products', auth, adminOnly, adminCreateProduct);
 router.patch('/admin/products/:id', auth, adminOnly, adminUpdateProduct);
 router.post('/admin/products/:id/stock', auth, adminOnly, adminAddManualStock);
@@ -156,6 +162,7 @@ router.get('/docs', (_req, res) => {
       'GET /api/deposits',
       'GET /api/deposit/:invoice',
       'POST /api/withdraw',
+      'GET /api/withdraws',
       'GET /api/saldo',
       'GET /api/saldo-logs',
       'GET /api/saldo/logs',
@@ -164,12 +171,14 @@ router.get('/docs', (_req, res) => {
       'GET /api/bot/catalog',
       'POST /api/bot/order',
       'GET /api/bot/payments/:invoice/status',
+      'POST /api/bot/template/preview',
       'POST /api/bot/session/connect',
       'GET /api/bot/session/status',
       'POST /api/bot/session/logout',
       'GET /api/admin/summary',
       'GET /api/admin/users',
       'GET /api/admin/transactions',
+      'GET /api/admin/activity-logs',
       'GET /api/admin/deposits',
       'GET /api/admin/withdraws',
       'PATCH /api/admin/withdraws/:id/approve',

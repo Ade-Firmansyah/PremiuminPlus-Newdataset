@@ -1,12 +1,13 @@
 # 08 Bot Architecture
 
-Updated: 2026-05-13
+Updated: 2026-05-17
 
 Bot transport berjalan terisolasi di `bot-engine/`. Backend tetap menjadi source of truth untuk saldo, order, pricing, QRIS, dan riwayat.
 
 ## Ownership Model
 
 - One user owns one WhatsApp bot session.
+- Web dashboard auto logout does not disconnect WhatsApp bot sessions. Bot-engine authenticates to backend with the user's API key and persistent Baileys auth state, so it can keep selling when the browser is closed or logged out.
 - One bot uses one user API key.
 - One bot uses the same `saldo_utama` as the user.
 - Bot has no independent balance.
@@ -18,18 +19,22 @@ Bot transport berjalan terisolasi di `bot-engine/`. Backend tetap menjadi source
 - `bot-engine/handlers/messageHandler.js`: command parser, group guard, operating-hours guard, order call.
 - `bot-engine/api-client/webCore.js`: backend API client using the user's API key.
 - `backend/src/modules/bot`: bot profile, settings, catalog, order, session status.
+- `shared/bot-template-renderer.js`: single renderer for WhatsApp message themes.
 
 ## Session Lifecycle
 
 1. User clicks connect from Bot WA page.
-2. Backend marks session `connecting`.
-3. Frontend calls bot-engine `/sessions/:userId/connect`.
-4. Bot-engine creates or loads session.
-5. If no valid auth exists, Baileys emits QR.
-6. Bot-engine sends QR via websocket.
-7. After scan, status becomes `connected`.
-8. If user disconnects or WhatsApp unlinks device, session becomes `logged_out`.
-9. On `logged_out`, bot-engine deletes the user session folder so the next connect can generate a fresh QR.
+2. Frontend calls backend `/api/bot/session/connect`.
+3. Backend marks session `connecting`.
+4. Backend calls bot-engine `/sessions/:userId/connect` through `BOT_ENGINE_URL`.
+5. Bot-engine creates or loads session.
+6. If no valid auth exists, Baileys emits QR.
+7. Bot-engine sends QR via websocket and backend status polling can also return `qr_image`.
+8. After scan, status becomes `connected`.
+9. If user disconnects or WhatsApp unlinks device, session becomes `logged_out`.
+10. On `logged_out`, bot-engine deletes the user session folder so the next connect can generate a fresh QR.
+
+Frontend does not need direct bot-engine access for connect/disconnect. This keeps Android/iPhone/tablet and domain deployments stable even when bot-engine is private behind the backend.
 
 ## Session Storage
 
@@ -47,9 +52,25 @@ BOT_SESSIONS_DIR="D:\PremiuminPlus-Bot-Sessions"
 
 Vite ignores `bot-engine/sessions/**` so Baileys file writes do not reload the web dashboard during incoming messages.
 
+## Port Contract
+
+Local defaults:
+
+- Frontend: `3000`
+- Backend core: `4000`
+- Bot-engine: `4010`
+- MySQL: `3306`
+
+Environment mapping:
+
+- `WEB_CORE_URL`: bot-engine -> backend core, usually `http://localhost:4000`.
+- `BOT_ENGINE_URL`: backend core -> bot-engine, usually `http://localhost:4010` locally or `http://127.0.0.1:4010` on a single VPS.
+- `VITE_BOT_ENGINE_URL`: optional. Leave empty unless intentionally exposing bot-engine directly.
+
 ## Cleanup
 
-- Volatile files like device lists, prekeys, sender keys, and session files are pruned by TTL.
+- Volatile files like device lists, prekeys, sender keys, and temporary tokens are pruned by TTL.
+- WhatsApp `session-*` signal files are preserved during normal cleanup to keep persistent auth more stable.
 - Critical files like `creds.json`, app-state sync keys, app-state versions, and identity keys are preserved during normal cleanup.
 - Full session folder is deleted only on logout/unlink/disconnect.
 
@@ -59,6 +80,50 @@ Vite ignores `bot-engine/sessions/**` so Baileys file writes do not reload the w
 - Catalog: `stok`, `list`.
 - Admin info: `admin`.
 - Order: `buy <code>`.
+
+## Dynamic WhatsApp Bot Theme Engine V3
+
+Each member/reseller can choose one active WhatsApp template from the Bot WA settings page.
+
+Supported themes:
+
+- `theme_1`: default classic Premiumin box style.
+- `theme_2`: bold boxed live-stock style.
+- `theme_3`: clean minimal line style.
+- `theme_4`: luxury diamond separator style.
+- `theme_5`: compact console style.
+
+Authoritative storage:
+
+```text
+bot_template_settings
+```
+
+Fields:
+
+```text
+id
+user_id
+active_theme
+store_name
+opening_hour
+closing_hour
+admin_whatsapp
+footer_text
+created_at
+updated_at
+```
+
+Rendering rule:
+
+- Backend saves template settings through `/api/bot/settings`.
+- Backend preview uses `/api/bot/template/preview`.
+- Bot-engine loads the active template from `/api/bot/profile`.
+- Before sending a WhatsApp message, bot-engine calls the shared renderer.
+- Greeting, stock, payment, payment success, order success, admin, and error states follow the active user theme.
+- There is no separate frontend message renderer for live bot output.
+
+Template updates emit `bot.template.updated`; bot-engine refreshes profile cache within 5 seconds, so a saved theme does not require backend or bot-engine restart.
 
 ## Group and Community Policy
 

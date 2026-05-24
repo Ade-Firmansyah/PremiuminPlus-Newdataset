@@ -1,12 +1,21 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import http from 'node:http';
 import QRCode from 'qrcode';
 import { config } from './config.js';
 import { SessionManager } from './sockets/sessionManager.js';
 
 const app = express();
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', process.env.BOT_ENGINE_CORS_ORIGIN || '*');
+  const allowedOrigins = String(process.env.BOT_ENGINE_CORS_ORIGIN || '*')
+    .split(',')
+    .map((item) => item.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const origin = String(req.headers.origin || '').replace(/\/+$/, '');
+  if (allowedOrigins.includes('*') || !origin || allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -14,11 +23,23 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '256kb' }));
 
-const server = app.listen(config.port, () => {
-  console.log(`[bot-engine] listening on ${config.port}`);
-});
+const globalKey = Symbol.for('premiumin-plus.bot-engine.server');
+if (globalThis[globalKey]) {
+  console.warn('[bot-engine] server already started in this process; skipping duplicate listen.');
+}
 
-const wsServer = new WebSocketServer({ server, path: '/realtime' });
+const server = globalThis[globalKey] || http.createServer(app);
+globalThis[globalKey] = server;
+
+const wsKey = Symbol.for('premiumin-plus.bot-engine.ws');
+const wsAlreadyStarted = Boolean(globalThis[wsKey]);
+const wsServer = globalThis[wsKey] || new WebSocketServer({ server, path: '/realtime' });
+globalThis[wsKey] = wsServer;
+if (!wsAlreadyStarted) {
+  wsServer.on('error', (error) => {
+    console.error('[bot-engine:ws]', error?.code === 'EADDRINUSE' ? `port already in use: ${error.port || ''}` : error);
+  });
+}
 const clients = new Map();
 
 function broadcast(sessionId, payload) {
@@ -33,7 +54,7 @@ function broadcast(sessionId, payload) {
 const sessions = new SessionManager({ broadcast });
 sessions.startSessionPruner();
 
-wsServer.on('connection', async (socket, request) => {
+if (!wsAlreadyStarted) wsServer.on('connection', async (socket, request) => {
   const url = new URL(request.url || '/realtime', `http://${request.headers.host}`);
   const sessionId = url.searchParams.get('sessionId');
   if (!sessionId) {
@@ -91,11 +112,37 @@ app.post('/sessions/:userId/disconnect', async (req, res) => {
   res.json({ status: true, data });
 });
 
-function shutdown() {
-  sessions.stopSessionPruner();
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  await sessions.shutdownAll('disconnected').catch(() => {});
+  for (const bucket of clients.values()) {
+    for (const client of bucket) client.close(1001, 'server_shutdown');
+  }
+  clients.clear();
   wsServer.close();
-  server.close(() => process.exit(0));
+  server.close(() => {
+    delete globalThis[globalKey];
+    delete globalThis[wsKey];
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+server.once('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.error(`[bot-engine] port ${config.port} is already in use. Run "npm run all" to reuse/clean local services, or stop the old bot-engine process.`);
+    process.exit(1);
+  }
+  throw error;
+});
+
+if (!server.listening) {
+  server.listen(config.port, () => {
+    console.log(`[bot-engine] listening on ${config.port}`);
+  });
+}
+
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);

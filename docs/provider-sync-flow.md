@@ -19,6 +19,7 @@ Premku calls are centralized in `backend/src/services/premku.service.js`.
 
 ## Status Guards
 
-- Deposit status: 5 seconds.
-- Direct payment status: 5 seconds.
+- Deposit status: throttled by `PREMKU_PAY_STATUS_CACHE_MS`, default 25 seconds per invoice.
+- Direct payment status: throttled by `PREMKU_PAY_STATUS_CACHE_MS`, default 25 seconds per invoice.
+- Provider order status: throttled by `PREMKU_ORDER_STATUS_CACHE_MS`, default 30 seconds per invoice.
 - Provider order sync: scheduled and bounded to 25 invoices per tick.

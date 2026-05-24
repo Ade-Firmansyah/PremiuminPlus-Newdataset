@@ -1,4 +1,4 @@
-import { transaction } from '../config/db.js';
+import { query, transaction } from '../config/db.js';
 import { publishUserRefresh } from './realtime.service.js';
 
 export const BOT_LOCKS = {
@@ -22,6 +22,14 @@ export function getSaldoUtama(user = {}) {
   return Number(user.saldo_utama ?? 0);
 }
 
+export function getLockedBalance(user = {}) {
+  return Math.max(0, Number(user.locked_balance || 0));
+}
+
+export function getUsableBalance(user = {}) {
+  return Math.max(0, getSaldoUtama(user) - getLockedBalance(user));
+}
+
 function assertPositiveAmount(amount) {
   const value = Number(amount);
   if (!Number.isFinite(value) || value <= 0) {
@@ -32,7 +40,7 @@ function assertPositiveAmount(amount) {
   return value;
 }
 
-async function changeSaldo(userOrId, amount, reference, type, notes = '') {
+async function changeSaldo(userOrId, amount, reference, type, notes = '', mutationType = null) {
   const userId = resolveUserId(userOrId);
   const value = assertPositiveAmount(amount);
 
@@ -47,9 +55,10 @@ async function changeSaldo(userOrId, amount, reference, type, notes = '') {
     }
 
     const before = getSaldoUtama(user);
+    const usableBefore = getUsableBalance(user);
     const after = type === 'debit' ? before - value : before + value;
 
-    if (type === 'debit' && value > before) {
+    if (type === 'debit' && value > usableBefore) {
       const error = new Error('Saldo tidak cukup');
       error.statusCode = 400;
       throw error;
@@ -66,11 +75,24 @@ async function changeSaldo(userOrId, amount, reference, type, notes = '') {
       `INSERT INTO saldo_mutations
         (user_id, mutation_type, amount, balance_before, balance_after, reference)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, type === 'debit' ? 'order' : 'adjustment', value, before, after, reference || null],
+      [userId, mutationType || (type === 'debit' ? 'order' : 'adjustment'), value, before, after, reference || null],
     );
 
     return { before, after };
   });
+
+  if (!result || !Number.isFinite(Number(result.after))) {
+    const rows = await query('SELECT saldo_utama FROM users WHERE id = ? LIMIT 1', [userId]);
+    const after = Number(rows[0]?.saldo_utama);
+    if (Number.isFinite(after)) {
+      return { before: null, after };
+    }
+    const error = new Error('Gagal memproses mutasi saldo');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return result;
 }
 
 export async function deductSaldo(userOrId, amount, reference = '', notes = '') {
@@ -83,8 +105,8 @@ export async function deductSaldo(userOrId, amount, reference = '', notes = '') 
   return result.after;
 }
 
-export async function addSaldo(userOrId, amount, reference = '', notes = '') {
-  const result = await changeSaldo(userOrId, amount, reference, 'credit', notes);
+export async function addSaldo(userOrId, amount, reference = '', notes = '', mutationType = 'adjustment') {
+  const result = await changeSaldo(userOrId, amount, reference, 'credit', notes, mutationType);
   if (typeof userOrId === 'object') {
     userOrId.saldo_utama = result.after;
     userOrId.saldo = result.after;
@@ -157,8 +179,9 @@ export async function setBotBalanceLock(userOrId, enabled) {
     const role = String(user.role || 'member').toLowerCase();
     const required = getBotLockRequired(role);
     const saldo = getSaldoUtama(user);
-    const previousLocked = Number(user.locked_balance || 0);
+    const previousLocked = getLockedBalance(user);
     const nextLocked = wantsEnabled ? required : 0;
+    const nextUsable = Math.max(0, saldo - nextLocked);
     const nextBotRole = role === 'member' ? 'member' : 'reseller';
 
     if (wantsEnabled && saldo < required) {
@@ -188,7 +211,7 @@ export async function setBotBalanceLock(userOrId, enabled) {
             saldo,
             locked_balance_before: previousLocked,
             locked_balance_after: nextLocked,
-            usable_balance: saldo,
+            usable_balance: nextUsable,
           }),
         ],
       );
@@ -199,7 +222,7 @@ export async function setBotBalanceLock(userOrId, enabled) {
       role,
       saldo,
       locked_balance: nextLocked,
-      usable_balance: saldo,
+      usable_balance: nextUsable,
       bot_enabled: wantsEnabled,
       bot_role: nextBotRole,
       changed: previousLocked !== nextLocked || Boolean(user.bot_enabled) !== wantsEnabled,

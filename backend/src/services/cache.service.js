@@ -1,5 +1,11 @@
 const cache = new Map();
 
+function pruneExpired(now = Date.now()) {
+  for (const [key, entry] of cache.entries()) {
+    if (entry.expiresAt <= now) cache.delete(key);
+  }
+}
+
 export function getCache(key) {
   const entry = cache.get(key);
   if (!entry) return null;
@@ -11,6 +17,7 @@ export function getCache(key) {
 }
 
 export function setCache(key, value, ttlMs) {
+  pruneExpired();
   cache.set(key, {
     value,
     expiresAt: Date.now() + ttlMs,

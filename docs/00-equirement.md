@@ -16,14 +16,14 @@ Premiumin Plus v3.2 adalah SaaS produk digital berbasis React, Express, MySQL, J
 
 ## Realtime Strategy
 
-v3.2 menggunakan lightweight polling, cache TTL, dan provider sync scheduler.
+v3.2+ menggunakan backend WebSocket event, guarded fallback polling, cache TTL, dan provider sync scheduler.
 
-- Admin dashboard: polling 10 detik.
-- User dashboard: polling 15 detik.
+- Admin/user dashboard: WebSocket event-driven refresh dengan debounce.
 - Notifications: polling 30 detik.
 - Product cache: 15 detik.
 - Provider product sync guard: 60 detik.
-- Payment/deposit status guard: 5 detik.
+- Payment/deposit status guard: default 25 detik per invoice.
+- Provider order status guard: default 30 detik per invoice.
 - Provider order scheduler: 60 detik.
 
 WebSocket push dan Redis adalah opsi scaling masa depan, bukan dependency runtime aktif v3.2.

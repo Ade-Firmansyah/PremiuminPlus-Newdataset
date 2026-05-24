@@ -17,8 +17,9 @@ export function PageSection({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28 }}
-      className="rounded-[1.35rem] border border-white/10 bg-white/5 p-4 shadow-[0_0_24px_rgba(255,0,127,0.05)] lg:p-5"
+      className="pp-glass relative overflow-hidden rounded-[1.5rem] p-4 lg:p-5"
     >
+      <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-brand/10 blur-3xl" />
       <div className="mb-4">
         <p className="text-[9px] font-bold uppercase tracking-[0.24em] text-white/35">{subtitle}</p>
         <h2 className="mt-2 text-xl font-extrabold tracking-tight text-white lg:text-[1.7rem]">{title}</h2>
@@ -46,7 +47,7 @@ export function PageHero({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24 }}
-      className={`overflow-hidden rounded-[1.35rem] border border-white/10 bg-[linear-gradient(145deg,rgba(15,11,21,0.96),rgba(12,17,28,0.96))]`}
+      className="pp-glass-strong overflow-hidden rounded-[1.6rem]"
     >
       <div className={`p-4 lg:p-5 bg-gradient-to-r ${tone}`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -71,7 +72,7 @@ export function PageHero({
 
 export function NeonCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-[1.15rem] border border-white/10 bg-[#0f0b15] p-3.5 shadow-[0_14px_28px_rgba(0,0,0,0.18)] lg:p-4 ${className}`}>
+    <div className={`pp-glass rounded-[1.25rem] p-3.5 transition duration-200 hover:-translate-y-0.5 hover:border-brand/25 hover:shadow-[0_20px_45px_rgba(255,46,136,0.12)] lg:p-4 ${className}`}>
       {children}
     </div>
   );
@@ -95,7 +96,7 @@ export function LinkCard({
       rel="noreferrer"
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className="rounded-[1.25rem] border border-white/10 bg-[#0f0b15] p-4 transition-shadow duration-200 hover:shadow-lg hover:shadow-brand/10 lg:p-5"
+      className="pp-glass rounded-[1.25rem] p-4 transition duration-200 hover:border-brand/25 hover:shadow-lg hover:shadow-brand/10 lg:p-5"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand ring-1 ring-brand/20">
@@ -160,7 +161,7 @@ export function TimelineList({
   return (
     <div className="space-y-3">
       {items.map((item) => (
-        <div key={item.title + item.time} className="flex items-center justify-between gap-4 rounded-[1.15rem] border border-white/10 bg-[#0f0b15] px-4 py-3.5">
+        <div key={item.title + item.time} className="pp-glass flex items-center justify-between gap-4 rounded-[1.15rem] px-4 py-3.5">
           <div>
             <p className="text-[15px] font-semibold text-white">{item.title}</p>
             <p className="mt-1 text-xs text-white/40">{item.time}</p>

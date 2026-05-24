@@ -27,6 +27,13 @@ const emptyUser: AdminUserDraft = {
   notes: '',
 };
 
+const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]{2,}$/;
+const WHATSAPP_PATTERN = /^(08\d{8,12}|628\d{8,12})$/;
+
+function sanitizeWhatsappInput(value: string) {
+  return value.replace(/\D/g, '').slice(0, 16);
+}
+
 function toUiRole(role: AdminUserRecord['role']): AdminUserRole {
   if (role === 'admin') return 'Admin';
   if (role === 'reseller') return 'Reseller';
@@ -146,6 +153,17 @@ export function UserManagementPage() {
       return;
     }
 
+    const email = draft.email.trim().toLowerCase();
+    const phone = sanitizeWhatsappInput(draft.phone);
+    if (email && !EMAIL_PATTERN.test(email)) {
+      setError('Email tidak valid. Gunakan format example@gmail.com.');
+      return;
+    }
+    if (phone && !WHATSAPP_PATTERN.test(phone)) {
+      setError('Nomor WhatsApp tidak valid. Gunakan format 08123456789 atau 628123456789.');
+      return;
+    }
+
     setSaving(true);
     setError('');
 
@@ -153,8 +171,8 @@ export function UserManagementPage() {
       username: draft.username.trim(),
       fullName: draft.fullName.trim(),
       role: toApiRole(draft.role),
-      email: draft.email.trim(),
-      phone: draft.phone.trim(),
+      email,
+      phone,
       saldo: Number(draft.balance),
       status: toApiStatus(draft.status),
       orders: Number(draft.orders),
@@ -494,17 +512,28 @@ export function UserManagementPage() {
                   <label className="block">
                     <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Nomor WA</span>
                     <input
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       value={draft.phone}
-                      onChange={(e) => setField('phone', e.target.value)}
+                      onChange={(e) => setField('phone', sanitizeWhatsappInput(e.target.value))}
+                      onPaste={(event) => {
+                        event.preventDefault();
+                        setField('phone', sanitizeWhatsappInput(event.clipboardData.getData('text')));
+                      }}
                       className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#0f0b15] px-4 py-3 text-sm text-white outline-none"
+                      placeholder="08123456789"
                     />
                   </label>
                   <label className="block">
                     <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Email</span>
                     <input
+                      type="email"
+                      inputMode="email"
                       value={draft.email}
-                      onChange={(e) => setField('email', e.target.value)}
+                      onChange={(e) => setField('email', e.target.value.replace(/\s/g, '').slice(0, 120))}
                       className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#0f0b15] px-4 py-3 text-sm text-white outline-none"
+                      placeholder="example@gmail.com"
                     />
                   </label>
                 </div>

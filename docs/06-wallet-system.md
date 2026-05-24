@@ -8,8 +8,8 @@ Wallet adalah otoritas saldo. Semua order dashboard, bot, auto order, dan API wa
 
 - `saldo_utama`: saldo aktif dan satu-satunya saldo yang dipakai untuk transaksi.
 - `saldo`: compatibility alias yang harus selalu disinkronkan dengan `saldo_utama`.
-- `locked_balance`: nilai lock bot/security legacy. Nilai ini tidak menjadi sumber saldo aktif.
-- `usable_balance`: respons kompatibilitas yang mengikuti `saldo_utama`.
+- `locked_balance`: saldo yang dikunci untuk akses bot/security dan tidak boleh dipakai transaksi biasa.
+- `usable_balance`: saldo yang bisa dipakai transaksi, dihitung sebagai `saldo_utama - locked_balance`.
 
 Sistem tidak boleh memakai `saldo_real` atau `saldo_tersedia` sebagai saldo aktif.
 

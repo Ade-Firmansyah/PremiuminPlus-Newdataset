@@ -4,14 +4,14 @@ Premiumin Plus adalah platform SaaS reseller/member untuk produk digital dengan 
 
 ## Fitur Utama
 
-- Admin dashboard: analytics, user management, product management, finance monitoring, withdraw approval, API settings, bot settings, activity logs.
+- Admin dashboard: analytics, user management, product management, finance monitoring, withdraw approval, markup rules, bot monitoring, notifications.
 - Reseller dashboard: analytics, product order, personal markup, QRIS deposit, withdraw request, bot settings, mutasi saldo, transaction history.
 - Member dashboard: buy product, direct QRIS payment when saldo is not enough, transaction history, account settings.
 - Finance safety: MySQL transaction, row locking, idempotent deposit success, saldo mutation audit.
 - Premku integration: `/pay`, `/pay_status`, `/cancel_pay`, `/products`, `/order`, `/status`, `/profile`.
 - UI theme: fixed Premiumin Plus dark neon theme. Light-mode toggle and theme persistence are intentionally removed for stability.
 - Notification management: admin can create, edit, delete, pin, and activate/deactivate notifications.
-- Realtime monitoring: lightweight polling refreshes admin/user dashboard data without Socket.IO overhead.
+- Realtime monitoring: backend WebSocket events plus guarded fallback polling keep dashboard updates lightweight.
 
 ## Local Installation
 
@@ -30,12 +30,19 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=root
 DB_NAME=apps_premhytam
-VITE_API_BASE_URL=http://localhost:4000/api
+WEB_CORE_URL=http://localhost:4000
+BOT_ENGINE_URL=http://localhost:4010
+BOT_ENGINE_PORT=4010
+VITE_API_BASE_URL=
+VITE_BOT_ENGINE_URL=
 ADMIN_WHATSAPP=6285888009931
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-this
 WHATSAPP_DELIVERY_WEBHOOK=
 WHATSAPP_DELIVERY_TOKEN=
+REALTIME_EMIT_DEBOUNCE_MS=1200
+VERBOSE_PREMKU_LOGS=false
+PREMIUMIN_AUTO_KILL_PORTS=true
 ```
 
 Start MySQL on this machine:
@@ -44,17 +51,46 @@ Start MySQL on this machine:
 net start MySQL97
 ```
 
-Run backend:
+Run all local services in one terminal:
+
+```powershell
+npm run all
+```
+
+`npm run all` akan mengecek port frontend, backend, dan bot-engine lebih dulu. Jika port dipakai oleh proses dev lama yang aman dikenali sebagai Node/npm/Vite/PremiuminPlus, proses lama dihentikan agar tidak muncul `EADDRINUSE :::4000`; set `PREMIUMIN_AUTO_KILL_PORTS=false` jika ingin mode konservatif.
+
+This starts:
+
+```text
+Frontend:   http://localhost:3000
+Backend:    http://localhost:4000
+Bot Engine: http://localhost:4010
+MySQL:      127.0.0.1:3306
+```
+
+Or run services separately:
 
 ```powershell
 npm run backend
-```
-
-Run frontend in another terminal:
-
-```powershell
+npm run bot
 npm run dev
 ```
+
+Semua script di atas memakai preflight port yang sama. Jika `4000`, `4010`, atau `3000` masih dipakai proses dev lama, launcher akan menghentikan proses lama yang aman dikenali dulu sebelum start ulang.
+
+Validate ports, health endpoints, and database:
+
+```powershell
+npm run doctor
+```
+
+Clean local runtime logs before packaging or moving to a VPS:
+
+```powershell
+npm run clean:runtime
+```
+
+This only removes known local log/error files. WhatsApp auth sessions in `bot-engine/sessions/` are kept on disk and ignored from source control so connected bots are not logged out during cleanup.
 
 Open:
 
@@ -62,7 +98,10 @@ Open:
 Frontend: http://localhost:3000
 Backend:  http://localhost:4000
 Health:   http://localhost:4000/health
+Bot:      http://localhost:4010/health
 ```
+
+For Android/iPhone/tablet testing on the same Wi-Fi, open the frontend with the PC/server IP, for example `http://192.168.1.10:3000`. Leave `VITE_API_BASE_URL` and `VITE_BOT_ENGINE_URL` empty, or keep localhost values; the frontend auto-rewrites localhost to the current host for LAN testing.
 
 ## Database And Migrations
 
@@ -103,8 +142,8 @@ Deposit QRIS:
 1. User inputs amount.
 2. Backend calls Premku `/pay`.
 3. Backend stores deposit with QR image, invoice, total amount, status, expiration.
-4. Frontend shows QRIS popup and polls every 10 seconds.
-5. Backend checks Premku `/pay_status`.
+4. Frontend shows QRIS popup and checks backend with a guarded interval.
+5. Backend checks Premku `/pay_status` through `PREMKU_PAY_STATUS_CACHE_MS` throttling, default 25 seconds per invoice.
 6. On success, backend locks deposit and user rows with `FOR UPDATE`.
 7. Backend updates `users.saldo`, inserts `transactions`, `saldo_logs`, `saldo_mutations`, and `activity_logs`.
 8. Duplicate success checks are ignored by `processed_at` and transaction locks.
@@ -116,7 +155,7 @@ Member direct QRIS order:
 2. If local saldo is insufficient, frontend asks whether to continue with QRIS.
 3. Backend creates a `payments` row and calls Premku `/pay`.
 4. Frontend shows QR base64, invoice, Premku `total_bayar`, pending badge, manual check, and cancel.
-5. Polling calls backend every 10 seconds.
+5. Payment status checks call backend with a guarded interval; backend throttles repeated Premku checks per invoice.
 6. On successful payment, backend locks the `payments` row and checks `processed_at`.
 7. If not processed yet, backend records a `payment` transaction, sends the order to Premku, saves an `order` transaction, and stores credentials in `orders`.
 8. If polling repeats after success, backend returns the existing order and does not duplicate payment/order.
@@ -131,10 +170,10 @@ WhatsApp delivery:
 
 Realtime admin monitoring:
 
-- Admin dashboard polls every 10 seconds.
-- User dashboard polls every 15 seconds.
+- Admin/user dashboards use backend WebSocket events with debounce and scoped refresh.
+- Payment/deposit fallback checks use guarded 20-30 second intervals.
 - Admin cards include recent orders, pending payments, and recent users.
-- This keeps Railway deployment lightweight without requiring Socket.IO.
+- This keeps deployment lightweight without excessive frontend keep-alive traffic.
 
 Withdraw:
 

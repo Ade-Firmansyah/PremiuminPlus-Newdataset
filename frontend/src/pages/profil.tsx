@@ -40,6 +40,7 @@ export default function Profil() {
       { label: 'Total Transaksi', value: summary?.total_transactions || 0, icon: BadgeCheck, tone: 'text-sky-300 bg-sky-500/10 ring-sky-500/20' },
       { label: 'Total Deposit', value: summary?.total_deposit_amount || 0, icon: Coins, tone: 'text-brand bg-brand/10 ring-brand/20' },
       { label: 'Total Belanja', value: summary?.total_spent || 0, icon: CreditCard, tone: 'text-amber-300 bg-amber-500/10 ring-amber-500/20' },
+      { label: 'Pendapatan', value: summary?.total_income || summary?.profit_income || 0, icon: Sparkles, tone: 'text-emerald-300 bg-emerald-500/10 ring-emerald-500/20' },
     ],
     [summary, user],
   );

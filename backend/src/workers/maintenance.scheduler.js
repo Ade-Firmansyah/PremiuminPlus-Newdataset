@@ -1,22 +1,158 @@
-import { execute } from '../config/db.js';
+import { execute, query } from '../config/db.js';
 import { logger } from '../utils/logger.js';
 import { publishStockChanged } from '../services/product-events.service.js';
+import { premkuCancelPay, premkuPayStatus } from '../services/premku.service.js';
+import { toMysqlDate } from '../utils/date.js';
+import { updateDepositStatus } from '../modules/deposit/deposit.service.js';
+import { syncPaymentStatusFromWebhook } from '../modules/payment/payment.service.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_RETENTION_DAYS = 7;
+const QR_EXPIRY_MS = 30 * 60 * 1000;
+let schedulerHandle = null;
+
+function normalizePayStatus(payload) {
+  const status = String(
+    payload?.pay_status ??
+      payload?.data?.pay_status ??
+      payload?.payment_status ??
+      payload?.data?.payment_status ??
+      payload?.transaction_status ??
+      payload?.data?.transaction_status ??
+      payload?.status_pembayaran ??
+      payload?.data?.status_pembayaran ??
+      payload?.status_bayar ??
+      payload?.data?.status_bayar ??
+      payload?.data?.status ??
+      (typeof payload?.status === 'string' ? payload.status : payload) ??
+      '',
+  ).toLowerCase();
+  if (['success', 'sukses', 'paid'].includes(status)) return 'success';
+  if (['canceled', 'cancelled', 'cancel'].includes(status)) return 'canceled';
+  if (['expired', 'expire'].includes(status)) return 'expired';
+  if (['failed', 'fail', 'gagal', 'error'].includes(status)) return 'failed';
+  return 'pending';
+}
+
+function nextExpiryFromNow() {
+  return toMysqlDate(new Date(Date.now() + QR_EXPIRY_MS));
+}
 
 async function markExpiredInvoices() {
-  await execute(
-    `UPDATE deposits
-     SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+  let expiredPaymentCount = 0;
+  const expiredDeposits = await query(
+    `SELECT invoice
+     FROM deposits
+     WHERE status = 'pending' AND expired_at IS NOT NULL AND expired_at < NOW()`,
+  );
+  const expiredPaymentRows = await query(
+    `SELECT invoice
+     FROM payments
      WHERE status = 'pending' AND expired_at IS NOT NULL AND expired_at < NOW()`,
   );
 
-  const expiredPayments = await execute(
-    `UPDATE payments
-     SET status = 'expired', updated_at = CURRENT_TIMESTAMP
-     WHERE status = 'pending' AND expired_at IS NOT NULL AND expired_at < NOW()`,
-  );
+  for (const item of expiredDeposits) {
+    let statusResponse = null;
+    let nextStatus = 'pending';
+    try {
+      statusResponse = await premkuPayStatus(item.invoice);
+      nextStatus = normalizePayStatus(statusResponse);
+    } catch (error) {
+      logger('ERROR', {
+        task: 'maintenance',
+        type: 'premku_pay_status_failed',
+        invoice: item.invoice,
+        message: error instanceof Error ? error.message : 'Premku pay_status failed',
+      });
+      continue;
+    }
+
+    if (nextStatus === 'success') {
+      await updateDepositStatus(item.invoice, 'success', statusResponse);
+      continue;
+    }
+
+    if (nextStatus === 'pending') {
+      await execute(
+        `UPDATE deposits
+         SET status = 'pending', expired_at = ?, external_status_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+         WHERE invoice = ? AND status = 'pending'`,
+        [nextExpiryFromNow(), JSON.stringify({ ...statusResponse, message: 'Premku masih menunggu pembayaran; expiry lokal diperpanjang' }), item.invoice],
+      );
+      continue;
+    }
+
+    try {
+      await premkuCancelPay(item.invoice);
+    } catch (error) {
+      logger('ERROR', {
+        task: 'maintenance',
+        type: 'premku_cancel_pay_failed',
+        invoice: item.invoice,
+        message: error instanceof Error ? error.message : 'Premku cancel_pay failed',
+      });
+    }
+
+    await execute(
+      `UPDATE deposits
+       SET status = ?, external_status_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+       WHERE invoice = ? AND status = 'pending'`,
+      [nextStatus, JSON.stringify(statusResponse ?? null), item.invoice],
+    );
+  }
+
+  for (const item of expiredPaymentRows) {
+    let statusResponse = null;
+    let nextStatus = 'pending';
+    try {
+      statusResponse = await premkuPayStatus(item.invoice);
+      nextStatus = normalizePayStatus(statusResponse);
+    } catch (error) {
+      logger('ERROR', {
+        task: 'maintenance',
+        type: 'premku_pay_status_failed',
+        invoice: item.invoice,
+        message: error instanceof Error ? error.message : 'Premku pay_status failed',
+      });
+      continue;
+    }
+
+    if (nextStatus === 'success') {
+      await syncPaymentStatusFromWebhook(item.invoice, statusResponse);
+      continue;
+    }
+
+    if (nextStatus === 'pending') {
+      await execute(
+        `UPDATE payments
+         SET status = 'pending', expired_at = ?, status_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+         WHERE invoice = ? AND status = 'pending'`,
+        [nextExpiryFromNow(), JSON.stringify({ ...statusResponse, message: 'Premku masih menunggu pembayaran; expiry lokal diperpanjang' }), item.invoice],
+      );
+      continue;
+    }
+
+    try {
+      await premkuCancelPay(item.invoice);
+    } catch (error) {
+      logger('ERROR', {
+        task: 'maintenance',
+        type: 'premku_cancel_pay_failed',
+        invoice: item.invoice,
+        message: error instanceof Error ? error.message : 'Premku cancel_pay failed',
+      });
+    }
+
+    await execute(
+      `UPDATE payments
+       SET status = ?, status_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+       WHERE invoice = ? AND status = 'pending'`,
+      [nextStatus, JSON.stringify(statusResponse ?? null), item.invoice],
+    );
+    expiredPaymentCount += 1;
+  }
+
+  const expiredPayments = { affectedRows: expiredPaymentCount };
 
   if (expiredPayments?.affectedRows) {
     await execute(
@@ -213,6 +349,8 @@ export async function runMaintenanceOnce(retentionDays = DEFAULT_RETENTION_DAYS)
 }
 
 export function startMaintenanceScheduler({ intervalMs = HOUR_MS, retentionDays = DEFAULT_RETENTION_DAYS } = {}) {
+  if (schedulerHandle) return schedulerHandle;
+
   runMaintenanceOnce(retentionDays).catch((error) => {
     logger('ERROR', { task: 'maintenance', message: error instanceof Error ? error.message : 'maintenance failed' });
   });
@@ -224,5 +362,15 @@ export function startMaintenanceScheduler({ intervalMs = HOUR_MS, retentionDays 
   }, intervalMs);
 
   timer.unref?.();
-  return timer;
+  schedulerHandle = {
+    stop() {
+      clearInterval(timer);
+      schedulerHandle = null;
+    },
+  };
+  return schedulerHandle;
+}
+
+export function stopMaintenanceScheduler() {
+  schedulerHandle?.stop();
 }

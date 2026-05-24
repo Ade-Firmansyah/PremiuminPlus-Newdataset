@@ -31,8 +31,8 @@ In-memory TTL cache:
 
 - Products: 15 seconds per user/role markup context.
 - Premku product sync guard: 60 seconds.
-- Deposit status guard: 5 seconds.
-- Payment status guard: 5 seconds.
+- Deposit/payment status guard: `PREMKU_PAY_STATUS_CACHE_MS`, default 25 seconds per invoice.
+- Provider order status guard: `PREMKU_ORDER_STATUS_CACHE_MS`, default 30 seconds per invoice.
 
 For multi-instance deployment, move `cache.service.js` to Redis.
 

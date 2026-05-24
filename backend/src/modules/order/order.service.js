@@ -6,15 +6,16 @@ import { updateOrderDelivery, upsertOrderRecord } from '../../repositories/order
 import { execute, transaction as dbTransaction } from '../../config/db.js';
 import { calculateRoleSellPrice } from '../../services/pricing.service.js';
 import { premkuOrder, premkuStatus } from '../../services/premku.service.js';
-import { addSaldo, deductSaldo, getSaldoUtama } from '../../services/wallet.service.js';
+import { addSaldo, deductSaldo, getSaldoUtama, getUsableBalance } from '../../services/wallet.service.js';
 import { sendOrderDelivery, validateWhatsapp } from '../../services/delivery.service.js';
 import { publishUserRefresh } from '../../services/realtime.service.js';
 import { publishStockChanged } from '../../services/product-events.service.js';
+import { deleteCache, getCache, setCache } from '../../services/cache.service.js';
 import { createInvoice } from '../../utils/invoice.js';
+import { toMysqlDate } from '../../utils/date.js';
+import env from '../../config/env.js';
 
-function toMysqlDate(value = new Date()) {
-  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
-}
+const ORDER_STATUS_CACHE_MS = env.PREMKU_ORDER_STATUS_CACHE_MS;
 
 async function roleSellPrice(product, user = {}) {
   const setting = await getMarkupSetting();
@@ -80,6 +81,10 @@ export async function refreshOrderStatus(invoice) {
     return transaction;
   }
 
+  const cacheKey = `order-status:${invoice}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
   const externalInvoice = transaction.external_order_response?.invoice || transaction.external_order_response?.data?.invoice || invoice;
   const statusResponse = await premkuStatus(externalInvoice);
   const nextStatus = mapPremkuStatus(statusResponse);
@@ -95,6 +100,7 @@ export async function refreshOrderStatus(invoice) {
     const refunded = await refundTransaction(invoice, statusResponse, 'premku-status-failed');
     publishUserRefresh(transaction.user_id, 'order_updated', { scope: 'order', entity: 'order', id: invoice });
     publishUserRefresh(transaction.user_id, 'wallet_updated', { scope: 'wallet', entity: 'saldo', id: invoice });
+    deleteCache(cacheKey);
     return refunded;
   }
 
@@ -119,7 +125,7 @@ export async function refreshOrderStatus(invoice) {
       const delivery = await sendOrderDelivery(orderRecord);
       await updateOrderDelivery(invoice, {
         delivery_status: delivery.status,
-        delivery_time: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        delivery_time: toMysqlDate(),
         target_whatsapp: orderRecord.target_whatsapp,
       });
     }
@@ -127,6 +133,7 @@ export async function refreshOrderStatus(invoice) {
 
   const updated = await updateTransactionStatus(invoice, nextStatus, extra);
   publishUserRefresh(transaction.user_id, 'order_updated', { scope: 'order', entity: 'order', id: invoice });
+  setCache(cacheKey, updated, nextStatus === 'success' || nextStatus === 'failed' ? 5000 : ORDER_STATUS_CACHE_MS);
   return updated;
 }
 
@@ -186,17 +193,20 @@ export async function createOrder(user, payload) {
     }
   }
 
-  if (getSaldoUtama(user) < total) {
+  if (getUsableBalance(user) < total) {
     const error = new Error(user.role === 'reseller' ? 'Saldo reseller tidak cukup.' : 'Saldo tidak cukup. QRIS langsung tersedia untuk member.');
     error.statusCode = 402;
     error.code = user.role === 'member' ? 'MEMBER_DIRECT_QRIS_AVAILABLE' : 'INSUFFICIENT_RESELLER_BALANCE';
     throw error;
   }
 
-  await deductSaldo(user, total, invoice, 'Pemotongan saldo untuk order');
   let transaction = null;
+  let debited = false;
 
   try {
+    await deductSaldo(user, total, invoice, 'Pemotongan saldo untuk order');
+    debited = true;
+
     transaction = await createTransaction({
       invoice,
       ref_id: invoice,
@@ -271,18 +281,20 @@ export async function createOrder(user, payload) {
         const delivery = await sendOrderDelivery(orderRecord);
         await updateOrderDelivery(invoice, {
           delivery_status: delivery.status,
-          delivery_time: ['sent', 'manual_pending', 'failed'].includes(delivery.status) ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
+          delivery_time: ['sent', 'manual_pending', 'failed'].includes(delivery.status) ? toMysqlDate() : null,
           target_whatsapp: targetWhatsapp || null,
         });
       }
     }
   } catch (error) {
-    await addSaldo(user, total, `${invoice || localInvoice}-refund`);
     if (transaction) {
-      await updateTransactionStatus(invoice, 'failed', {
-        external_order_response: { message: error instanceof Error ? error.message : 'Premku order call failed' },
-        refund_at: new Date().toISOString(),
-      });
+      await refundTransaction(
+        invoice,
+        { message: error instanceof Error ? error.message : 'Premku order call failed' },
+        'order-provider-failed-auto-refund',
+      );
+    } else if (debited) {
+      await addSaldo(user, total, `${invoice || localInvoice}-refund`, 'Refund order gagal sebelum transaksi tercatat', 'refund');
     }
     throw error;
   }
@@ -327,7 +339,7 @@ async function createManualOrder({ user, product, total, sellPrice, invoice, tar
     }
 
     const before = getSaldoUtama(currentUser);
-    if (before < total) {
+    if (getUsableBalance(currentUser) < total) {
       const error = new Error(user.role === 'reseller' ? 'Saldo reseller tidak cukup.' : 'Saldo tidak cukup. QRIS langsung tersedia untuk member.');
       error.statusCode = 402;
       error.code = user.role === 'member' ? 'MEMBER_DIRECT_QRIS_AVAILABLE' : 'INSUFFICIENT_RESELLER_BALANCE';

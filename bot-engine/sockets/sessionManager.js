@@ -113,7 +113,7 @@ export class SessionManager {
   async cleanup(sessionId, status = 'disconnected') {
     const session = this.sessions.get(String(sessionId));
     if (!session) return;
-    for (const timer of session.paymentLocks.values()) clearInterval(timer);
+    for (const lock of session.paymentLocks.values()) clearInterval(lock?.timer || lock);
     session.paymentLocks.clear();
     session.queue.clear();
     session.sock.ev.removeAllListeners('connection.update');
@@ -144,6 +144,12 @@ export class SessionManager {
   stopSessionPruner() {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
     this.cleanupTimer = null;
+  }
+
+  async shutdownAll(status = 'disconnected') {
+    this.stopSessionPruner();
+    const ids = Array.from(this.sessions.keys());
+    await Promise.allSettled(ids.map((sessionId) => this.cleanup(sessionId, status)));
   }
 
   async pruneAllSessions() {
@@ -177,7 +183,7 @@ export class SessionManager {
     let removed = 0;
     const keepNames = new Set(['creds.json']);
     const keepPrefixes = ['app-state-sync-key-', 'app-state-sync-version-', 'identity-key-'];
-    const prunePrefixes = ['device-list-', 'lid-mapping-', 'pre-key-', 'sender-key-', 'session-', 'tctoken-'];
+    const prunePrefixes = ['device-list-', 'lid-mapping-', 'pre-key-', 'sender-key-', 'tctoken-'];
 
     for (const file of files) {
       if (!file.isFile()) continue;

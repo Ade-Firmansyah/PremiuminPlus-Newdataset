@@ -48,9 +48,9 @@ export function AdminDashboardHome() {
     void load();
     const unsubscribe = subscribeCoreRealtime((payload) => {
       if (!active) return;
-      if (['wallet_updated', 'deposit_updated', 'payment_updated', 'order_updated'].includes(String(payload.type))) {
+      if (['wallet_updated', 'deposit_updated', 'payment_updated', 'order_updated', 'wallet.updated', 'finance.updated', 'dashboard.updated', 'profit.updated', 'transaction.updated', 'analytics.updated'].includes(String(payload.type))) {
         window.clearTimeout(debounceTimer);
-        debounceTimer = window.setTimeout(() => void load(true), 350);
+        debounceTimer = window.setTimeout(() => void load(true), 1200);
       }
     });
 
@@ -64,7 +64,9 @@ export function AdminDashboardHome() {
   const cards = [
     { label: 'Total Users', value: formatNumber(summary.total_users), icon: Users, hint: `${formatNumber(summary.active_resellers)} reseller aktif` },
     { label: 'Revenue', value: formatCurrency(summary.total_revenue), icon: TrendingUp, hint: 'Transaksi processing dan success' },
+    { label: 'Modal Provider', value: formatCurrency(summary.total_provider_cost || 0), icon: ReceiptText, hint: 'Modal asli pembelian provider' },
     { label: 'Profit System', value: formatCurrency(summary.system_profit), icon: ReceiptText, hint: `${formatNumber(summary.total_transactions)} transaksi` },
+    { label: 'Profit User', value: formatCurrency(summary.total_user_profit || 0), icon: TrendingUp, hint: `${formatCurrency(summary.reseller_profit || 0)} reseller` },
     { label: 'Saldo Reseller', value: formatCurrency(summary.total_reseller_balance), icon: WalletCards, hint: 'Liabilitas saldo aktif' },
     { label: 'Pending WD', value: formatCurrency(summary.pending_withdraw), icon: Banknote, hint: `${formatNumber(summary.pending_withdraw_count)} tiket menunggu` },
     { label: 'System Health', value: loading ? 'Loading' : 'Online', icon: Activity, hint: 'Backend dan MySQL aktif' },

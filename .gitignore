@@ -4,5 +4,19 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.err
+*.tmp
 .env*
 !.env.example
+
+# Runtime-only state. Keep these on the server, never in source control.
+bot-engine/sessions/
+bot-engine/auth/
+
+# Local tool/cache output
+.vite/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

@@ -17,6 +17,10 @@ const pool = mysql.createPool({
 
 let initPromise = null;
 
+function logSystem(message) {
+  if (env.VERBOSE_SYSTEM_LOGS) console.log(`[BOT] ${message}`);
+}
+
 async function ensureDatabaseExists() {
   const connection = await mysql.createConnection({
     host: env.DB_HOST,
@@ -32,7 +36,7 @@ async function ensureDatabaseExists() {
     if (!canContinueWithExistingDatabase) {
       throw error;
     }
-    console.warn('[SYSTEM] Database create skipped; using configured Railway/MySQL database');
+    logSystem('Database create skipped; using configured Railway/MySQL database');
   } finally {
     await connection.end();
   }
@@ -81,6 +85,10 @@ export async function transaction(handler) {
   }
 }
 
+export async function closePool() {
+  await pool.end();
+}
+
 function ensureTableStatements() {
   return [
     `CREATE TABLE IF NOT EXISTS users (
@@ -106,6 +114,8 @@ function ensureTableStatements() {
       role ENUM('admin', 'reseller', 'member') NOT NULL DEFAULT 'member',
       status ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
       token_version INT NOT NULL DEFAULT 1,
+      last_password_reset_at DATETIME NULL,
+      password_reset_count INT NOT NULL DEFAULT 0,
       last_login_at TIMESTAMP NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -208,6 +218,24 @@ function ensureTableStatements() {
       price_sell BIGINT NOT NULL DEFAULT 0,
       total_price BIGINT NOT NULL DEFAULT 0,
       profit BIGINT NOT NULL DEFAULT 0,
+      provider_price BIGINT NOT NULL DEFAULT 0,
+      user_markup BIGINT NOT NULL DEFAULT 0,
+      admin_markup BIGINT NOT NULL DEFAULT 0,
+      final_price BIGINT NOT NULL DEFAULT 0,
+      reseller_profit BIGINT NOT NULL DEFAULT 0,
+      platform_profit BIGINT NOT NULL DEFAULT 0,
+      gross_amount BIGINT NOT NULL DEFAULT 0,
+      provider_cost BIGINT NOT NULL DEFAULT 0,
+      user_profit BIGINT NOT NULL DEFAULT 0,
+      admin_profit BIGINT NOT NULL DEFAULT 0,
+      final_amount BIGINT NOT NULL DEFAULT 0,
+      payment_amount BIGINT NOT NULL DEFAULT 0,
+      net_amount BIGINT NOT NULL DEFAULT 0,
+      role_price BIGINT NOT NULL DEFAULT 0,
+      bot_markup BIGINT NOT NULL DEFAULT 0,
+      bot_markup_profit BIGINT NOT NULL DEFAULT 0,
+      gross_income BIGINT NOT NULL DEFAULT 0,
+      net_profit BIGINT NOT NULL DEFAULT 0,
       status ENUM('pending', 'processing', 'success', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
       account_data JSON NULL,
       external_order_response JSON NULL,
@@ -243,7 +271,7 @@ function ensureTableStatements() {
     `CREATE TABLE IF NOT EXISTS saldo_mutations (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
-      mutation_type ENUM('deposit', 'order', 'withdraw', 'adjustment', 'refund') NOT NULL,
+      mutation_type ENUM('deposit', 'payment_in', 'provider_purchase', 'profit_income', 'bot_profit', 'order', 'withdraw', 'adjustment', 'refund', 'bot_activation', 'locked_balance', 'unlock_balance') NOT NULL,
       amount BIGINT NOT NULL,
       balance_before BIGINT NOT NULL,
       balance_after BIGINT NOT NULL,
@@ -287,6 +315,9 @@ function ensureTableStatements() {
       product_id INT NULL,
       qty INT NOT NULL DEFAULT 1,
       target_whatsapp VARCHAR(30) NULL,
+      role_price BIGINT NOT NULL DEFAULT 0,
+      bot_markup BIGINT NOT NULL DEFAULT 0,
+      final_price BIGINT NOT NULL DEFAULT 0,
       order_invoice VARCHAR(80) NULL,
       reserved_manual_account_id INT NULL,
       raw_response JSON NULL,
@@ -335,12 +366,33 @@ function ensureTableStatements() {
       amount BIGINT NOT NULL,
       status ENUM('pending', 'approved', 'rejected', 'paid') NOT NULL DEFAULT 'pending',
       bank_account VARCHAR(120) NULL,
+      account_number VARCHAR(80) NULL,
+      account_name VARCHAR(120) NULL,
+      withdraw_method ENUM('BRI', 'SEABANK', 'GOPAY', 'SHOPEEPAY') NULL,
+      fee BIGINT NOT NULL DEFAULT 0,
+      net_amount BIGINT NOT NULL DEFAULT 0,
       notes TEXT NULL,
+      processed_at DATETIME NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id),
       INDEX idx_withdraws_user_id (user_id),
       INDEX idx_withdraws_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    `CREATE TABLE IF NOT EXISTS bot_template_settings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL UNIQUE,
+      active_theme ENUM('theme_1', 'theme_2', 'theme_3', 'theme_4', 'theme_5') NOT NULL DEFAULT 'theme_1',
+      store_name VARCHAR(120) NULL,
+      opening_hour VARCHAR(20) NOT NULL DEFAULT '08.00',
+      closing_hour VARCHAR(20) NOT NULL DEFAULT '22.00',
+      admin_whatsapp VARCHAR(30) NULL,
+      footer_text VARCHAR(180) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_bot_template_settings_user_id (user_id),
+      INDEX idx_bot_template_settings_theme (active_theme)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
     `CREATE TABLE IF NOT EXISTS webhook_logs (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -412,7 +464,10 @@ async function ensureSchema(connection) {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_role VARCHAR(40) NOT NULL DEFAULT 'personal'`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_session_status ENUM('disconnected', 'connecting', 'qr', 'connected', 'logged_out', 'error') NOT NULL DEFAULT 'disconnected'`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 1`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_password_reset_at DATETIME NULL`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_count INT NOT NULL DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS theme ENUM('dark', 'light') NOT NULL DEFAULT 'dark'`,
+    `UPDATE users SET last_login_at = NULL WHERE CAST(last_login_at AS CHAR) = '0000-00-00 00:00:00'`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS note TEXT NULL`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(120) NULL`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS tag VARCHAR(80) NULL`,
@@ -483,6 +538,25 @@ async function ensureSchema(connection) {
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS product_image TEXT NULL`,
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS description TEXT NULL`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS provider_price BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_markup BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS admin_markup BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS final_price BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reseller_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS platform_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS gross_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS provider_cost BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS admin_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS final_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS role_price BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS bot_markup BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS bot_markup_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS gross_income BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_profit BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE saldo_mutations MODIFY COLUMN mutation_type ENUM('deposit', 'payment_in', 'provider_purchase', 'profit_income', 'bot_profit', 'order', 'withdraw', 'adjustment', 'refund', 'bot_activation', 'locked_balance', 'unlock_balance') NOT NULL`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS external_response JSON NULL`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS external_status_response JSON NULL`,
     `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
@@ -493,6 +567,9 @@ async function ensureSchema(connection) {
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS product_id INT NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS total_bayar BIGINT NOT NULL DEFAULT 0`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS target_whatsapp VARCHAR(30) NULL`,
+    `ALTER TABLE payments ADD COLUMN IF NOT EXISTS role_price BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE payments ADD COLUMN IF NOT EXISTS bot_markup BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE payments ADD COLUMN IF NOT EXISTS final_price BIGINT NOT NULL DEFAULT 0`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS qty INT NOT NULL DEFAULT 1`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS qr_raw LONGTEXT NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS order_invoice VARCHAR(80) NULL`,
@@ -502,6 +579,19 @@ async function ensureSchema(connection) {
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS expired_at DATETIME NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceled_at DATETIME NULL`,
     `ALTER TABLE payments ADD COLUMN IF NOT EXISTS reserved_manual_account_id INT NULL`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS account_number VARCHAR(80) NULL`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS account_name VARCHAR(120) NULL`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS withdraw_method ENUM('BRI', 'SEABANK', 'GOPAY', 'SHOPEEPAY') NULL`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS fee BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS net_amount BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE withdraws ADD COLUMN IF NOT EXISTS processed_at DATETIME NULL`,
+    `ALTER TABLE withdraws MODIFY COLUMN status ENUM('pending', 'approved', 'rejected', 'paid') NOT NULL DEFAULT 'pending'`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS active_theme ENUM('theme_1', 'theme_2', 'theme_3', 'theme_4', 'theme_5') NOT NULL DEFAULT 'theme_1'`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS store_name VARCHAR(120) NULL`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS opening_hour VARCHAR(20) NOT NULL DEFAULT '08.00'`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS closing_hour VARCHAR(20) NOT NULL DEFAULT '22.00'`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS admin_whatsapp VARCHAR(30) NULL`,
+    `ALTER TABLE bot_template_settings ADD COLUMN IF NOT EXISTS footer_text VARCHAR(180) NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_invoice VARCHAR(80) NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id INT NULL`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS target_whatsapp VARCHAR(30) NULL`,
@@ -547,6 +637,7 @@ async function ensurePerformanceIndexes(connection) {
     ['produk_stock_manual', 'idx_manual_stock_product_id_status', 'CREATE INDEX idx_manual_stock_product_id_status ON produk_stock_manual (product_id, status)'],
     ['product_credentials', 'idx_product_credentials_product_status', 'CREATE INDEX idx_product_credentials_product_status ON product_credentials (product_id, status)'],
     ['products', 'idx_products_source_visible', 'CREATE INDEX idx_products_source_visible ON products (product_source, is_visible, status)'],
+    ['bot_template_settings', 'idx_bot_template_settings_theme', 'CREATE INDEX idx_bot_template_settings_theme ON bot_template_settings (active_theme)'],
     ['activity_logs', 'idx_activity_logs_retention', 'CREATE INDEX idx_activity_logs_retention ON activity_logs (scope, created_at)'],
     ['webhook_logs', 'idx_webhook_logs_retention', 'CREATE INDEX idx_webhook_logs_retention ON webhook_logs (created_at)'],
   ];
@@ -598,6 +689,8 @@ async function ensureCanonicalSchema(connection) {
     ['users', 'theme', "`theme` ENUM('dark', 'light') NOT NULL DEFAULT 'dark'"],
     ['users', 'created_at', '`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'],
     ['users', 'token_version', '`token_version` INT NOT NULL DEFAULT 1'],
+    ['users', 'last_password_reset_at', '`last_password_reset_at` DATETIME NULL'],
+    ['users', 'password_reset_count', '`password_reset_count` INT NOT NULL DEFAULT 0'],
 
     ['products', 'name', '`name` VARCHAR(150) NOT NULL DEFAULT ""'],
     ['products', 'slug', '`slug` VARCHAR(120) NULL'],
@@ -656,6 +749,24 @@ async function ensureCanonicalSchema(connection) {
     ['transactions', 'amount', '`amount` BIGINT NOT NULL DEFAULT 0'],
     ['transactions', 'total_price', '`total_price` BIGINT NOT NULL DEFAULT 0'],
     ['transactions', 'profit', '`profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'provider_price', '`provider_price` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'user_markup', '`user_markup` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'admin_markup', '`admin_markup` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'final_price', '`final_price` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'reseller_profit', '`reseller_profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'platform_profit', '`platform_profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'gross_amount', '`gross_amount` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'provider_cost', '`provider_cost` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'user_profit', '`user_profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'admin_profit', '`admin_profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'final_amount', '`final_amount` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'payment_amount', '`payment_amount` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'net_amount', '`net_amount` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'role_price', '`role_price` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'bot_markup', '`bot_markup` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'bot_markup_profit', '`bot_markup_profit` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'gross_income', '`gross_income` BIGINT NOT NULL DEFAULT 0'],
+    ['transactions', 'net_profit', '`net_profit` BIGINT NOT NULL DEFAULT 0'],
     ['transactions', 'invoice', '`invoice` VARCHAR(80) NOT NULL UNIQUE'],
     ['transactions', 'status', "`status` ENUM('pending', 'processing', 'success', 'failed', 'refunded') NOT NULL DEFAULT 'pending'"],
     ['transactions', 'created_at', '`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'],
@@ -683,11 +794,31 @@ async function ensureCanonicalSchema(connection) {
     ['payments', 'product_id', '`product_id` INT NULL'],
     ['payments', 'qty', '`qty` INT NOT NULL DEFAULT 1'],
     ['payments', 'target_whatsapp', '`target_whatsapp` VARCHAR(30) NULL'],
+    ['payments', 'role_price', '`role_price` BIGINT NOT NULL DEFAULT 0'],
+    ['payments', 'bot_markup', '`bot_markup` BIGINT NOT NULL DEFAULT 0'],
+    ['payments', 'final_price', '`final_price` BIGINT NOT NULL DEFAULT 0'],
     ['payments', 'order_invoice', '`order_invoice` VARCHAR(80) NULL'],
     ['payments', 'reserved_manual_account_id', '`reserved_manual_account_id` INT NULL'],
     ['payments', 'raw_response', '`raw_response` JSON NULL'],
     ['payments', 'status_response', '`status_response` JSON NULL'],
     ['payments', 'processed_at', '`processed_at` DATETIME NULL'],
+    ['withdraws', 'account_number', '`account_number` VARCHAR(80) NULL'],
+    ['withdraws', 'account_name', '`account_name` VARCHAR(120) NULL'],
+    ['withdraws', 'withdraw_method', "`withdraw_method` ENUM('BRI', 'SEABANK', 'GOPAY', 'SHOPEEPAY') NULL"],
+    ['withdraws', 'fee', '`fee` BIGINT NOT NULL DEFAULT 0'],
+    ['withdraws', 'net_amount', '`net_amount` BIGINT NOT NULL DEFAULT 0'],
+    ['withdraws', 'processed_at', '`processed_at` DATETIME NULL'],
+    ['withdraws', 'status', "`status` ENUM('pending', 'approved', 'rejected', 'paid') NOT NULL DEFAULT 'pending'"],
+
+    ['bot_template_settings', 'user_id', '`user_id` INT NOT NULL UNIQUE'],
+    ['bot_template_settings', 'active_theme', "`active_theme` ENUM('theme_1', 'theme_2', 'theme_3', 'theme_4', 'theme_5') NOT NULL DEFAULT 'theme_1'"],
+    ['bot_template_settings', 'store_name', '`store_name` VARCHAR(120) NULL'],
+    ['bot_template_settings', 'opening_hour', "`opening_hour` VARCHAR(20) NOT NULL DEFAULT '08.00'"],
+    ['bot_template_settings', 'closing_hour', "`closing_hour` VARCHAR(20) NOT NULL DEFAULT '22.00'"],
+    ['bot_template_settings', 'admin_whatsapp', '`admin_whatsapp` VARCHAR(30) NULL'],
+    ['bot_template_settings', 'footer_text', '`footer_text` VARCHAR(180) NULL'],
+    ['bot_template_settings', 'created_at', '`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'],
+    ['bot_template_settings', 'updated_at', '`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
 
     ['orders', 'user_id', '`user_id` INT NOT NULL'],
     ['orders', 'role', "`role` ENUM('admin', 'reseller', 'member') NOT NULL DEFAULT 'member'"],
@@ -707,7 +838,7 @@ async function ensureCanonicalSchema(connection) {
     ['orders', 'total_price', '`total_price` BIGINT NOT NULL DEFAULT 0'],
 
     ['saldo_mutations', 'user_id', '`user_id` INT NOT NULL'],
-    ['saldo_mutations', 'mutation_type', "`mutation_type` ENUM('deposit', 'order', 'withdraw', 'adjustment', 'refund') NOT NULL"],
+    ['saldo_mutations', 'mutation_type', "`mutation_type` ENUM('deposit', 'payment_in', 'provider_purchase', 'profit_income', 'bot_profit', 'order', 'withdraw', 'adjustment', 'refund', 'bot_activation', 'locked_balance', 'unlock_balance') NOT NULL"],
     ['saldo_mutations', 'balance_before', '`balance_before` BIGINT NOT NULL DEFAULT 0'],
     ['saldo_mutations', 'balance_after', '`balance_after` BIGINT NOT NULL DEFAULT 0'],
     ['saldo_mutations', 'amount', '`amount` BIGINT NOT NULL DEFAULT 0'],
@@ -734,12 +865,12 @@ async function ensureCanonicalSchema(connection) {
     ['notifications', 'created_at', '`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'],
   ];
 
-  console.log('[SYSTEM] Checking database schema...');
+  logSystem('Checking database schema...');
   let repaired = false;
   for (const [table, column, definition] of requiredColumns) {
     const exists = await columnExists(connection, table, column);
     if (!exists) {
-      console.log(`[SYSTEM] Missing column detected: ${column}`);
+      logSystem(`Missing column detected: ${column}`);
       await ensureColumn(connection, table, column, definition);
       repaired = true;
     }
@@ -982,9 +1113,9 @@ async function ensureCanonicalSchema(connection) {
   );
 
   if (repaired) {
-    console.log('[SYSTEM] Auto repaired schema');
+    logSystem('Auto repaired schema');
   }
-  console.log('[SYSTEM] Database synchronized');
+  logSystem('Database synchronized');
 }
 
 async function seedDefaults(connection) {

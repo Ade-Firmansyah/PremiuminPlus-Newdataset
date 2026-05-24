@@ -1,4 +1,5 @@
 import { execute, query, parseDbJson } from '../config/db.js';
+import env from '../config/env.js';
 
 function toActivity(row) {
   if (!row) return null;
@@ -8,6 +9,8 @@ function toActivity(row) {
     user_id: row.user_id || row.actor_id || null,
     scope: row.scope,
     message: row.message,
+    activity: row.activity || row.message,
+    ip_address: row.ip_address || '',
     metadata: parseDbJson(row.metadata, null),
     created_at: row.created_at,
   };
@@ -25,10 +28,12 @@ export async function safeCreateActivityLog(payload) {
   try {
     await createActivityLog(payload);
   } catch (error) {
-    console.warn('[SYSTEM]', {
-      message: 'Activity log skipped',
-      error: error instanceof Error ? error.message : 'unknown error',
-    });
+    if (env.VERBOSE_SYSTEM_LOGS) {
+      console.warn('[ERROR]', {
+        message: 'Activity log skipped',
+        error: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
   }
 }
 

@@ -1,7 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { premiuminApi } from './services/api';
 import { clearApiKey, saveApiKey, saveToken } from './store/useAuth';
+import { closeAllSockets } from './services/socketManager';
+import { clearWebSessionStorage, getLastWebActivityAt, isWebSessionExpired, touchWebActivity } from './services/webSession';
 
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
@@ -29,6 +31,11 @@ const sessionKey = 'premiuminplus:session';
 const rememberedUserKey = 'premiuminplus:remembered-user';
 
 function loadSession(): Session | null {
+  if (isWebSessionExpired()) {
+    clearWebSessionStorage();
+    return null;
+  }
+
   const raw = localStorage.getItem(sessionKey) || sessionStorage.getItem(sessionKey);
   if (!raw) {
     return null;
@@ -81,6 +88,23 @@ function RouteFallback() {
 export default function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   const rememberedUsername = useMemo(() => localStorage.getItem(rememberedUserKey) || '', []);
+  const logoutInFlightRef = useRef(false);
+
+  const handleLogout = useCallback(async (reason = 'manual', remote = true) => {
+    if (logoutInFlightRef.current) return;
+    logoutInFlightRef.current = true;
+    try {
+      if (remote) {
+        await premiuminApi.logout(reason).catch(() => null);
+      }
+    } finally {
+      closeAllSockets();
+      clearWebSessionStorage();
+      clearApiKey();
+      setSession(null);
+      logoutInFlightRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     const theme = session?.theme === 'light' ? 'light' : 'dark';
@@ -114,13 +138,54 @@ export default function App() {
       })
       .catch(() => {
         if (!active) return;
-        handleLogout();
+        void handleLogout('auth_check_failed', false);
       });
 
     return () => {
       active = false;
     };
-  }, [session?.apiKey, session?.token]);
+  }, [handleLogout, session?.apiKey, session?.token]);
+
+  useEffect(() => {
+    if (!session) return undefined;
+
+    const storage = session.remember ? localStorage : sessionStorage;
+    if (!getLastWebActivityAt()) touchWebActivity(storage);
+
+    let lastTouchAt = 0;
+    const markActive = () => {
+      const now = Date.now();
+      if (now - lastTouchAt < 30000) return;
+      lastTouchAt = now;
+      touchWebActivity(storage);
+    };
+    const checkIdle = () => {
+      if (isWebSessionExpired()) void handleLogout('idle_timeout');
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') checkIdle();
+    };
+    const handleAuthExpired = () => void handleLogout('session_expired', false);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === sessionKey && !event.newValue) void handleLogout('session_cleared', false);
+    };
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'focus'];
+    for (const eventName of events) window.addEventListener(eventName, markActive, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('premiuminplus:auth-expired', handleAuthExpired);
+    window.addEventListener('storage', handleStorage);
+    const timer = window.setInterval(checkIdle, 15000);
+    checkIdle();
+
+    return () => {
+      for (const eventName of events) window.removeEventListener(eventName, markActive);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('premiuminplus:auth-expired', handleAuthExpired);
+      window.removeEventListener('storage', handleStorage);
+      window.clearInterval(timer);
+    };
+  }, [handleLogout, session?.apiKey, session?.remember]);
 
   // Komponen ini menyimpan hasil login di localStorage atau sessionStorage sesuai checkbox.
   const handleLogin = async ({ username, password, remember }: LoginPayload) => {
@@ -145,6 +210,7 @@ export default function App() {
 
     const storage = remember ? localStorage : sessionStorage;
     storage.setItem(sessionKey, JSON.stringify(nextSession));
+    touchWebActivity(storage);
 
     if (remember) {
       localStorage.setItem(rememberedUserKey, nextSession.username);
@@ -155,13 +221,6 @@ export default function App() {
 
     setSession(nextSession);
     return nextSession;
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem(sessionKey);
-    sessionStorage.removeItem(sessionKey);
-    clearApiKey();
-    setSession(null);
   };
 
   return (

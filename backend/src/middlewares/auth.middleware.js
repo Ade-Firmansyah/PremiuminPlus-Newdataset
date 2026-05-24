@@ -2,6 +2,7 @@ import { findUserByApiKey, getUserById } from '../repositories/user.repo.js';
 import { verifyJwt } from '../utils/jwt.js';
 import { safeCreateActivityLog } from '../repositories/activity.repo.js';
 import { logger } from '../utils/logger.js';
+import { touchWebSession } from '../services/web-session.service.js';
 
 export async function auth(req, res, next) {
   try {
@@ -32,8 +33,16 @@ export async function auth(req, res, next) {
       });
     }
 
+    if (tokenPayload?.sub && !touchWebSession(tokenPayload)) {
+      return res.status(401).json({
+        status: false,
+        message: 'Session expired',
+      });
+    }
+
     req.user = user;
     req.authType = tokenPayload?.sub ? 'jwt' : 'api_key';
+    req.tokenPayload = tokenPayload;
 
     // Audit API key usage
     if (req.authType === 'api_key') {
@@ -52,5 +61,4 @@ export async function auth(req, res, next) {
     next(error);
   }
 }
-
 

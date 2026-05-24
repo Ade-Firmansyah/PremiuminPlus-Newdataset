@@ -1,17 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Banknote, CheckCircle2, ListFilter, ReceiptText, RefreshCcw, XCircle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Banknote, CheckCircle2, ListFilter, ReceiptText, RefreshCcw, ShieldAlert, XCircle } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from '../../dashboardPageKit';
 import { formatCurrency } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
-import { premiuminApi, type DepositRecord, type OrderRecord, type WithdrawRecord } from '../../../services/api';
+import { premiuminApi, type ActivityLogRecord, type DepositRecord, type OrderRecord, type WithdrawRecord } from '../../../services/api';
 
-type TabKey = 'topup' | 'order' | 'withdraw';
+type TabKey = 'topup' | 'order' | 'withdraw' | 'security';
 
-export function MonitoringTransaksiPage() {
-  const [tab, setTab] = useState<TabKey>('topup');
+function withdrawStatusClass(status?: string) {
+  const normalized = String(status || 'pending').toLowerCase();
+  if (['paid', 'success', 'approved', 'completed'].includes(normalized)) {
+    return 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200';
+  }
+  if (['rejected', 'failed', 'cancelled'].includes(normalized)) {
+    return 'border-rose-400/25 bg-rose-500/10 text-rose-200';
+  }
+  return 'border-amber-400/25 bg-amber-500/10 text-amber-200';
+}
+
+export function MonitoringTransaksiPage({ initialTab = 'topup' }: { initialTab?: TabKey }) {
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [topups, setTopups] = useState<DepositRecord[]>([]);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [withdraws, setWithdraws] = useState<WithdrawRecord[]>([]);
+  const [resetLogs, setResetLogs] = useState<ActivityLogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -21,14 +33,16 @@ export function MonitoringTransaksiPage() {
     setLoading(true);
     setError('');
     try {
-      const [depositResponse, orderResponse, withdrawResponse] = await Promise.all([
+      const [depositResponse, orderResponse, withdrawResponse, activityResponse] = await Promise.all([
         premiuminApi.adminDeposits(apiKey || undefined),
         premiuminApi.adminTransactions(apiKey || undefined),
         premiuminApi.adminWithdraws(apiKey || undefined),
+        premiuminApi.adminActivityLogs(apiKey || undefined),
       ]);
       setTopups(depositResponse.data);
       setOrders(orderResponse.data);
       setWithdraws(withdrawResponse.data);
+      setResetLogs(activityResponse.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal memuat transaksi.');
     } finally {
@@ -39,6 +53,10 @@ export function MonitoringTransaksiPage() {
   useEffect(() => {
     void load();
   }, [apiKey]);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   const topUpTotal = useMemo(
     () =>
@@ -54,6 +72,11 @@ export function MonitoringTransaksiPage() {
   );
 
   const handleWithdrawAction = async (id: number, action: 'approve' | 'reject') => {
+    if (action === 'approve') {
+      const confirmed = window.confirm('Pastikan uang sudah dikirim ke tujuan user. Tandai penarikan ini selesai?');
+      if (!confirmed) return;
+    }
+
     setActionLoadingId(id);
     setError('');
     try {
@@ -111,6 +134,7 @@ export function MonitoringTransaksiPage() {
             { key: 'topup' as const, label: 'Top Up', icon: ArrowDownLeft },
             { key: 'order' as const, label: 'User Order', icon: ArrowUpRight },
             { key: 'withdraw' as const, label: 'Withdraw', icon: Banknote },
+            { key: 'security' as const, label: 'Security', icon: ShieldAlert },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -130,7 +154,13 @@ export function MonitoringTransaksiPage() {
 
         <div className="mt-4 flex items-center gap-2 text-sm text-white/55">
           <ListFilter className="h-4 w-4" />
-          {tab === 'topup' ? 'Menampilkan deposit dari backend.' : tab === 'order' ? 'Menampilkan order dari backend.' : 'Menampilkan withdraw pending dari backend.'}
+          {tab === 'topup'
+            ? 'Menampilkan deposit dari backend.'
+            : tab === 'order'
+              ? 'Menampilkan order dari backend.'
+              : tab === 'withdraw'
+                ? 'Menampilkan withdraw pending dari backend.'
+                : 'Menampilkan reset password dan audit keamanan.'}
         </div>
 
         {loading ? <p className="mt-4 text-sm text-white/45">Memuat transaksi...</p> : null}
@@ -198,16 +228,18 @@ export function MonitoringTransaksiPage() {
               </table>
             </div>
           </div>
-        ) : (
+        ) : tab === 'withdraw' ? (
           <div className="mt-4 overflow-hidden rounded-[1.2rem] border border-white/10">
             <div className="overflow-x-auto">
-              <table className="min-w-[1000px] w-full text-left text-sm">
+              <table className="min-w-[1120px] w-full text-left text-sm">
                 <thead className="bg-[#0f0b15] text-white/45">
                   <tr>
                     <th className="px-4 py-3">ID</th>
                     <th className="px-4 py-3">User</th>
                     <th className="px-4 py-3">Nominal</th>
-                    <th className="px-4 py-3">Rekening</th>
+                    <th className="px-4 py-3">Diterima</th>
+                    <th className="px-4 py-3">Tujuan</th>
+                    <th className="px-4 py-3">Atas Nama</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Aksi</th>
                   </tr>
@@ -218,9 +250,14 @@ export function MonitoringTransaksiPage() {
                       <td className="px-4 py-4 font-medium text-white">{row.id}</td>
                       <td className="px-4 py-4 text-white/70">{row.username || `User #${row.user_id}`}</td>
                       <td className="px-4 py-4 text-white">{formatCurrency(row.amount || 0)}</td>
-                      <td className="px-4 py-4 text-white/65">{row.bank_account || '-'}</td>
+                      <td className="px-4 py-4 text-emerald-200">{formatCurrency(row.net_amount || row.amount || 0)}</td>
+                      <td className="px-4 py-4 text-white/65">
+                        <p className="font-semibold text-white">{row.withdraw_method || row.bank_account || '-'}</p>
+                        <p className="mt-1 text-xs text-white/45">{row.account_number || '-'}</p>
+                      </td>
+                      <td className="px-4 py-4 text-white/65">{row.account_name || '-'}</td>
                       <td className="px-4 py-4">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/70">
+                        <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${withdrawStatusClass(row.status)}`}>
                           {row.status || 'pending'}
                         </span>
                       </td>
@@ -233,7 +270,7 @@ export function MonitoringTransaksiPage() {
                             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            Approve
+                            Sudah Dibayar
                           </button>
                           <button
                             type="button"
@@ -251,6 +288,51 @@ export function MonitoringTransaksiPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        ) : (
+          <div className="mt-4 overflow-hidden rounded-[1.2rem] border border-white/10">
+            <div className="overflow-x-auto">
+              <table className="min-w-[980px] w-full text-left text-sm">
+                <thead className="bg-[#0f0b15] text-white/45">
+                  <tr>
+                    <th className="px-4 py-3">Waktu</th>
+                    <th className="px-4 py-3">Scope</th>
+                    <th className="px-4 py-3">Username</th>
+                    <th className="px-4 py-3">IP</th>
+                    <th className="px-4 py-3">Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resetLogs.map((row) => {
+                    const metadata = row.metadata || {};
+                    return (
+                      <tr key={row.id} className="border-t border-white/10">
+                        <td className="px-4 py-4 text-white/65">{row.created_at ? new Date(row.created_at).toLocaleString('id-ID') : '-'}</td>
+                        <td className="px-4 py-4">
+                          <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${
+                            row.scope === 'PASSWORD_RESET_SUCCESS'
+                              ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                              : row.scope === 'PASSWORD_RESET_RATE_LIMIT'
+                                ? 'border-amber-400/25 bg-amber-500/10 text-amber-200'
+                                : 'border-rose-400/25 bg-rose-500/10 text-rose-200'
+                          }`}
+                          >
+                            {row.scope}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-white">{String(metadata.username || '-')}</td>
+                        <td className="px-4 py-4 text-white/60">{row.ip_address || '-'}</td>
+                        <td className="px-4 py-4 text-white/55">
+                          <p>{String(metadata.reason || row.message || '-')}</p>
+                          <p className="mt-1 text-xs text-white/35">{String(metadata.email || '')} {String(metadata.phone || '')}</p>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {!loading && !resetLogs.length ? <p className="p-4 text-sm text-white/45">Belum ada riwayat reset password.</p> : null}
           </div>
         )}
 

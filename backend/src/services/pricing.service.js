@@ -87,6 +87,28 @@ export function calculateRoleSellPrice(product, markupSetting, user = {}) {
   };
 }
 
+export function calculateFinalBotPrice(product, markupSetting, user = {}, botMarkupValue = 0) {
+  const rolePricing = calculateRoleSellPrice(product, markupSetting, user);
+  const qty = Math.max(1, Number(user?.qty || 1));
+  const botMarkup = calculateMarkupAmount(rolePricing.sellPrice, botMarkupValue, 'fixed') * qty;
+  const rolePrice = rolePricing.sellPrice * qty;
+  const providerPrice = rolePricing.basePrice * qty;
+  const adminProfit = Math.max(rolePrice - providerPrice, 0);
+  const finalBotPrice = rolePrice + botMarkup;
+
+  return {
+    ...rolePricing,
+    qty,
+    provider_price: providerPrice,
+    role_price: rolePrice,
+    bot_markup: botMarkup,
+    bot_markup_profit: botMarkup,
+    admin_profit: adminProfit,
+    final_bot_price: finalBotPrice,
+    final_price: finalBotPrice,
+  };
+}
+
 export function calculateCanonicalPrices(product, markupSetting) {
   const member = calculateRoleSellPrice(product, markupSetting, { role: 'member' });
   const reseller = calculateRoleSellPrice(product, markupSetting, { role: 'reseller', markup_percent: 0 });

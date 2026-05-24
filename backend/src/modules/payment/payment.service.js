@@ -1,26 +1,41 @@
 import { transaction, parseDbJson } from '../../config/db.js';
 import { findProductById } from '../../repositories/product.repo.js';
+import { findTransactionByInvoice, updateTransactionStatus } from '../../repositories/transaction.repo.js';
 import { createPayment, findPaymentByInvoice, updatePayment } from '../../repositories/payment.repo.js';
 import { updateOrderDelivery } from '../../repositories/order.repo.js';
 import { getMarkupSetting } from '../../repositories/settings.repo.js';
-import { calculateRoleSellPrice } from '../../services/pricing.service.js';
-import { premkuCancelPay, premkuOrder, premkuPay, premkuPayStatus } from '../../services/premku.service.js';
+import { calculateFinalBotPrice, calculateRoleSellPrice } from '../../services/pricing.service.js';
+import { premkuCancelPay, premkuOrder, premkuPay, premkuPayStatus, premkuStatus } from '../../services/premku.service.js';
 import { createInvoice } from '../../utils/invoice.js';
 import { logger } from '../../utils/logger.js';
 import { sendOrderDelivery, validateWhatsapp } from '../../services/delivery.service.js';
-import { getCache, setCache } from '../../services/cache.service.js';
+import { deleteCache, getCache, setCache } from '../../services/cache.service.js';
 import { publishUserRefresh } from '../../services/realtime.service.js';
 import { getSaldoUtama } from '../../services/wallet.service.js';
 import { publishStockChanged } from '../../services/product-events.service.js';
+import { parseMysqlDate, toMysqlDate } from '../../utils/date.js';
+import env from '../../config/env.js';
 
-const QR_EXPIRY_MS = 5 * 60 * 1000;
-
-function toMysqlDate(value = new Date()) {
-  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
-}
+const QR_EXPIRY_MS = 30 * 60 * 1000;
+const PAY_STATUS_CACHE_MS = env.PREMKU_PAY_STATUS_CACHE_MS;
+const ORDER_STATUS_CACHE_MS = env.PREMKU_ORDER_STATUS_CACHE_MS;
 
 function normalizePaymentStatus(payload) {
-  const value = String(payload?.pay_status ?? payload?.status ?? payload?.data?.status ?? payload ?? '').toLowerCase();
+  const value = String(
+    payload?.pay_status ??
+      payload?.data?.pay_status ??
+      payload?.payment_status ??
+      payload?.data?.payment_status ??
+      payload?.transaction_status ??
+      payload?.data?.transaction_status ??
+      payload?.status_pembayaran ??
+      payload?.data?.status_pembayaran ??
+      payload?.status_bayar ??
+      payload?.data?.status_bayar ??
+      payload?.data?.status ??
+      (typeof payload?.status === 'string' ? payload.status : payload) ??
+      '',
+  ).toLowerCase();
   if (['success', 'sukses', 'paid'].includes(value)) return 'success';
   if (['canceled', 'cancelled'].includes(value)) return 'canceled';
   if (['expired', 'expire'].includes(value)) return 'expired';
@@ -29,7 +44,13 @@ function normalizePaymentStatus(payload) {
 }
 
 function normalizeOrderStatus(payload) {
-  const value = String(payload?.status ?? payload?.data?.status ?? payload?.order_status ?? '').toLowerCase();
+  const value = String(
+    payload?.order_status ??
+      payload?.data?.order_status ??
+      payload?.data?.status ??
+      (typeof payload?.status === 'string' ? payload.status : '') ??
+      '',
+  ).toLowerCase();
   if (['success', 'sukses', 'paid'].includes(value)) return 'success';
   if (['failed', 'fail', 'gagal', 'error', 'cancel', 'expired'].includes(value)) return 'failed';
   if (['process', 'processing', 'pending'].includes(value)) return 'processing';
@@ -81,9 +102,71 @@ function resolveExpiredAt(payment) {
   return toMysqlDate(new Date(Date.now() + QR_EXPIRY_MS));
 }
 
+function isPaymentExpired(payment) {
+  const expiredAt = parseMysqlDate(payment?.expired_at);
+  return Boolean(expiredAt && expiredAt.getTime() <= Date.now());
+}
+
 async function roleSellPrice(product, user = { role: 'member' }) {
   const setting = await getMarkupSetting();
   return calculateRoleSellPrice(product, setting, user).sellPrice;
+}
+
+async function resolveSettlementAmounts({ product, user, qty, paymentAmount, paymentType, payment = {} }) {
+  const markupSetting = await getMarkupSetting();
+  const pricing = calculateRoleSellPrice(product, markupSetting, user);
+  const providerUnitPrice = Number(product.price_base || product.base_price || 0);
+  const providerPrice = providerUnitPrice * qty;
+  const ownerUnitCost = pricing.sellPrice;
+  const storedRolePrice = Number(payment.role_price || 0);
+  const ownerCost = paymentType === 'bot_order' ? storedRolePrice || ownerUnitCost * qty : Number(paymentAmount || 0);
+  const finalPrice = Number(paymentAmount || 0);
+  const storedBotMarkup = Number(payment.bot_markup || 0);
+  const userMarkup = paymentType === 'bot_order' && storedBotMarkup > 0 ? storedBotMarkup : Math.max(finalPrice - ownerCost, 0);
+  const platformProfit = Math.max(ownerCost - providerPrice, 0);
+
+  return {
+    providerUnitPrice,
+    providerPrice,
+    ownerUnitCost,
+    ownerCost,
+    rolePrice: ownerCost,
+    finalPrice,
+    userMarkup,
+    botMarkup: userMarkup,
+    botMarkupProfit: userMarkup,
+    grossIncome: finalPrice,
+    providerCost: ownerCost,
+    netProfit: userMarkup,
+    adminMarkup: Number(pricing.adminMargin || 0) * qty + Number(pricing.roleMarkup || 0) * qty,
+    resellerProfit: userMarkup,
+    platformProfit,
+  };
+}
+
+function publishPaymentLifecycle(userId, invoice, orderInvoice) {
+  const events = [
+    ['payment_updated', { scope: 'payment', entity: 'payment', id: invoice }],
+    ['payment.updated', { scope: 'payment', entity: 'payment', id: invoice }],
+    ['order_updated', { scope: 'order', entity: 'order', id: orderInvoice }],
+    ['order.updated', { scope: 'order', entity: 'order', id: orderInvoice }],
+    ['transaction.updated', { scope: 'transaction', entity: 'transaction', id: orderInvoice }],
+    ['wallet_updated', { scope: 'wallet', entity: 'saldo', id: orderInvoice }],
+    ['wallet.updated', { scope: 'wallet', entity: 'saldo', id: orderInvoice }],
+    ['finance.updated', { scope: 'finance', entity: 'ledger', id: orderInvoice }],
+    ['profit.updated', { scope: 'profit', entity: 'income', id: orderInvoice }],
+    ['analytics.updated', { scope: 'analytics', entity: 'summary', id: orderInvoice }],
+    ['dashboard.updated', { scope: 'dashboard', entity: 'summary', id: orderInvoice }],
+    ['bot.updated', { scope: 'bot', entity: 'payment', id: invoice }],
+  ];
+  for (const [type, extra] of events) publishUserRefresh(userId, type, extra);
+}
+
+function clearPaymentLifecycleCache(invoice, orderInvoice, userId) {
+  deleteCache(`payment-status:${invoice}`);
+  if (orderInvoice) deleteCache(`order-status:${orderInvoice}`);
+  if (userId) deleteCache(`dashboard-summary:${userId}`);
+  deleteCache('admin-summary');
 }
 
 async function rebuildProductStock(connection, productId) {
@@ -279,7 +362,14 @@ async function getUserProductPricing(user, productId, qty = 1) {
 
 export async function createBotOrderPayment(user, payload) {
   const { product, qty, total } = await getUserProductPricing(user, payload.product_id, payload.qty);
-  const totalWithMargin = total + Math.max(0, Number(payload.extra_margin || 0)) * qty;
+  const markupSetting = await getMarkupSetting();
+  const computedBotPricing = calculateFinalBotPrice(product, markupSetting, { ...user, qty }, payload.bot_markup ?? payload.extra_margin ?? 0);
+  const explicitFinalAmount = Number(payload.final_amount ?? payload.final_price ?? 0);
+  const explicitRolePrice = Number(payload.role_price || 0);
+  const rolePrice = explicitRolePrice > 0 ? explicitRolePrice : computedBotPricing.role_price || total;
+  const fallbackFinalAmount = computedBotPricing.final_bot_price || total + Math.max(0, Number(payload.extra_margin || 0)) * qty;
+  const totalWithMargin = explicitFinalAmount > 0 ? Math.max(explicitFinalAmount, total) : fallbackFinalAmount;
+  const botMarkup = Math.max(Number(payload.bot_markup ?? totalWithMargin - rolePrice), 0);
   const targetWhatsapp = validateWhatsapp(payload.target_whatsapp || user.phone || '');
   let reservedManualAccount = null;
   if (qty === 1 && canUseManual(product)) {
@@ -311,7 +401,7 @@ export async function createBotOrderPayment(user, payload) {
     throw error;
   }
 
-  logger('PAYMENT', { invoice, user_id: user.id, amount: totalWithMargin, total_bayar: totalBayar, payment_type: 'bot_order' });
+  logger('PAYMENT', { invoice, user_id: user.id, amount: totalWithMargin, role_amount: total, bot_markup: botMarkup, total_bayar: totalBayar, payment_type: 'bot_order' });
   const created = await createPayment({
     user_id: user.id,
     invoice,
@@ -323,13 +413,22 @@ export async function createBotOrderPayment(user, payload) {
     qr_raw: typeof qrRaw === 'string' ? qrRaw : JSON.stringify(qrRaw),
     product_id: product.id,
     qty,
+    role_price: rolePrice,
+    bot_markup: botMarkup,
+    final_price: totalWithMargin,
     reserved_manual_account_id: reservedManualAccount?.id || null,
     raw_response: payment,
     target_whatsapp: targetWhatsapp || null,
     expired_at: resolveExpiredAt(payment),
   });
   publishUserRefresh(user.id, 'payment_updated', { scope: 'payment', entity: 'payment', id: created.invoice });
-  return { ...created, product_name: product.name };
+  return {
+    ...created,
+    product_name: product.name,
+    role_price: rolePrice,
+    bot_markup: botMarkup,
+    final_price: totalWithMargin,
+  };
 }
 
 async function processSuccessfulPayment(invoice, statusResponse) {
@@ -429,7 +528,13 @@ async function processSuccessfulPayment(invoice, statusResponse) {
             throw error;
           }
         } else {
-          throw error;
+          external = {
+            status: 'processing',
+            message: error instanceof Error ? error.message : 'Provider order delayed after payment success',
+            order_id: orderInvoice,
+            payment_invoice: invoice,
+            delayed_settlement: true,
+          };
         }
       }
       orderInvoice = resolvePremkuOrderInvoice(external, orderInvoice);
@@ -457,11 +562,13 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     }
     const firstAccount = accounts[0] || {};
     const processedAt = toMysqlDate();
-    const total = Number(payment.amount || 0);
-    const priceBase = Number(product.price_base || product.base_price || 0);
     const [userRows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [payment.user_id]);
     const user = userRows[0] || {};
     const paymentType = payment.payment_type || 'direct_order';
+    const total = Number(payment.amount || 0);
+    const qtyValue = Number(payment.qty || 1);
+    const settlement = await resolveSettlementAmounts({ product, user, qty: qtyValue, paymentAmount: total, paymentType, payment });
+    const priceBase = settlement.providerUnitPrice;
     const orderChannel = paymentType === 'bot_order' ? 'bot-qris' : 'qris-direct';
     const orderDescription = product.note || product.description || (paymentType === 'bot_order' ? 'Order via Bot WhatsApp' : 'Order member via QRIS langsung');
 
@@ -478,27 +585,37 @@ async function processSuccessfulPayment(invoice, statusResponse) {
       `INSERT INTO saldo_logs
         (user_id, type, amount, balance_before, balance_after, reference, notes)
        VALUES (?, 'credit', ?, ?, ?, ?, ?)`,
-      [payment.user_id, total, balanceBefore, balanceAfterCredit, invoice, 'Pembayaran QRIS langsung member'],
+      [payment.user_id, total, balanceBefore, balanceAfterCredit, invoice, paymentType === 'bot_order' ? 'Pembayaran QRIS customer bot' : 'Pembayaran QRIS langsung member'],
     );
     await connection.query(
       `INSERT INTO saldo_mutations
         (user_id, mutation_type, amount, balance_before, balance_after, reference)
-       VALUES (?, 'deposit', ?, ?, ?, ?)`,
+       VALUES (?, 'payment_in', ?, ?, ?, ?)`,
       [payment.user_id, total, balanceBefore, balanceAfterCredit, invoice],
     );
-    await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [balanceBefore, balanceBefore, payment.user_id]);
+    const debitAmount = paymentType === 'bot_order' ? settlement.ownerCost : total;
+    const balanceAfterDebit = balanceAfterCredit - debitAmount;
+    await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [balanceAfterDebit, balanceAfterDebit, payment.user_id]);
     await connection.query(
       `INSERT INTO saldo_logs
         (user_id, type, amount, balance_before, balance_after, reference, notes)
        VALUES (?, 'debit', ?, ?, ?, ?, ?)`,
-      [payment.user_id, total, balanceAfterCredit, balanceBefore, orderInvoice, 'Pemotongan saldo untuk order'],
+      [payment.user_id, debitAmount, balanceAfterCredit, balanceAfterDebit, orderInvoice, paymentType === 'bot_order' ? 'Settlement biaya provider order bot' : 'Pemotongan saldo untuk order'],
     );
     await connection.query(
       `INSERT INTO saldo_mutations
         (user_id, mutation_type, amount, balance_before, balance_after, reference)
-       VALUES (?, 'order', ?, ?, ?, ?)`,
-      [payment.user_id, total, balanceAfterCredit, balanceBefore, orderInvoice],
+       VALUES (?, 'provider_purchase', ?, ?, ?, ?)`,
+      [payment.user_id, debitAmount, balanceAfterCredit, balanceAfterDebit, orderInvoice],
     );
+    if (settlement.userMarkup > 0) {
+      await connection.query(
+        `INSERT INTO saldo_mutations
+          (user_id, mutation_type, amount, balance_before, balance_after, reference)
+       VALUES (?, 'bot_profit', ?, ?, ?, ?)`,
+        [payment.user_id, settlement.userMarkup, balanceAfterDebit, balanceAfterDebit, orderInvoice],
+      );
+    }
     if (manualStock) {
       await connection.query('UPDATE manual_product_accounts SET status = "sold", sold_at = ?, reserved_by = COALESCE(reserved_by, ?), reserved_at = COALESCE(reserved_at, ?) WHERE id = ?', [processedAt, payment.user_id, processedAt, manualStock.id]);
       await connection.query('UPDATE product_credentials SET status = "sold", buyer_id = ?, invoice = ?, sold_at = ? WHERE product_id = ? AND email = ? AND password = ? AND status = "available" LIMIT 1', [payment.user_id, orderInvoice, processedAt, product.id, manualStock.email, manualStock.password]);
@@ -507,12 +624,23 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     }
     await connection.query(
       `INSERT INTO transactions
-        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, status, account_data, external_order_response, channel, product_image, description, transaction_type, amount, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, 'order', ?, ?)
+        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, provider_price, user_markup, admin_markup, final_price, reseller_profit, platform_profit, role_price, bot_markup, bot_markup_profit, gross_income, net_profit, status, account_data, external_order_response, channel, product_image, description, transaction_type, amount, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, 'order', ?, ?)
        ON DUPLICATE KEY UPDATE
         status = VALUES(status),
         account_data = VALUES(account_data),
         external_order_response = VALUES(external_order_response),
+        provider_price = VALUES(provider_price),
+        user_markup = VALUES(user_markup),
+        admin_markup = VALUES(admin_markup),
+        final_price = VALUES(final_price),
+        reseller_profit = VALUES(reseller_profit),
+        platform_profit = VALUES(platform_profit),
+        role_price = VALUES(role_price),
+        bot_markup = VALUES(bot_markup),
+        bot_markup_profit = VALUES(bot_markup_profit),
+        gross_income = VALUES(gross_income),
+        net_profit = VALUES(net_profit),
         processed_at = COALESCE(processed_at, VALUES(processed_at))`,
       [
         orderInvoice,
@@ -520,11 +648,22 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         payment.user_id,
         product.id,
         product.name,
-        Number(payment.qty || 1),
+        qtyValue,
         priceBase,
-        Math.round(total / Number(payment.qty || 1)),
+        Math.round(total / qtyValue),
         total,
-        Math.max(total - priceBase * Number(payment.qty || 1), 0),
+        settlement.userMarkup + settlement.platformProfit,
+        settlement.providerPrice,
+        settlement.userMarkup,
+        settlement.adminMarkup,
+        settlement.finalPrice,
+        settlement.resellerProfit,
+        settlement.platformProfit,
+        settlement.rolePrice,
+        settlement.botMarkup,
+        settlement.botMarkupProfit,
+        settlement.grossIncome,
+        settlement.netProfit,
         orderStatus,
         JSON.stringify(accounts.length ? accounts : null),
         JSON.stringify(external ?? null),
@@ -533,6 +672,27 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         orderDescription,
         total,
         orderStatus === 'success' ? processedAt : null,
+      ],
+    );
+    await connection.query(
+      `UPDATE transactions
+       SET gross_amount = ?, provider_cost = ?, user_profit = ?, admin_profit = ?, final_amount = ?, payment_amount = ?, net_amount = ?,
+           role_price = ?, bot_markup = ?, bot_markup_profit = ?, gross_income = ?, net_profit = ?
+       WHERE invoice = ?`,
+      [
+        settlement.finalPrice,
+        settlement.providerCost,
+        settlement.userMarkup,
+        settlement.platformProfit,
+        settlement.finalPrice,
+        total,
+        settlement.netProfit,
+        settlement.rolePrice,
+        settlement.botMarkup,
+        settlement.botMarkupProfit,
+        settlement.grossIncome,
+        settlement.netProfit,
+        orderInvoice,
       ],
     );
     const targetWhatsapp = validateWhatsapp(payment.target_whatsapp || '');
@@ -584,12 +744,165 @@ async function processSuccessfulPayment(invoice, statusResponse) {
   });
 
   if (result.changed) {
-    publishUserRefresh(result.userId, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
-    publishUserRefresh(result.userId, 'order_updated', { scope: 'order', entity: 'order', id: result.orderInvoice });
-    publishUserRefresh(result.userId, 'wallet_updated', { scope: 'wallet', entity: 'saldo', id: result.orderInvoice });
+    clearPaymentLifecycleCache(invoice, result.orderInvoice, result.userId);
+    publishPaymentLifecycle(result.userId, invoice, result.orderInvoice);
     if (result.order?.product_id) publishStockChanged(result.order.product_id);
   }
   return { payment: result.payment, order: result.order };
+}
+
+export async function syncPaymentStatusFromWebhook(invoice, statusResponse = {}) {
+  const payment = await findPaymentByInvoice(invoice);
+  if (!payment) return null;
+
+  const nextStatus = normalizePaymentStatus(statusResponse);
+  if (nextStatus === 'success') {
+    const result = await processSuccessfulPayment(invoice, statusResponse);
+    if (result.order && result.order.order_status === 'success' && result.order.delivery_status !== 'sent') {
+      const delivery = await sendOrderDelivery(result.order);
+      await updateOrderDelivery(result.order.invoice, {
+        delivery_status: delivery.status,
+        delivery_time: ['sent', 'manual_pending', 'failed'].includes(delivery.status) ? toMysqlDate() : null,
+        target_whatsapp: result.order.target_whatsapp,
+      });
+      result.order.delivery_status = delivery.status;
+      result.order.delivery_time = toMysqlDate();
+    }
+    return {
+      ...result.payment,
+      status: 'success',
+      qr_image: null,
+      qr_raw: null,
+      order: orderResponseFromRow(result.order),
+    };
+  }
+
+  if (['failed', 'expired', 'canceled'].includes(nextStatus) && payment.reserved_manual_account_id) {
+    await releaseReservedManualAccount(payment.reserved_manual_account_id);
+  }
+
+  const updated = await updatePayment(invoice, {
+    status: nextStatus,
+    status_response: statusResponse,
+    qr_image: ['failed', 'expired', 'canceled'].includes(nextStatus) ? null : payment.qr_image,
+    qr_raw: ['failed', 'expired', 'canceled'].includes(nextStatus) ? null : payment.qr_raw,
+  });
+  if (updated?.user_id) {
+    clearPaymentLifecycleCache(invoice, updated.order_invoice, updated.user_id);
+    publishPaymentLifecycle(updated.user_id, invoice, updated.order_invoice);
+  }
+  return updated;
+}
+
+function orderResponseFromRow(order) {
+  if (!order) return null;
+  return {
+    invoice: order.invoice,
+    product_name: order.product_name,
+    email_account: order.email_account,
+    password_account: order.password_account,
+    payment_status: order.payment_status,
+    order_status: order.order_status,
+    target_whatsapp: order.target_whatsapp,
+    delivery_status: order.delivery_status,
+    delivery_time: order.delivery_time,
+    total_price: Number(order.total_price || 0),
+    raw_response: parseDbJson(order.raw_response, null),
+    created_at: order.created_at,
+  };
+}
+
+async function refreshLinkedPaymentOrder(payment) {
+  if (!payment?.order_invoice) return null;
+
+  const [orderResult, transactionRecord] = await Promise.all([
+    transaction(async (connection) => {
+      const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [payment.invoice]);
+      return orderRows[0] || null;
+    }),
+    findTransactionByInvoice(payment.order_invoice),
+  ]);
+
+  const order = orderResult || null;
+  if (!order || !transactionRecord || order.order_status === 'success') {
+    return order;
+  }
+
+  const orderCacheKey = `order-status:${payment.order_invoice}`;
+  const cachedOrder = getCache(orderCacheKey);
+  if (cachedOrder) return cachedOrder;
+
+  let statusResponse = null;
+  try {
+    const externalInvoice =
+      transactionRecord.external_order_response?.invoice ||
+      transactionRecord.external_order_response?.data?.invoice ||
+      transactionRecord.external_order_response?.order_id ||
+      transactionRecord.external_order_response?.data?.order_id ||
+      payment.order_invoice;
+    statusResponse = await premkuStatus(externalInvoice);
+  } catch {
+    return order;
+  }
+
+  const nextStatus = normalizeOrderStatus(statusResponse);
+  const accounts = extractAccounts(statusResponse);
+  const hasAccounts = accounts.length > 0;
+
+  if (nextStatus === 'success' || hasAccounts) {
+    const account = accounts[0] || {};
+    await updateTransactionStatus(payment.order_invoice, 'success', {
+      external_status_response: statusResponse,
+      account_data: hasAccounts ? accounts : transactionRecord.account_data || null,
+      processed_at: toMysqlDate(),
+    });
+    await transaction(async (connection) => {
+      await connection.query(
+        `UPDATE orders
+         SET order_status = 'success', email_account = COALESCE(?, email_account), password_account = COALESCE(?, password_account), raw_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+         WHERE invoice = ?`,
+        [account.email || account.username || null, account.password || account.pass || null, JSON.stringify(statusResponse ?? null), payment.order_invoice],
+      );
+    });
+    const refreshed = await transaction(async (connection) => {
+      const [rows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [payment.order_invoice]);
+      return rows[0] || null;
+    });
+    if (refreshed && refreshed.delivery_status !== 'sent') {
+      const delivery = await sendOrderDelivery(refreshed);
+      await updateOrderDelivery(payment.order_invoice, {
+        delivery_status: delivery.status,
+        delivery_time: ['sent', 'manual_pending', 'failed'].includes(delivery.status) ? toMysqlDate() : null,
+        target_whatsapp: refreshed.target_whatsapp,
+      });
+    }
+    publishPaymentLifecycle(payment.user_id, payment.invoice, payment.order_invoice);
+    clearPaymentLifecycleCache(payment.invoice, payment.order_invoice, payment.user_id);
+    return transaction(async (connection) => {
+      const [rows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [payment.order_invoice]);
+      return rows[0] || null;
+    });
+  }
+
+  if (nextStatus === 'failed') {
+    await updateTransactionStatus(payment.order_invoice, 'failed', { external_status_response: statusResponse });
+    await transaction(async (connection) => {
+      await connection.query(
+        `UPDATE orders
+         SET order_status = 'failed', raw_response = CAST(? AS JSON), updated_at = CURRENT_TIMESTAMP
+         WHERE invoice = ?`,
+        [JSON.stringify(statusResponse ?? null), payment.order_invoice],
+      );
+    });
+    publishPaymentLifecycle(payment.user_id, payment.invoice, payment.order_invoice);
+  }
+
+  const pendingOrder = await transaction(async (connection) => {
+    const [rows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [payment.order_invoice]);
+    return rows[0] || order;
+  });
+  setCache(orderCacheKey, pendingOrder, ORDER_STATUS_CACHE_MS);
+  return pendingOrder;
 }
 
 export async function refreshDirectPaymentStatus(invoice, user) {
@@ -602,28 +915,18 @@ export async function refreshDirectPaymentStatus(invoice, user) {
   }
 
   if (payment.status === 'success' && payment.processed_at) {
-    const existing = await transaction(async (connection) => {
-      const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [invoice]);
-      return orderRows[0] || null;
-    });
+    if (payment.qr_image || payment.qr_raw) {
+      await updatePayment(invoice, { qr_image: null, qr_raw: null });
+      payment.qr_image = null;
+      payment.qr_raw = null;
+    }
+    const existing = await refreshLinkedPaymentOrder(payment);
     return {
       ...payment,
-      order: existing
-        ? {
-            invoice: existing.invoice,
-            product_name: existing.product_name,
-            email_account: existing.email_account,
-            password_account: existing.password_account,
-            payment_status: existing.payment_status,
-            order_status: existing.order_status,
-            target_whatsapp: existing.target_whatsapp,
-            delivery_status: existing.delivery_status,
-            delivery_time: existing.delivery_time,
-            total_price: Number(existing.total_price || 0),
-            raw_response: parseDbJson(existing.raw_response, null),
-            created_at: existing.created_at,
-          }
-        : null,
+      qr_image: null,
+      qr_raw: null,
+      lifecycle_status: existing?.order_status === 'success' && existing?.delivery_status === 'sent' ? 'completed' : existing?.order_status === 'success' ? 'delivered' : 'processing_delivery',
+      order: orderResponseFromRow(existing),
     };
   }
 
@@ -632,17 +935,18 @@ export async function refreshDirectPaymentStatus(invoice, user) {
 
   const statusResponse = await premkuPayStatus(invoice);
   const nextStatus = normalizePaymentStatus(statusResponse);
+  const locallyExpired = isPaymentExpired(payment);
   if (nextStatus === 'success') {
     const result = await processSuccessfulPayment(invoice, statusResponse);
     if (result.order && result.order.order_status === 'success' && result.order.delivery_status !== 'sent') {
       const delivery = await sendOrderDelivery(result.order);
       await updateOrderDelivery(result.order.invoice, {
         delivery_status: delivery.status,
-        delivery_time: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        delivery_time: toMysqlDate(),
         target_whatsapp: result.order.target_whatsapp,
       });
       result.order.delivery_status = delivery.status;
-      result.order.delivery_time = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      result.order.delivery_time = toMysqlDate();
     }
     const response = {
       ...payment,
@@ -651,25 +955,63 @@ export async function refreshDirectPaymentStatus(invoice, user) {
       qr_raw: null,
       processed_at: result.payment.processed_at,
       order_invoice: result.payment.order_invoice,
-      order: result.order
-        ? {
-            invoice: result.order.invoice,
-            product_name: result.order.product_name,
-            email_account: result.order.email_account,
-            password_account: result.order.password_account,
-            payment_status: result.order.payment_status,
-            order_status: result.order.order_status,
-            target_whatsapp: result.order.target_whatsapp,
-            delivery_status: result.order.delivery_status,
-            delivery_time: result.order.delivery_time,
-            total_price: Number(result.order.total_price || 0),
-            raw_response: parseDbJson(result.order.raw_response, null),
-            created_at: result.order.created_at,
-          }
-        : null,
+      lifecycle_status: result.order?.order_status === 'success' && result.order?.delivery_status === 'sent' ? 'completed' : result.order?.order_status === 'success' ? 'delivered' : 'processing_delivery',
+      order: orderResponseFromRow(result.order),
     };
     setCache(`payment-status:${invoice}`, response, 5000);
     return response;
+  }
+
+  if (nextStatus === 'expired' && !isPaymentExpired(payment)) {
+    const pending = await updatePayment(invoice, {
+      status: 'pending',
+      status_response: {
+        ...statusResponse,
+        ignored_status: 'expired',
+        message: 'Premku returned expired before local 30 minute limit; keeping payment pending',
+      },
+    });
+    if (pending?.user_id) publishUserRefresh(pending.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
+    setCache(`payment-status:${invoice}`, pending, PAY_STATUS_CACHE_MS);
+    return pending;
+  }
+
+  if (nextStatus === 'expired' && locallyExpired) {
+    let cancelResponse = null;
+    try {
+      cancelResponse = await premkuCancelPay(invoice);
+    } catch (error) {
+      cancelResponse = { message: error instanceof Error ? error.message : 'Premku cancel_pay failed' };
+    }
+    if (payment.reserved_manual_account_id) {
+      await releaseReservedManualAccount(payment.reserved_manual_account_id);
+    }
+    const expired = await updatePayment(invoice, {
+      status: 'expired',
+      status_response: {
+        ...statusResponse,
+        message: 'Invoice expired and canceled at Premku',
+        cancel_response: cancelResponse,
+      },
+    });
+    if (expired?.user_id) publishUserRefresh(expired.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
+    setCache(`payment-status:${invoice}`, expired, 5000);
+    return expired;
+  }
+
+  if (nextStatus === 'pending' && (locallyExpired || ['failed', 'expired'].includes(payment.status))) {
+    const restored = await updatePayment(invoice, {
+      status: 'pending',
+      expired_at: resolveExpiredAt(),
+      status_response: {
+        ...statusResponse,
+        restored_from_status: payment.status,
+        message: 'Premku masih menunggu pembayaran; payment lokal dipulihkan ke pending',
+      },
+    });
+    if (restored?.user_id) publishUserRefresh(restored.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
+    setCache(`payment-status:${invoice}`, restored, PAY_STATUS_CACHE_MS);
+    return restored;
   }
 
   if (['failed', 'expired', 'canceled'].includes(nextStatus) && payment.reserved_manual_account_id) {
@@ -677,7 +1019,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
   }
   const updated = await updatePayment(invoice, { status: nextStatus, status_response: statusResponse });
   if (updated?.user_id) publishUserRefresh(updated.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
-  setCache(`payment-status:${invoice}`, updated, 5000);
+  setCache(`payment-status:${invoice}`, updated, nextStatus === 'pending' ? PAY_STATUS_CACHE_MS : 5000);
   return updated;
 }
 

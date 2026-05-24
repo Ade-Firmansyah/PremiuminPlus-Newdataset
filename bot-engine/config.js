@@ -7,6 +7,12 @@ dotenv.config();
 const defaultSessionsDir = new URL('./sessions/', import.meta.url);
 const customSessionsDir = process.env.BOT_SESSIONS_DIR ? pathToFileURL(path.resolve(process.env.BOT_SESSIONS_DIR) + path.sep) : null;
 
+function envMs(name, fallback, min) {
+  const value = Number(process.env[name] || fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, value);
+}
+
 export const config = {
   port: Number(process.env.BOT_ENGINE_PORT || 4010),
   webCoreUrl: String(
@@ -21,6 +27,11 @@ export const config = {
     enabled: process.env.BOT_SESSION_CLEANUP_ENABLED !== 'false',
     ttlMs: Number(process.env.BOT_SESSION_FILE_TTL_HOURS || 24) * 60 * 60 * 1000,
     intervalMs: Number(process.env.BOT_SESSION_CLEANUP_INTERVAL_MINUTES || 60) * 60 * 1000,
+  },
+  paymentPolling: {
+    firstCheckDelayMs: envMs('BOT_PAYMENT_FIRST_CHECK_MS', 5000, 3000),
+    intervalMs: envMs('BOT_PAYMENT_POLL_MS', 20000, 10000),
+    timeoutMs: envMs('BOT_PAYMENT_TIMEOUT_MS', 30 * 60 * 1000, 5 * 60 * 1000),
   },
   reconnect: {
     minMs: 1500,

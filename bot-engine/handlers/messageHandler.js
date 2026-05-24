@@ -8,11 +8,13 @@ import {
   renderPayment,
   renderPaymentFailed,
   renderPaymentPending,
+  renderPaymentSuccessProcessing,
   renderStockEmpty,
   renderSuccess,
   renderTransactionClosed,
 } from '../services/render.js';
 import { notifyAdmin } from '../notifications/admin.js';
+import { config } from '../config.js';
 
 const GREETING = new Set(['p', 'ping', 'kak', 'ka', 'bang', 'bro', 'mba', 'bray']);
 const STOCK = new Set(['stok', 'list']);
@@ -114,6 +116,20 @@ function isTransactionOpen(settings = {}) {
   return now >= window.start || now < window.end;
 }
 
+function hasDeliveredAccount(order = {}) {
+  return Boolean(order?.email_account || order?.password_account || (Array.isArray(order?.accounts) && order.accounts.length));
+}
+
+function botTemplateFromSettings(settings = {}) {
+  const template = { ...(settings.bot_template || {}) };
+  for (const key of ['active_theme', 'store_name', 'opening_hour', 'closing_hour', 'open_hour', 'admin_whatsapp', 'footer_text']) {
+    if (settings[key] !== undefined && settings[key] !== null && settings[key] !== '') {
+      template[key] = settings[key];
+    }
+  }
+  return template;
+}
+
 export class MessageHandler {
   constructor({ sessionId, sock, api, paymentLocks }) {
     this.sessionId = sessionId;
@@ -126,7 +142,7 @@ export class MessageHandler {
 
   async getProfile() {
     const now = Date.now();
-    if (this.profileCache && now - this.profileCacheAt < 15000) {
+    if (this.profileCache && now - this.profileCacheAt < 5000) {
       return this.profileCache;
     }
 
@@ -147,14 +163,15 @@ export class MessageHandler {
 
     const profile = await this.getProfile();
     const settings = profile.settings || {};
+    const botTemplate = botTemplateFromSettings(settings);
     if (!canReplyInChat(message, settings)) return;
 
     if (settings.bot_locked || !settings.enabled) {
       await this.sock.sendMessage(jid, {
         text: renderBotLocked({
-          memberMinimum: settings.lock_required && profile.user?.role === 'member' ? settings.lock_required : 5000,
-          resellerMinimum: settings.lock_required && profile.user?.role === 'reseller' ? settings.lock_required : 25000,
-        }),
+            memberMinimum: settings.lock_required && profile.user?.role === 'member' ? settings.lock_required : 5000,
+            resellerMinimum: settings.lock_required && profile.user?.role === 'reseller' ? settings.lock_required : 25000,
+        }, botTemplate),
       });
       return;
     }
@@ -165,7 +182,7 @@ export class MessageHandler {
           name: message.pushName || normalizePhone(jid),
           storeName: settings.store_name || 'Premiumin Plus',
           openHour: settings.open_hour || '07.30 WIB - 21.45 WIB',
-        }),
+        }, botTemplate),
       });
       return;
     }
@@ -175,20 +192,20 @@ export class MessageHandler {
         text: renderAdmin({
           adminWhatsapp: settings.admin_whatsapp,
           openHour: settings.open_hour || '07.30 WIB - 21.45 WIB',
-        }),
+        }, botTemplate),
       });
       return;
     }
 
     if (STOCK.has(command)) {
       const products = await this.api.catalog();
-      await this.sock.sendMessage(jid, { text: renderCatalog(products, settings.store_name || 'Premiumin Plus') });
+      await this.sock.sendMessage(jid, { text: renderCatalog(products, settings.store_name || 'Premiumin Plus', botTemplate) });
       return;
     }
 
     if (command.startsWith('buy ')) {
       if (!isTransactionOpen(settings)) {
-        await this.sock.sendMessage(jid, { text: renderTransactionClosed(settings) });
+        await this.sock.sendMessage(jid, { text: renderTransactionClosed(settings, botTemplate) });
         return;
       }
 
@@ -197,18 +214,23 @@ export class MessageHandler {
       try {
         const order = await this.api.createOrder({ code, customerWhatsapp: normalizePhone(jid) });
         if (order?.status === 'pending' || order?.payment_status === 'pending') {
-          const paymentText = renderPayment(order, order.product_name || order.product || 'Produk');
-          const qrImage = qrImageFromPayment(order);
-          if (qrImage) {
-            await this.sock.sendMessage(jid, { image: qrImage, caption: paymentText });
-          } else {
-            await this.sock.sendMessage(jid, { text: paymentText });
+          if (this.paymentLocks.has(order.invoice)) {
+            await this.sock.sendMessage(jid, { text: renderPaymentPending(order, botTemplate) });
+            return;
           }
-          this.pollPayment(jid, order.invoice);
+          const paymentText = renderPayment(order, order.product_name || order.product || 'Produk', botTemplate);
+          const qrImage = qrImageFromPayment(order);
+          let sentMessage = null;
+          if (qrImage) {
+            sentMessage = await this.sock.sendMessage(jid, { image: qrImage, caption: paymentText });
+          } else {
+            sentMessage = await this.sock.sendMessage(jid, { text: paymentText });
+          }
+          this.pollPayment(jid, order.invoice, sentMessage?.key || null, botTemplate);
         } else if (order?.status === 'failed' || order?.payment_status === 'failed') {
-          await this.sock.sendMessage(jid, { text: renderPaymentFailed(order) });
+          await this.sock.sendMessage(jid, { text: renderPaymentFailed(order, botTemplate) });
         } else {
-          await this.sock.sendMessage(jid, { text: renderSuccess(order) });
+          await this.sock.sendMessage(jid, { text: renderSuccess(order, {}, botTemplate) });
         }
         await notifyAdmin(this.sock, [
           'BOT ORDER',
@@ -224,44 +246,92 @@ export class MessageHandler {
           await this.sock.sendMessage(jid, {
             text: renderInsufficientBalance({
               storeName: settings.store_name || 'Premiumin Plus',
-            }),
+            }, botTemplate),
           });
           return;
         }
         if (messageText.includes('stok') || messageText.includes('stock')) {
-          await this.sock.sendMessage(jid, { text: renderStockEmpty() });
+          await this.sock.sendMessage(jid, { text: renderStockEmpty(botTemplate) });
           return;
         }
-        await this.sock.sendMessage(jid, { text: renderGenericError(error?.message || 'Order belum bisa diproses.') });
+        await this.sock.sendMessage(jid, { text: renderGenericError(error?.message || 'Order belum bisa diproses.', botTemplate) });
       }
     }
   }
 
-  pollPayment(jid, invoice) {
+  async deleteQrMessage(jid, qrMessageKey) {
+    if (!qrMessageKey) return;
+    await this.sock.sendMessage(jid, { delete: qrMessageKey }).catch(() => {});
+  }
+
+  pollPayment(jid, invoice, qrMessageKey = null, template = {}) {
     if (this.paymentLocks.has(invoice)) return;
     const startedAt = Date.now();
-    const timer = setInterval(async () => {
-      if (Date.now() - startedAt > 5 * 60 * 1000) {
-        clearInterval(timer);
-        this.paymentLocks.delete(invoice);
+    const state = {
+      timer: null,
+      firstTimer: null,
+      qrMessageKey,
+      qrDeleted: false,
+      paymentSuccessNotified: false,
+      checking: false,
+      closed: false,
+    };
+    const close = () => {
+      if (state.closed) return;
+      state.closed = true;
+      if (state.timer) clearInterval(state.timer);
+      if (state.firstTimer) clearTimeout(state.firstTimer);
+      this.paymentLocks.delete(invoice);
+    };
+    const checkPayment = async () => {
+      if (state.closed || state.checking) return;
+      state.checking = true;
+      if (Date.now() - startedAt > config.paymentPolling.timeoutMs) {
+        if (!state.qrDeleted) {
+          await this.deleteQrMessage(jid, state.qrMessageKey);
+          state.qrDeleted = true;
+        }
+        await this.sock.sendMessage(jid, { text: renderPaymentFailed({ invoice, status: 'expired' }, template) });
+        close();
+        state.checking = false;
         return;
       }
       try {
         const payment = await this.api.paymentStatus(invoice);
-        if (payment?.status === 'success' && payment?.order?.order_status === 'success') {
-          clearInterval(timer);
-          this.paymentLocks.delete(invoice);
-          await this.sock.sendMessage(jid, { text: renderSuccess(payment.order, payment) });
-          await notifyAdmin(this.sock, ['BOT ORDER SUCCESS', `invoice: ${invoice}`, `status: account_delivery`]);
+        if (state.closed) return;
+        if (payment?.status === 'success') {
+          if (!state.qrDeleted) {
+            await this.deleteQrMessage(jid, state.qrMessageKey);
+            state.qrDeleted = true;
+          }
+          if (!state.paymentSuccessNotified) {
+            await this.sock.sendMessage(jid, { text: renderPaymentSuccessProcessing(payment, template) });
+            state.paymentSuccessNotified = true;
+            await notifyAdmin(this.sock, ['BOT PAYMENT SUCCESS', `invoice: ${invoice}`, `status: processing_delivery`]);
+          }
+          if (payment?.order?.order_status === 'success' && hasDeliveredAccount(payment.order)) {
+            close();
+            await this.deleteQrMessage(jid, state.qrMessageKey);
+            await this.sock.sendMessage(jid, { text: renderSuccess(payment.order, payment, template) });
+            await notifyAdmin(this.sock, ['BOT ORDER SUCCESS', `invoice: ${invoice}`, `status: completed`]);
+          }
         } else if (['failed', 'expired', 'canceled'].includes(String(payment?.status || '').toLowerCase())) {
-          clearInterval(timer);
-          this.paymentLocks.delete(invoice);
-          await this.sock.sendMessage(jid, { text: renderPaymentFailed(payment) });
+          close();
+          if (!state.qrDeleted) {
+            await this.deleteQrMessage(jid, state.qrMessageKey);
+            state.qrDeleted = true;
+          }
+          await this.sock.sendMessage(jid, { text: renderPaymentFailed(payment, template) });
         }
       } catch {
         // Payment polling is guarded by Web-Core and intentionally quiet.
+      } finally {
+        state.checking = false;
       }
-    }, 10000);
-    this.paymentLocks.set(invoice, timer);
+    };
+
+    state.firstTimer = setTimeout(checkPayment, config.paymentPolling.firstCheckDelayMs);
+    state.timer = setInterval(checkPayment, config.paymentPolling.intervalMs);
+    this.paymentLocks.set(invoice, state);
   }
 }

@@ -15,6 +15,9 @@ function toPayment(row) {
     product_id: row.product_id || null,
     qty: Number(row.qty || 1),
     target_whatsapp: row.target_whatsapp || null,
+    role_price: Number(row.role_price || 0),
+    bot_markup: Number(row.bot_markup || 0),
+    final_price: Number(row.final_price || row.amount || 0),
     order_invoice: row.order_invoice || null,
     reserved_manual_account_id: row.reserved_manual_account_id || null,
     raw_response: parseDbJson(row.raw_response, null),
@@ -30,8 +33,8 @@ function toPayment(row) {
 export async function createPayment(payload) {
   await execute(
     `INSERT INTO payments
-      (user_id, invoice, amount, total_bayar, payment_type, status, qr_image, qr_raw, product_id, qty, target_whatsapp, reserved_manual_account_id, raw_response, expired_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`,
+      (user_id, invoice, amount, total_bayar, payment_type, status, qr_image, qr_raw, product_id, qty, target_whatsapp, role_price, bot_markup, final_price, reserved_manual_account_id, raw_response, expired_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`,
     [
       payload.user_id,
       payload.invoice,
@@ -44,6 +47,9 @@ export async function createPayment(payload) {
       payload.product_id || null,
       Number(payload.qty || 1),
       payload.target_whatsapp || null,
+      Number(payload.role_price || 0),
+      Number(payload.bot_markup || 0),
+      Number(payload.final_price || payload.amount || 0),
       payload.reserved_manual_account_id || null,
       JSON.stringify(payload.raw_response ?? null),
       payload.expired_at || null,
@@ -63,13 +69,16 @@ export async function updatePayment(invoice, payload = {}) {
 
   await execute(
     `UPDATE payments
-     SET status = ?, status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
+     SET status = ?, qr_image = ?, qr_raw = ?, status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, expired_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
      WHERE invoice = ?`,
     [
       payload.status || current.status,
+      payload.qr_image !== undefined ? payload.qr_image : current.qr_image,
+      payload.qr_raw !== undefined ? payload.qr_raw : current.qr_raw,
       JSON.stringify(payload.status_response ?? current.status_response ?? null),
       payload.order_invoice ?? current.order_invoice ?? null,
       payload.processed_at ?? current.processed_at ?? null,
+      payload.expired_at ?? current.expired_at ?? null,
       payload.canceled_at ?? current.canceled_at ?? null,
       invoice,
     ],

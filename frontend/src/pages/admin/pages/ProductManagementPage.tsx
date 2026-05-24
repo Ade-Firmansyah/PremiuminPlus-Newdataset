@@ -79,6 +79,190 @@ function toDraft(product: ProductRecord): ProductDraft {
   };
 }
 
+function detectedManualAccounts(stockDraft: { email: string; password: string; bulk: string }) {
+  const single = stockDraft.email.trim() && stockDraft.password.trim() ? 1 : 0;
+  const bulk = stockDraft.bulk
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .length;
+  return single + bulk;
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-[11px] font-black uppercase tracking-[0.16em] text-white/55">{label}</span>
+      {children}
+      {hint ? <span className="text-xs leading-5 text-white/40">{hint}</span> : null}
+    </label>
+  );
+}
+
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+      <h3 className="text-xs font-black uppercase tracking-[0.18em] text-white/70">{title}</h3>
+      <div className="mt-3 grid gap-3">{children}</div>
+    </section>
+  );
+}
+
+function StockMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-center">
+      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">{label}</p>
+      <p className="mt-1 text-base font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function SourceExplanation({ source }: { source: ProductDraft['product_source'] }) {
+  const copy = {
+    provider: {
+      title: 'Provider Product',
+      text: 'Stock full dari Premku. Gunakan untuk produk yang sepenuhnya mengikuti provider API.',
+      tone: 'border-sky-500/20 bg-sky-500/10 text-sky-100',
+    },
+    manual: {
+      title: 'Manual Product',
+      text: 'Stock full dari admin manual. Cocok untuk akun siap kirim yang dikelola dari dashboard.',
+      tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100',
+    },
+    hybrid: {
+      title: 'Hybrid Product',
+      text: 'Prioritas stock manual. Jika habis, order fallback ke provider sesuai flow backend.',
+      tone: 'border-amber-500/20 bg-amber-500/10 text-amber-100',
+    },
+  }[source];
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 ${copy.tone}`}>
+      <p className="text-sm font-black">{copy.title}</p>
+      <p className="mt-1 text-xs leading-5 opacity-80">{copy.text}</p>
+    </div>
+  );
+}
+
+function ProductForm({
+  value,
+  onChange,
+}: {
+  value: ProductDraft;
+  onChange: (next: ProductDraft) => void;
+}) {
+  const memberMarkup = Math.max(Number(value.member_price || 0) - Number(value.price_base || 0), 0);
+  const resellerMarkup = Math.max(Number(value.reseller_price || 0) - Number(value.price_base || 0), 0);
+
+  return (
+    <div className="grid gap-4">
+      <FormSection title="Data Produk">
+        <Field label="Nama Produk">
+          <input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Contoh: Netflix Premium 1 Bulan" />
+        </Field>
+        <Field label="Slug / Code Produk" hint="Kode unik untuk produk dan integrasi API internal.">
+          <input value={value.code} onChange={(event) => onChange({ ...value, code: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="netflix-premium-1bulan" />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Kategori Produk">
+            <input value={value.tag} onChange={(event) => onChange({ ...value, tag: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Streaming, Tools, Edukasi" />
+          </Field>
+          <Field label="Status Produk">
+            <select value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value as ProductDraft['status'] })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Deskripsi Produk">
+          <textarea value={value.note} onChange={(event) => onChange({ ...value, note: event.target.value })} className="min-h-24 rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Detail produk, masa aktif, ketentuan akun, atau catatan admin." />
+        </Field>
+        <Field label="Gambar Produk" hint="Isi URL thumbnail/gambar produk.">
+          <input value={value.image} onChange={(event) => onChange({ ...value, image: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="https://domain.com/gambar-produk.png" />
+        </Field>
+      </FormSection>
+
+      <FormSection title="Tipe Produk">
+        <Field label="Tipe Produk">
+          <select value={value.product_source} onChange={(event) => {
+            const nextSource = event.target.value as ProductDraft['product_source'];
+            onChange({
+              ...value,
+              product_source: nextSource,
+              product_type: nextSource === 'manual' ? 'manual' : 'api',
+              stock_mode: nextSource === 'manual' ? 'manual' : nextSource === 'hybrid' ? 'combined' : 'provider',
+              provider: nextSource === 'manual' ? 'manual' : 'premku',
+            });
+          }} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
+            <option value="provider">Provider Product</option>
+            <option value="manual">Manual Product</option>
+            <option value="hybrid">Hybrid Product</option>
+          </select>
+        </Field>
+        <SourceExplanation source={value.product_source} />
+        <Field label="Mode Stock">
+          <select value={value.stock_mode} onChange={(event) => onChange({ ...value, stock_mode: event.target.value as ProductDraft['stock_mode'] })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
+            <option value="provider">Stock Provider</option>
+            <option value="manual">Stock Manual</option>
+            <option value="combined">Stock Combined</option>
+          </select>
+        </Field>
+        {value.product_source !== 'manual' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Provider API" hint="Default provider saat ini: premku.">
+              <input value={value.provider} onChange={(event) => onChange({ ...value, provider: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="premku" />
+            </Field>
+            <Field label="SKU API / Premku ID" hint="Kosongkan jika produk manual atau belum dipetakan ke provider.">
+              <input type="number" value={Number(value.premku_id || 0)} onChange={(event) => onChange({ ...value, premku_id: Number(event.target.value) || null })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="SKU API" />
+            </Field>
+          </div>
+        ) : null}
+      </FormSection>
+
+      <FormSection title="Harga Produk">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Harga Dasar Provider" hint="Harga asli Premku/modal provider.">
+            <input type="number" value={Number(value.price_base || 0)} onChange={(event) => onChange({ ...value, price_base: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="0" />
+          </Field>
+          <Field label="Harga Member" hint="Harga jual untuk member.">
+            <input type="number" value={Number(value.member_price || 0)} onChange={(event) => onChange({ ...value, member_price: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="0" />
+          </Field>
+          <Field label="Harga Reseller" hint="Harga jual untuk reseller.">
+            <input type="number" value={Number(value.reseller_price || 0)} onChange={(event) => onChange({ ...value, reseller_price: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="0" />
+          </Field>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <StockMetric label="Markup Member" value={memberMarkup} />
+          <StockMetric label="Markup Reseller" value={resellerMarkup} />
+          <StockMetric label="Harga Final" value={Number(value.member_price || 0)} />
+        </div>
+        <p className="text-xs leading-5 text-white/45">Markup Tambahan dibaca sebagai selisih harga jual dan harga provider. Pricing engine backend tetap menjadi sumber final saat order.</p>
+      </FormSection>
+
+      <FormSection title="Katalog dan Bot">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/80">
+            <input type="checkbox" checked={value.is_visible} onChange={(event) => onChange({ ...value, is_visible: event.target.checked })} />
+            Tampil di katalog
+          </label>
+          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/80">
+            <input type="checkbox" checked={value.is_bot_enabled} onChange={(event) => onChange({ ...value, is_bot_enabled: event.target.checked })} />
+            Aktif di Bot WA
+          </label>
+        </div>
+      </FormSection>
+    </div>
+  );
+}
+
 export function ProductManagementPage() {
   const [products, setProducts] = useState<ProductRecord[]>([]);
   const [draft, setDraft] = useState<ProductDraft>(emptyProduct);
@@ -243,73 +427,21 @@ export function ProductManagementPage() {
     if (source === 'hybrid') return 'Hybrid';
     return 'Provider API';
   };
-
-  const ProductForm = ({ value, onChange, onSave }: { value: ProductDraft; onChange: (next: ProductDraft) => void; onSave: () => void }) => (
-    <div className="grid gap-3">
-      <input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Nama produk" />
-      <input value={value.code} onChange={(event) => onChange({ ...value, code: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Slug / code produk" />
-      <input value={value.tag} onChange={(event) => onChange({ ...value, tag: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Kategori" />
-      <select value={value.product_source} onChange={(event) => {
-        const nextSource = event.target.value as ProductDraft['product_source'];
-        onChange({
-          ...value,
-          product_source: nextSource,
-          product_type: nextSource === 'manual' ? 'manual' : 'api',
-          stock_mode: nextSource === 'manual' ? 'manual' : nextSource === 'hybrid' ? 'combined' : 'provider',
-          provider: nextSource === 'manual' ? 'manual' : 'premku',
-        });
-      }} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
-        <option value="provider">Provider API</option>
-        <option value="manual">Produk Manual Admin</option>
-        <option value="hybrid">Hybrid Provider + Manual</option>
-      </select>
-      <select value={value.stock_mode} onChange={(event) => onChange({ ...value, stock_mode: event.target.value as ProductDraft['stock_mode'] })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
-        <option value="provider">Stock Provider</option>
-        <option value="manual">Stock Manual</option>
-        <option value="combined">Stock Combined</option>
-      </select>
-      {value.product_source !== 'manual' ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <input value={value.provider} onChange={(event) => onChange({ ...value, provider: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Provider API" />
-          <input type="number" value={Number(value.premku_id || 0)} onChange={(event) => onChange({ ...value, premku_id: Number(event.target.value) || null })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="SKU API" />
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-100">Produk Manual Admin</div>
-      )}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <input type="number" value={Number(value.price_base || 0)} onChange={(event) => onChange({ ...value, price_base: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Harga base" />
-        <input type="number" value={Number(value.member_price || 0)} onChange={(event) => onChange({ ...value, member_price: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Harga member" />
-        <input type="number" value={Number(value.reseller_price || 0)} onChange={(event) => onChange({ ...value, reseller_price: Number(event.target.value) })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Harga reseller" />
-      </div>
-      <select value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value as ProductDraft['status'] })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50">
-        <option value="active">active</option>
-        <option value="inactive">nonactive</option>
-      </select>
-      <textarea value={value.note} onChange={(event) => onChange({ ...value, note: event.target.value })} className="min-h-24 rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Deskripsi" />
-      <input value={value.image} onChange={(event) => onChange({ ...value, image: event.target.value })} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50" placeholder="Thumbnail / URL gambar" />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/80">
-          <input type="checkbox" checked={value.is_visible} onChange={(event) => onChange({ ...value, is_visible: event.target.checked })} />
-          Tampil di katalog
-        </label>
-        <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/80">
-          <input type="checkbox" checked={value.is_bot_enabled} onChange={(event) => onChange({ ...value, is_bot_enabled: event.target.checked })} />
-          Aktif di Bot WA
-        </label>
-      </div>
-      <button onClick={onSave} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
-        <Save className="h-4 w-4" />
-        {saving ? 'Menyimpan...' : 'Simpan Produk'}
-      </button>
-    </div>
-  );
+  const manualAccountTotal = detectedManualAccounts(stockDraft);
+  const editingProduct = editing?.id ? products.find((product) => product.id === editing.id) || null : null;
 
   return (
     <div className="space-y-4">
       <PageHero title="Product Management" subtitle="Kelola Produk API dan Produk Manual Admin." slogan="Harga base, member, reseller tanpa switch preview. Stock manual realtime dari database internal." tone="from-brand/15 via-cyan-500/10 to-emerald-500/10" chips={['API Provider', 'Manual Admin', 'Stock realtime']} />
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <PageSection title="Tambah produk" subtitle="Produk digital">
-          <ProductForm value={draft} onChange={setDraft} onSave={() => void saveProduct(draft, 'create')} />
+          <ProductForm value={draft} onChange={setDraft} />
+          <div className="sticky bottom-3 z-10 mt-4 rounded-2xl border border-white/10 bg-[#0d0912]/95 p-3 shadow-2xl shadow-black/30 backdrop-blur">
+            <button onClick={() => void saveProduct(draft, 'create')} disabled={saving} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+              <Save className="h-4 w-4" />
+              {saving ? 'Menyimpan...' : 'Simpan Produk'}
+            </button>
+          </div>
           {error ? <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
           {success ? <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div> : null}
         </PageSection>
@@ -375,16 +507,16 @@ export function ProductManagementPage() {
 
                     <div className="grid grid-cols-3 gap-2">
                       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
-                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Provider</p>
+                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Provider Stock</p>
                         <p className="mt-1 text-center text-sm font-black text-white">{product.provider_stock ?? 0}</p>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
-                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Manual</p>
+                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Manual Stock</p>
                         <p className="mt-1 text-center text-sm font-black text-white">{product.manual_stock ?? 0}</p>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2">
-                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Bot</p>
-                        <p className="mt-1 text-center text-sm font-black text-white">{product.is_bot_enabled === false ? 'Off' : 'On'}</p>
+                        <p className="text-center text-[10px] font-bold uppercase tracking-[0.12em] text-white/35">Total Stock</p>
+                        <p className="mt-1 text-center text-sm font-black text-white">{product.effective_stock ?? product.stock ?? 0}</p>
                       </div>
                     </div>
 
@@ -408,53 +540,134 @@ export function ProductManagementPage() {
           {!loading && products.length > 0 && !filteredProducts.length ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/45"><Search className="mr-2 inline h-4 w-4 text-brand" />Produk tidak ditemukan.</div> : null}
         </PageSection>
       </div>
-      {editing ? <Modal title="Edit produk" onClose={() => setEditing(null)}><ProductForm value={editing} onChange={setEditing} onSave={() => void saveProduct(editing, 'edit')} />{error ? <p className="mt-3 text-sm text-rose-200">{error}</p> : null}</Modal> : null}
+      {editing ? (
+        <Modal
+          title="Edit produk"
+          subtitle="Ubah data produk, tipe stock, harga, katalog, dan bot."
+          onClose={() => setEditing(null)}
+          size="wide"
+          footer={(
+            <div className="grid gap-2 sm:grid-cols-[auto_1fr_1fr]">
+              <button
+                onClick={() => {
+                  if (editingProduct) setDeleting(editingProduct);
+                  setEditing(null);
+                }}
+                disabled={!editingProduct || saving}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+              <button onClick={() => setEditing(null)} className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/70">Batal</button>
+              <button onClick={() => void saveProduct(editing, 'edit')} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
+                <Save className="h-4 w-4" />
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          )}
+        >
+          <ProductForm value={editing} onChange={setEditing} />
+          {error ? <p className="mt-3 text-sm text-rose-200">{error}</p> : null}
+        </Modal>
+      ) : null}
       {stockProduct ? (
-        <Modal title="Manual Stock" onClose={() => setStockProduct(null)} subtitle={stockProduct.name}>
+        <Modal
+          title="Tambah Stock Manual"
+          onClose={() => setStockProduct(null)}
+          subtitle={stockProduct.name}
+          footer={(
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={() => setStockProduct(null)} className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/70">Batal</button>
+              <button onClick={() => void addManualStock()} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 disabled:opacity-60">
+                <Database className="h-4 w-4" />
+                {saving ? 'Menyimpan...' : 'Tambah Stock'}
+              </button>
+            </div>
+          )}
+        >
           <div className="grid gap-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <input value={stockDraft.email} onChange={(event) => setStockDraft((current) => ({ ...current, email: event.target.value }))} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50" placeholder="Email / username" />
-              <input value={stockDraft.password} onChange={(event) => setStockDraft((current) => ({ ...current, password: event.target.value }))} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50" placeholder="Password" />
+              <Field label="Email / Username">
+                <input value={stockDraft.email} onChange={(event) => setStockDraft((current) => ({ ...current, email: event.target.value }))} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50" placeholder="email@domain.com" />
+              </Field>
+              <Field label="Password">
+                <input value={stockDraft.password} onChange={(event) => setStockDraft((current) => ({ ...current, password: event.target.value }))} className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50" placeholder="password akun" />
+              </Field>
             </div>
-            <textarea
-              value={stockDraft.bulk}
-              onChange={(event) => setStockDraft((current) => ({ ...current, bulk: event.target.value }))}
-              className="min-h-32 rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50"
-              placeholder={'Bulk import akun manual\nemail1@gmail.com pass1\nemail2@gmail.com:pass2'}
-            />
+            <Field label="Bulk Import" hint="Format: email:password, satu akun per baris. Spasi juga tetap diterima oleh backend lama.">
+              <textarea
+                value={stockDraft.bulk}
+                onChange={(event) => setStockDraft((current) => ({ ...current, bulk: event.target.value }))}
+                className="min-h-36 rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-emerald-400/50"
+                placeholder={'email1@gmail.com:password1\nemail2@gmail.com:password2'}
+              />
+            </Field>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">Manual Ready</p>
-                <p className="mt-1 text-sm font-black text-white">{stockProduct.manual_stock ?? 0}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">Provider</p>
-                <p className="mt-1 text-sm font-black text-white">{stockProduct.provider_stock ?? 0}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">Total</p>
-                <p className="mt-1 text-sm font-black text-white">{stockProduct.effective_stock ?? stockProduct.stock ?? 0}</p>
-              </div>
+              <StockMetric label="Provider Stock" value={Number(stockProduct.provider_stock ?? 0)} />
+              <StockMetric label="Manual Stock" value={Number(stockProduct.manual_stock ?? 0)} />
+              <StockMetric label="Total Stock" value={Number(stockProduct.effective_stock ?? stockProduct.stock ?? 0)} />
             </div>
-            <button onClick={() => void addManualStock()} disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 disabled:opacity-60"><Database className="h-4 w-4" />{saving ? 'Menyimpan...' : 'Tambah Stock'}</button>
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-200/70">Total akun terdeteksi</p>
+              <p className="mt-1 text-2xl font-black text-white">{manualAccountTotal}</p>
+            </div>
             {error ? <p className="text-sm text-rose-200">{error}</p> : null}
           </div>
         </Modal>
       ) : null}
-      {deleting ? <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-[1.35rem] border border-rose-500/20 bg-[#0d0912] p-5 shadow-2xl shadow-rose-500/10"><div className="flex gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-200"><AlertTriangle className="h-5 w-5" /></div><div><p className="text-lg font-black text-white">Apakah yakin ingin menghapus produk ini?</p><p className="mt-2 text-sm leading-6 text-white/55">{deleting.name} akan dihapus, atau dinonaktifkan jika sudah punya histori transaksi.</p></div></div><div className="mt-5 grid gap-2 sm:grid-cols-2"><button onClick={() => setDeleting(null)} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/70">Batal</button><button onClick={() => void deleteProduct()} disabled={saving} className="rounded-xl border border-rose-500/20 bg-rose-500/15 px-4 py-3 text-sm font-black text-rose-100 disabled:opacity-60">Ya Hapus</button></div></div></div> : null}
+      {deleting ? (
+        <Modal
+          title="Hapus produk"
+          subtitle={deleting.name}
+          onClose={() => setDeleting(null)}
+          footer={(
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={() => setDeleting(null)} className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/70">Batal</button>
+              <button onClick={() => void deleteProduct()} disabled={saving} className="min-h-11 rounded-xl border border-rose-500/20 bg-rose-500/15 px-4 py-3 text-sm font-black text-rose-100 disabled:opacity-60">Ya Hapus</button>
+            </div>
+          )}
+        >
+          <div className="flex gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-200"><AlertTriangle className="h-5 w-5" /></div>
+            <p className="text-sm leading-6 text-white/60">{deleting.name} akan dihapus, atau dinonaktifkan jika sudah punya histori transaksi.</p>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-function Modal({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
+function Modal({
+  title,
+  subtitle,
+  children,
+  footer,
+  onClose,
+  size = 'normal',
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  size?: 'normal' | 'wide';
+}) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[1.35rem] border border-white/10 bg-[#0d0912] p-5 shadow-2xl shadow-brand/20">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-3 py-4 backdrop-blur-sm sm:px-4">
+      <div className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#0d0912] shadow-2xl shadow-brand/20 ${size === 'wide' ? 'max-w-3xl' : 'max-w-lg'}`}>
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-5">
           <div><p className="text-lg font-black text-white">{title}</p>{subtitle ? <p className="mt-1 text-xs text-white/45">{subtitle}</p> : null}</div>
           <button onClick={onClose} className="rounded-xl border border-white/10 p-2 text-white/60"><X className="h-4 w-4" /></button>
         </div>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          {children}
+        </div>
+        {footer ? (
+          <div className="sticky bottom-0 shrink-0 border-t border-white/10 bg-[#0d0912]/95 px-4 py-3 shadow-2xl shadow-black/30 backdrop-blur sm:px-5">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );

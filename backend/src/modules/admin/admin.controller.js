@@ -4,13 +4,14 @@ import { listDeposits } from '../../repositories/deposit.repo.js';
 import { findWithdrawById, listWithdraws, updateWithdraw } from '../../repositories/withdraw.repo.js';
 import { getBotSettings, getDiscountSetting, getMarkupSetting, getSetting, setBotSettings, setDiscountSetting, setMarkupSetting, setSetting } from '../../repositories/settings.repo.js';
 import { createNotification, deleteNotification, listNotifications, updateNotification } from '../../repositories/notification.repo.js';
+import { listActivityLogs } from '../../repositories/activity.repo.js';
 import env from '../../config/env.js';
-import { query } from '../../config/db.js';
-import { setSaldo } from '../../services/wallet.service.js';
-import { getSaldoUtama } from '../../services/wallet.service.js';
+import { query, transaction } from '../../config/db.js';
+import { getSaldoUtama, getUsableBalance, setSaldo } from '../../services/wallet.service.js';
 import { premkuProfile } from '../../services/premku.service.js';
 import { clearCache, getCache, setCache } from '../../services/cache.service.js';
-import { requireFields } from '../../utils/validator.js';
+import { publishUserRefresh } from '../../services/realtime.service.js';
+import { isValidEmail, isValidWhatsapp, normalizeEmail, normalizeWhatsapp, requireFields, sanitizePlainText } from '../../utils/validator.js';
 import { getUserBotSettings, updateUserBotSettings } from '../bot/bot.service.js';
 
 const ORDER_HISTORY_FILTER = `
@@ -19,6 +20,49 @@ const ORDER_HISTORY_FILTER = `
   AND LOWER(COALESCE(product_name, '')) NOT IN ('qris payment', 'deposit saldo', 'topup saldo', 'top up saldo')
   AND LOWER(COALESCE(channel, '')) NOT IN ('deposit', 'qris', 'payment')
 `;
+
+function failValidation(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  throw error;
+}
+
+function sanitizeAdminUserPayload(source = {}) {
+  const payload = { ...source };
+
+  if (payload.username !== undefined) {
+    payload.username = sanitizePlainText(payload.username, 40);
+    if (payload.username && !/^[a-zA-Z0-9_.-]+$/.test(payload.username)) {
+      failValidation('Username hanya boleh berisi huruf, angka, titik, garis bawah, atau strip');
+    }
+  }
+
+  if (payload.email !== undefined) {
+    const email = normalizeEmail(payload.email);
+    if (email && !isValidEmail(email)) {
+      failValidation('Invalid email format');
+    }
+    payload.email = email || null;
+  }
+
+  if (payload.phone !== undefined) {
+    const phone = normalizeWhatsapp(payload.phone);
+    if (phone && !isValidWhatsapp(phone)) {
+      failValidation('Invalid WhatsApp number');
+    }
+    payload.phone = phone || null;
+  }
+
+  if (payload.fullName !== undefined) {
+    payload.fullName = sanitizePlainText(payload.fullName, 120);
+  }
+
+  if (payload.notes !== undefined) {
+    payload.notes = sanitizePlainText(payload.notes, 500);
+  }
+
+  return payload;
+}
 
 export async function users(_req, res) {
   res.json({ status: true, data: await listUsers() });
@@ -41,11 +85,22 @@ export async function adminSummary(_req, res) {
   const [transactionRows] = await query(
     `SELECT
       COUNT(*) AS total_transactions,
-      COALESCE(SUM(total_price), 0) AS total_revenue,
-      COALESCE(SUM(profit), 0) AS system_profit
+      COALESCE(SUM(NULLIF(final_amount, 0)), SUM(total_price), 0) AS total_revenue,
+      COALESCE(SUM(NULLIF(provider_cost, 0)), SUM(price_base * qty), 0) AS total_provider_cost,
+      COALESCE(SUM(admin_profit), 0) AS system_profit,
+      COALESCE(SUM(user_profit), 0) AS total_user_profit
      FROM transactions
      WHERE status IN ('processing', 'success')
        AND ${ORDER_HISTORY_FILTER}`,
+  );
+  const [roleProfitRows] = await query(
+    `SELECT
+      COALESCE(SUM(CASE WHEN u.role = 'reseller' THEN t.user_profit ELSE 0 END), 0) AS reseller_profit,
+      COALESCE(SUM(CASE WHEN u.role = 'member' THEN t.user_profit ELSE 0 END), 0) AS member_profit
+     FROM transactions t
+     JOIN users u ON u.id = t.user_id
+     WHERE t.status IN ('processing', 'success')
+       AND ${ORDER_HISTORY_FILTER.replaceAll('transaction_type', 't.transaction_type').replaceAll('product_id', 't.product_id').replaceAll('product_name', 't.product_name').replaceAll('channel', 't.channel')}`,
   );
   const [withdrawRows] = await query(
     `SELECT
@@ -83,7 +138,11 @@ export async function adminSummary(_req, res) {
       total_reseller_balance: Number(userRows?.total_reseller_balance || 0),
       total_transactions: Number(transactionRows?.total_transactions || 0),
       total_revenue: Number(transactionRows?.total_revenue || 0),
+      total_provider_cost: Number(transactionRows?.total_provider_cost || 0),
       system_profit: Number(transactionRows?.system_profit || 0),
+      total_user_profit: Number(transactionRows?.total_user_profit || 0),
+      reseller_profit: Number(roleProfitRows?.reseller_profit || 0),
+      member_profit: Number(roleProfitRows?.member_profit || 0),
       pending_withdraw_count: Number(withdrawRows?.pending_withdraw_count || 0),
       pending_withdraw: Number(withdrawRows?.pending_withdraw || 0),
       recent_orders: recentOrders,
@@ -91,7 +150,7 @@ export async function adminSummary(_req, res) {
       recent_users: recentUsers,
     },
   };
-  setCache('admin-summary', response, 10 * 1000);
+  setCache('admin-summary', response, env.DASHBOARD_CACHE_MS);
   return res.json(response);
 }
 
@@ -136,12 +195,13 @@ export async function premkuFinanceProfile(_req, res) {
 export async function createAdminUser(req, res) {
   try {
     requireFields(req.body, ['username', 'password']);
+    const payload = sanitizeAdminUserPayload(req.body);
     const initialSaldo = Number(req.body.saldo || 0);
     if (!Number.isFinite(initialSaldo) || initialSaldo < 0) {
       return res.status(400).json({ status: false, message: 'Saldo awal tidak valid' });
     }
 
-    const data = await createUser(req.body);
+    const data = await createUser(payload);
     if (Number.isFinite(initialSaldo) && initialSaldo > 0) {
       await setSaldo(data, initialSaldo, `admin-user-${data.id}-initial-saldo`);
       data.saldo = initialSaldo;
@@ -150,6 +210,7 @@ export async function createAdminUser(req, res) {
   } catch (error) {
     res.status(error.statusCode || 500).json({
       status: false,
+      success: false,
       message: error.message || 'Gagal membuat user',
     });
   }
@@ -157,7 +218,7 @@ export async function createAdminUser(req, res) {
 
 export async function updateAdminUser(req, res) {
   try {
-    const payload = { ...req.body };
+    const payload = sanitizeAdminUserPayload(req.body);
     const hasSaldoChange = payload.saldo !== undefined;
     if (hasSaldoChange) {
       const nextSaldo = Number(payload.saldo);
@@ -181,6 +242,7 @@ export async function updateAdminUser(req, res) {
   } catch (error) {
     res.status(error.statusCode || 500).json({
       status: false,
+      success: false,
       message: error.message || 'Gagal memperbarui user',
     });
   }
@@ -205,6 +267,14 @@ export async function transactions(_req, res) {
   res.json({ status: true, data: await listTransactions() });
 }
 
+export async function activityLogs(req, res) {
+  const limit = Math.min(Math.max(Number(req.query.limit || 80), 1), 200);
+  const rows = await listActivityLogs(limit);
+  const resetOnly = String(req.query.scope || '').toLowerCase() === 'password_reset';
+  const data = resetOnly ? rows.filter((item) => String(item.scope || '').startsWith('PASSWORD_RESET_')) : rows;
+  res.json({ status: true, data });
+}
+
 export async function deposits(_req, res) {
   res.json({ status: true, data: await listDeposits() });
 }
@@ -224,21 +294,74 @@ export async function approveWithdraw(req, res) {
       return res.status(400).json({ status: false, message: 'Withdraw sudah diproses' });
     }
 
-    const user = await getUserById(data.user_id);
-    if (!user) {
-      return res.status(404).json({ status: false, message: 'User tidak ditemukan' });
-    }
+    await transaction(async (connection) => {
+      const [withdrawRows] = await connection.query('SELECT * FROM withdraws WHERE id = ? FOR UPDATE', [data.id]);
+      const withdraw = withdrawRows[0];
+      if (!withdraw) {
+        const error = new Error('Withdraw tidak ditemukan');
+        error.statusCode = 404;
+        throw error;
+      }
+      if (withdraw.status !== 'pending') {
+        const error = new Error('Withdraw sudah diproses');
+        error.statusCode = 400;
+        throw error;
+      }
 
-    const previousSaldo = getSaldoUtama(user);
-    const nextSaldo = previousSaldo - Number(data.amount || 0);
+      const [userRows] = await connection.query('SELECT * FROM users WHERE id = ? FOR UPDATE', [withdraw.user_id]);
+      const lockedUser = userRows[0];
+      if (!lockedUser) {
+        const error = new Error('User tidak ditemukan');
+        error.statusCode = 404;
+        throw error;
+      }
 
-    await setSaldo(user, nextSaldo, `withdraw-${data.id}-approve`);
-    const updated = await updateWithdraw(data.id, { status: 'approved' });
+      const amount = Number(withdraw.amount || 0);
+      const before = getSaldoUtama(lockedUser);
+      const usableBefore = getUsableBalance(lockedUser);
+      if (usableBefore < amount) {
+        const error = new Error('Saldo user tidak cukup untuk menyelesaikan penarikan');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const after = before - amount;
+      const reference = `withdraw-${withdraw.id}`;
+      await connection.query('UPDATE users SET saldo_utama = ?, saldo = ? WHERE id = ?', [after, after, withdraw.user_id]);
+      await connection.query(
+        `INSERT INTO saldo_logs
+          (user_id, type, amount, balance_before, balance_after, reference, notes)
+         VALUES (?, 'debit', ?, ?, ?, ?, ?)`,
+        [withdraw.user_id, amount, before, after, reference, 'Withdraw paid by admin'],
+      );
+      await connection.query(
+        `INSERT INTO saldo_mutations
+          (user_id, mutation_type, amount, balance_before, balance_after, reference)
+         VALUES (?, 'withdraw', ?, ?, ?, ?)`,
+        [withdraw.user_id, amount, before, after, reference],
+      );
+      await connection.query(
+        `UPDATE withdraws
+         SET status = 'paid', processed_at = NOW(), notes = COALESCE(NULLIF(?, ''), notes), updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [req.body?.notes || 'Paid by admin', withdraw.id],
+      );
+      await connection.query(
+        `INSERT INTO activity_logs (actor_id, user_id, scope, message, activity, metadata)
+         VALUES (?, ?, 'WITHDRAW', 'Withdraw paid', 'Withdraw paid', CAST(? AS JSON))`,
+        [req.user.id, withdraw.user_id, JSON.stringify({ withdraw_id: withdraw.id, amount, balance_before: before, balance_after: after })],
+      );
+
+      return true;
+    });
+    const updated = await findWithdrawById(data.id);
     if (!updated) {
-      await setSaldo(user, previousSaldo, `withdraw-${data.id}-rollback`);
       return res.status(500).json({ status: false, message: 'Withdraw gagal diproses' });
     }
-
+    clearCache();
+    publishUserRefresh(updated.user_id, 'wallet_updated', { scope: 'wallet', entity: 'saldo', id: `withdraw-${updated.id}` });
+    publishUserRefresh(updated.user_id, 'withdraw_updated', { scope: 'withdraw', entity: 'withdraw', id: updated.id });
+    publishUserRefresh(updated.user_id, 'dashboard.updated', { scope: 'dashboard', entity: 'summary', id: `withdraw-${updated.id}` });
     return res.json({ status: true, data: updated });
   } catch (error) {
     return res.status(error.statusCode || 500).json({
@@ -268,6 +391,9 @@ export async function rejectWithdraw(req, res) {
       return res.status(500).json({ status: false, message: 'Withdraw gagal diproses' });
     }
 
+    clearCache();
+    publishUserRefresh(updated.user_id, 'withdraw_updated', { scope: 'withdraw', entity: 'withdraw', id: updated.id });
+    publishUserRefresh(updated.user_id, 'dashboard.updated', { scope: 'dashboard', entity: 'summary', id: `withdraw-${updated.id}` });
     res.json({ status: true, data: updated });
   } catch (error) {
     res.status(error.statusCode || 500).json({

@@ -1,10 +1,7 @@
 import { execute, query, transaction } from '../config/db.js';
 import { parseDbJson } from '../config/db.js';
 import { getSaldoUtama } from '../services/wallet.service.js';
-
-function toMysqlDate(value = new Date()) {
-  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
-}
+import { toMysqlDate } from '../utils/date.js';
 
 function toTransaction(row) {
   if (!row) return null;
@@ -29,6 +26,24 @@ function toTransaction(row) {
     price_sell: Number(row.price_sell || 0),
     total_price: Number(row.total_price || 0),
     profit: Number(row.profit || 0),
+    provider_price: Number(row.provider_price || row.price_base || 0),
+    user_markup: Number(row.user_markup || 0),
+    admin_markup: Number(row.admin_markup || 0),
+    final_price: Number(row.final_price || row.total_price || 0),
+    reseller_profit: Number(row.reseller_profit || 0),
+    platform_profit: Number(row.platform_profit || 0),
+    gross_amount: Number(row.gross_amount || row.total_price || 0),
+    provider_cost: Number(row.provider_cost || row.provider_price || row.price_base || 0),
+    user_profit: Number(row.user_profit || row.user_markup || row.reseller_profit || 0),
+    admin_profit: Number(row.admin_profit || row.platform_profit || 0),
+    final_amount: Number(row.final_amount || row.final_price || row.total_price || 0),
+    payment_amount: Number(row.payment_amount || row.amount || row.total_price || 0),
+    net_amount: Number(row.net_amount || 0),
+    role_price: Number(row.role_price || row.provider_cost || row.price_sell || 0),
+    bot_markup: Number(row.bot_markup || row.user_markup || 0),
+    bot_markup_profit: Number(row.bot_markup_profit || row.bot_markup || row.user_profit || row.user_markup || 0),
+    gross_income: Number(row.gross_income || row.gross_amount || row.total_price || 0),
+    net_profit: Number(row.net_profit || row.user_profit || row.user_markup || 0),
     status: row.status,
     account_data: Array.isArray(accountData) ? null : accountData,
     accounts,
@@ -60,8 +75,8 @@ async function getTransactionRow(invoice) {
 export async function createTransaction(payload) {
   const result = await execute(
     `INSERT INTO transactions
-      (invoice, ref_id, idempotency_key, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, status, account_data, channel, product_image, description, transaction_type, amount)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (invoice, ref_id, idempotency_key, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, provider_price, user_markup, admin_markup, final_price, reseller_profit, platform_profit, gross_amount, provider_cost, user_profit, admin_profit, final_amount, payment_amount, net_amount, role_price, bot_markup, bot_markup_profit, gross_income, net_profit, status, account_data, channel, product_image, description, transaction_type, amount)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
     [
       payload.invoice,
@@ -75,6 +90,24 @@ export async function createTransaction(payload) {
       Number(payload.price_sell || 0),
       Number(payload.total_price || 0),
       Number(payload.profit || 0),
+      Number(payload.provider_price ?? payload.price_base ?? 0),
+      Number(payload.user_markup || 0),
+      Number(payload.admin_markup || 0),
+      Number(payload.final_price ?? payload.total_price ?? 0),
+      Number(payload.reseller_profit || 0),
+      Number(payload.platform_profit || 0),
+      Number(payload.gross_amount ?? payload.total_price ?? 0),
+      Number(payload.provider_cost ?? payload.provider_price ?? payload.price_base ?? 0),
+      Number(payload.user_profit ?? payload.user_markup ?? payload.reseller_profit ?? 0),
+      Number(payload.admin_profit ?? payload.platform_profit ?? 0),
+      Number(payload.final_amount ?? payload.final_price ?? payload.total_price ?? 0),
+      Number(payload.payment_amount ?? payload.amount ?? payload.total_price ?? 0),
+      Number(payload.net_amount ?? 0),
+      Number(payload.role_price ?? payload.provider_cost ?? payload.price_sell ?? 0),
+      Number(payload.bot_markup ?? payload.user_markup ?? 0),
+      Number(payload.bot_markup_profit ?? payload.bot_markup ?? payload.user_profit ?? payload.user_markup ?? 0),
+      Number(payload.gross_income ?? payload.gross_amount ?? payload.total_price ?? 0),
+      Number(payload.net_profit ?? payload.user_profit ?? payload.user_markup ?? 0),
       payload.status || 'pending',
       JSON.stringify(payload.account_data ?? null),
       payload.channel || 'website',
@@ -168,6 +201,12 @@ export async function refundTransaction(invoice, externalResponse = {}, notes = 
         (user_id, type, amount, balance_before, balance_after, reference, notes)
        VALUES (?, 'refund', ?, ?, ?, ?, ?)`,
       [current.user_id, amount, before, after, `${invoice}-refund`, notes],
+    );
+    await connection.query(
+      `INSERT INTO saldo_mutations
+        (user_id, mutation_type, amount, balance_before, balance_after, reference)
+       VALUES (?, 'refund', ?, ?, ?, ?)`,
+      [current.user_id, amount, before, after, `${invoice}-refund`],
     );
     await connection.query(
       `UPDATE transactions

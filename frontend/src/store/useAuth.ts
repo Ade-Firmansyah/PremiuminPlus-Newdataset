@@ -1,6 +1,7 @@
 const apiKeyStorageKey = 'premiuminplus:api-key';
 const tokenStorageKey = 'premiuminplus:token';
 const sessionStorageKey = 'premiuminplus:session';
+const sessionActivityKey = 'premiuminplus:last-activity';
 
 function readSessionAuth() {
   const raw = localStorage.getItem(sessionStorageKey) || sessionStorage.getItem(sessionStorageKey);
@@ -38,4 +39,6 @@ export function clearApiKey() {
   sessionStorage.removeItem(apiKeyStorageKey);
   localStorage.removeItem(tokenStorageKey);
   sessionStorage.removeItem(tokenStorageKey);
+  localStorage.removeItem(sessionActivityKey);
+  sessionStorage.removeItem(sessionActivityKey);
 }

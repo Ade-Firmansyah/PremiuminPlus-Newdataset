@@ -3,6 +3,7 @@ import { getDiscountSetting, getMarkupSetting } from '../../repositories/setting
 import { calculateCanonicalPrices, calculateRoleSellPrice } from '../../services/pricing.service.js';
 import { clearCache, getCache, setCache } from '../../services/cache.service.js';
 import { publishStockChanged } from '../../services/product-events.service.js';
+import env from '../../config/env.js';
 import { requireFields } from '../../utils/validator.js';
 
 async function applyMarkup(products, user = {}) {
@@ -47,7 +48,7 @@ export async function getProducts(_req, res) {
     source: 'local-db',
     data: await applyMarkup(products, _req.user),
   };
-  setCache(`products:${_req.user.role}:${_req.user.id}:${_req.user.markup_percent || 0}`, response, 15 * 1000);
+  setCache(`products:${_req.user.role}:${_req.user.id}:${_req.user.markup_percent || 0}`, response, env.PRODUCTS_CACHE_MS);
   return res.json(response);
 }
 

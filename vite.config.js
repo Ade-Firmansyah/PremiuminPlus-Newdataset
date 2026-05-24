@@ -38,11 +38,20 @@ export default defineConfig(({ mode }) => {
       drop: mode === 'production' ? ['console', 'debugger'] : ['debugger'],
     },
     server: {
+      strictPort: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify - file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: {
         ignored: [
+          '**/backend/**',
+          '**/bot-engine/**',
+          '**/database/**',
+          '**/docs/**',
+          '**/scripts/**',
+          '**/README.md',
+          '**/.env',
+          '**/.env.*',
           '**/bot-engine/sessions/**',
           '**/backend-run.log',
           '**/backend-run.err',

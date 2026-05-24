@@ -1,5 +1,5 @@
-import { useLocation } from 'react-router-dom';
-import { Bot, LayoutDashboard, Package, Users, ClipboardList, SlidersHorizontal, BellRing } from 'lucide-react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { Bot, LayoutDashboard, Package, Users, ClipboardList, SlidersHorizontal, BellRing, Banknote } from 'lucide-react';
 import { AppShell, type NavSection } from '../components/layout/AppShell';
 import { UserManagementPage } from './admin/pages/UserManagementPage';
 import { MonitoringTransaksiPage } from './admin/pages/MonitoringTransaksiPage';
@@ -22,12 +22,13 @@ const adminSections: NavSection[] = [
     label: 'Admin Panel',
     items: [
       { label: 'Dashboard', to: '/admin', icon: LayoutDashboard, end: true },
+      { label: 'Finance Monitoring', to: '/admin/monitoring-transaksi', icon: Banknote },
       { label: 'User Management', to: '/admin/user-management', icon: Users },
-      { label: 'Monitoring Transaksi', to: '/admin/monitoring-transaksi', icon: ClipboardList },
-      { label: 'Product Management', to: '/admin/product-management', icon: Package },
-      { label: 'Setting Markup', to: '/admin/setting-markup', icon: SlidersHorizontal },
-      { label: 'Bot Settings', to: '/admin/bot-settings', icon: Bot },
-      { label: 'Pesan Notifikasi', to: '/admin/pesan-notifikasi', icon: BellRing },
+      { label: 'Product & Margin', to: '/admin/product-management', icon: Package },
+      { label: 'Withdraw Management', to: '/admin/withdraw-management', icon: ClipboardList },
+      { label: 'Bot Monitoring', to: '/admin/bot-settings', icon: Bot },
+      { label: 'Notifications', to: '/admin/pesan-notifikasi', icon: BellRing },
+      { label: 'Markup Rules', to: '/admin/setting-markup', icon: SlidersHorizontal },
     ],
   },
 ];
@@ -42,11 +43,11 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Kelola user, edit data, tambah user baru, dan hapus user dari satu layar.',
   },
   '/admin/monitoring-transaksi': {
-    title: 'Monitoring Transaksi',
-    subtitle: 'Pantau top up dan user order secara terpisah supaya alurnya mudah dibaca.',
+    title: 'Finance Monitoring',
+    subtitle: 'Pantau top up, order user, withdraw, dan audit dari satu pusat monitoring.',
   },
   '/admin/setting-markup': {
-    title: 'Setting Markup',
+    title: 'Markup Rules',
     subtitle: 'Atur markup bertingkat sesuai range harga dengan logika yang lebih masuk akal.',
   },
   '/admin/product-management': {
@@ -54,8 +55,12 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Kelola produk, stok, harga dasar, dan margin admin.',
   },
   '/admin/bot-settings': {
-    title: 'Bot Settings',
+    title: 'Bot Monitoring',
     subtitle: 'Siapkan prompt, greeting, format order, dan feature flag WhatsApp bot.',
+  },
+  '/admin/withdraw-management': {
+    title: 'Withdraw Management',
+    subtitle: 'Validasi tiket penarikan, tujuan transfer, dan status pembayaran manual.',
   },
   '/admin/pesan-notifikasi': {
     title: 'Pesan Notifikasi',
@@ -69,8 +74,11 @@ export function AdminPanelPage({ session, onLogout }: AdminPanelPageProps) {
   const meta = pageMeta[path] || pageMeta['/admin'];
 
   const page = (() => {
+    if (path === '/admin/system-logs') return <Navigate to="/admin/monitoring-transaksi" replace />;
+    if (path === '/admin/markup-rules') return <Navigate to="/admin/setting-markup" replace />;
     if (path === '/admin') return <AdminDashboardHome />;
     if (path === '/admin/monitoring-transaksi') return <MonitoringTransaksiPage />;
+    if (path === '/admin/withdraw-management') return <MonitoringTransaksiPage initialTab="withdraw" />;
     if (path === '/admin/product-management') return <ProductManagementPage />;
     if (path === '/admin/setting-markup') return <SettingMarkupPage />;
     if (path === '/admin/bot-settings') return <BotSettingsPage />;

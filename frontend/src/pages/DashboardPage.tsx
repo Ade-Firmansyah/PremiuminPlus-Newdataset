@@ -2,17 +2,18 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Banknote,
-  BarChart3,
   BookText,
   Bot,
   ClipboardList,
   Coins,
   Code2,
+  CreditCard,
   ArrowRight,
   AlertTriangle,
   HelpCircle,
   Layers3,
   MessageCircle,
+  Package,
   Phone,
   ReceiptText,
   ShieldCheck,
@@ -22,6 +23,7 @@ import {
   Send,
   Users,
   Wallet,
+  X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AppShell, type NavSection } from '../components/layout/AppShell';
@@ -31,6 +33,8 @@ import { getApiKey } from '../store/useAuth';
 import { subscribeCoreRealtime } from '../services/coreRealtime';
 import { formatCurrency, formatNumber, getGreeting } from '../utils/format';
 import cardArt from '../asset/logo-upscale.png';
+
+const PAYMENT_STATUS_POLL_MS = 25000;
 
 // Lazy load sub-pages untuk optimize bundle size
 const BotWA = lazy(() => import('./botwa'));
@@ -278,13 +282,16 @@ function MenuPage({ title, subtitle, children }: { title: string; subtitle: stri
 function DepositTopup() {
   const [amount, setAmount] = useState(25000);
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState('');
   const [depositResult, setDepositResult] = useState<DepositRecord | null>(null);
+  const [deposits, setDeposits] = useState<DepositRecord[]>([]);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [adminWhatsapp, setAdminWhatsapp] = useState('');
   const autoCancelingRef = useRef('');
+  const terminalRefreshRef = useRef('');
   const apiKey = getApiKey();
   const pendingDepositInvoiceKey = 'premiuminplus:pending-deposit-invoice';
   const waDepositLink = adminWhatsapp
@@ -307,11 +314,57 @@ function DepositTopup() {
     }
 
     const value = String(input).trim();
-    const base = value.includes('T') ? value : value.replace(' ', 'T');
-    const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(base) ? base : `${base}Z`;
+    const normalized = value.includes('T') ? value : value.replace(' ', 'T');
     const date = new Date(normalized);
     return Number.isNaN(date.getTime()) ? null : date;
   };
+
+  const isDepositPastExpiry = (deposit?: DepositRecord | null) => {
+    const expiredAt = parseApiDate(deposit?.expired_at);
+    return Boolean(expiredAt && expiredAt.getTime() <= Date.now());
+  };
+
+  const getDepositStatus = (deposit?: DepositRecord | null) => String(deposit?.status || 'pending').toLowerCase();
+
+  const canPayDeposit = (deposit: DepositRecord) => getDepositStatus(deposit) === 'pending' && !isDepositPastExpiry(deposit);
+
+  const getStatusLabel = (status?: string) => {
+    const value = String(status || 'pending').toLowerCase();
+    if (value === 'success') return 'Berhasil';
+    if (value === 'failed') return 'Gagal';
+    if (value === 'expired') return 'Expired';
+    if (value === 'canceled') return 'Dibatalkan';
+    return 'Pending';
+  };
+
+  const getStatusClassName = (status?: string) => {
+    const value = String(status || 'pending').toLowerCase();
+    if (value === 'success') return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300';
+    if (value === 'failed' || value === 'canceled') return 'border-rose-500/20 bg-rose-500/10 text-rose-200';
+    if (value === 'expired') return 'border-white/15 bg-white/5 text-white/45';
+    return 'border-amber-400/25 bg-amber-400/10 text-amber-200';
+  };
+
+  const formatDepositDate = (value?: string) => {
+    const date = parseApiDate(value);
+    if (!date) return '-';
+    return new Intl.DateTimeFormat('id-ID', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  };
+
+  const loadDepositHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const response = await premiuminApi.deposits(apiKey || undefined);
+      setDeposits(response.data);
+    } catch {
+      // The create/check actions already surface errors; history reload can stay quiet.
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [apiKey]);
 
   useEffect(() => {
     let active = true;
@@ -328,6 +381,10 @@ function DepositTopup() {
   }, []);
 
   useEffect(() => {
+    void loadDepositHistory();
+  }, [loadDepositHistory]);
+
+  useEffect(() => {
     const storedInvoice = window.localStorage.getItem(pendingDepositInvoiceKey);
     if (!storedInvoice) return;
 
@@ -336,6 +393,7 @@ function DepositTopup() {
       .then((response) => {
         if (!active) return;
         setDepositResult(response.data);
+        void loadDepositHistory();
       })
       .catch(() => {
         if (!active) return;
@@ -345,7 +403,7 @@ function DepositTopup() {
     return () => {
       active = false;
     };
-  }, [apiKey]);
+  }, [apiKey, loadDepositHistory]);
 
   useEffect(() => {
     if (!depositResult) return;
@@ -393,21 +451,44 @@ function DepositTopup() {
         const response = await premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined);
         if (!active) return;
         setDepositResult(response.data);
+        setDeposits((current) => current.map((item) => (item.invoice === response.data.invoice ? response.data : item)));
         if (response.data.status === 'success') {
           window.dispatchEvent(new Event('premiuminplus:balance-updated'));
+          void loadDepositHistory();
           active = false;
           window.clearInterval(timer);
         }
       } catch {
         // Manual check will surface errors; polling stays quiet to keep the modal calm.
       }
-    }, 10000);
+    }, PAYMENT_STATUS_POLL_MS);
 
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [depositResult?.invoice, modalOpen, apiKey]);
+  }, [depositResult?.invoice, modalOpen, apiKey, loadDepositHistory]);
+
+  useEffect(() => {
+    if (!depositResult?.invoice) return;
+    if (!['expired', 'failed'].includes(String(depositResult.status || ''))) return;
+    if (terminalRefreshRef.current === depositResult.invoice) return;
+
+    let active = true;
+    terminalRefreshRef.current = depositResult.invoice;
+    premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined)
+      .then((response) => {
+        if (active) setDepositResult(response.data);
+        if (active) void loadDepositHistory();
+      })
+      .catch(() => {
+        // Terminal refresh is best-effort; the visible status remains as-is if backend is unavailable.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [depositResult?.invoice, depositResult?.status, apiKey, loadDepositHistory]);
 
   useEffect(() => {
     if (!depositResult?.invoice || !modalOpen || secondsLeft > 0) return;
@@ -426,12 +507,13 @@ function DepositTopup() {
           return;
         }
 
-        const cancelResponse = await premiuminApi.depositCancel(depositResult.invoice, apiKey || undefined);
-        if (!active) return;
-        setDepositResult(cancelResponse.data);
-        window.localStorage.removeItem(pendingDepositInvoiceKey);
+        setDepositResult(statusResponse.data);
+        setDeposits((current) => current.map((item) => (item.invoice === statusResponse.data.invoice ? statusResponse.data : item)));
+        if (statusResponse.data.status === 'pending' && isDepositPastExpiry(statusResponse.data)) {
+          setError('Waktu pembayaran habis. Deposit tetap tersimpan di Riwayat Deposit.');
+        }
       } catch {
-        if (active) setError('Waktu pembayaran habis. Sistem akan membatalkan deposit otomatis.');
+        if (active) setError('Waktu pembayaran habis. Deposit tetap tersimpan di Riwayat Deposit.');
       }
     };
 
@@ -456,6 +538,7 @@ function DepositTopup() {
     try {
       const response = await premiuminApi.deposit({ amount }, apiKey || undefined);
       setDepositResult(response.data);
+      setDeposits((current) => [response.data, ...current.filter((item) => item.invoice !== response.data.invoice)]);
       setSecondsLeft(QR_EXPIRY_SECONDS);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal membuat deposit.');
@@ -471,8 +554,10 @@ function DepositTopup() {
     try {
       const response = await premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined);
       setDepositResult(response.data);
+      setDeposits((current) => current.map((item) => (item.invoice === response.data.invoice ? response.data : item)));
       if (response.data.status === 'success') {
         window.dispatchEvent(new Event('premiuminplus:balance-updated'));
+        void loadDepositHistory();
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal cek status deposit.');
@@ -488,6 +573,7 @@ function DepositTopup() {
     try {
       const response = await premiuminApi.depositCancel(depositResult.invoice, apiKey || undefined);
       setDepositResult(response.data);
+      setDeposits((current) => current.map((item) => (item.invoice === response.data.invoice ? response.data : item)));
       window.localStorage.removeItem(pendingDepositInvoiceKey);
       window.setTimeout(() => setDepositResult(null), 650);
     } catch (caught) {
@@ -497,8 +583,35 @@ function DepositTopup() {
     }
   };
 
+  const openExistingDeposit = async (deposit: DepositRecord) => {
+    if (!canPayDeposit(deposit)) return;
+    setError('');
+    setDepositResult(deposit);
+    window.localStorage.setItem(pendingDepositInvoiceKey, deposit.invoice);
+    try {
+      const response = await premiuminApi.depositStatus(deposit.invoice, apiKey || undefined);
+      setDepositResult(response.data);
+      setDeposits((current) => current.map((item) => (item.invoice === response.data.invoice ? response.data : item)));
+      if (response.data.status === 'success') {
+        window.dispatchEvent(new Event('premiuminplus:balance-updated'));
+        void loadDepositHistory();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal membuka QR deposit.');
+    }
+  };
+
+  const closeDepositModal = () => {
+    if (depositResult?.status === 'pending' && depositResult.invoice) {
+      window.localStorage.setItem(pendingDepositInvoiceKey, depositResult.invoice);
+    }
+    setDepositResult(null);
+    setError('');
+    void loadDepositHistory();
+  };
+
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4 xl:max-h-[calc(100vh-112px)] xl:overflow-hidden">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-extrabold tracking-tight text-white">
@@ -606,6 +719,50 @@ function DepositTopup() {
         </section>
       </div>
 
+      <section className="rounded-[1.25rem] border border-white/10 bg-white/5 p-5 shadow-[0_14px_32px_rgba(0,0,0,0.18)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-extrabold text-white">Riwayat Deposit</h3>
+            <p className="mt-1 text-xs text-white/55">Transaksi terbaru ditampilkan paling atas. QR pending bisa dibuka kembali.</p>
+          </div>
+          <button
+            type="button"
+            onClick={loadDepositHistory}
+            disabled={historyLoading}
+            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-white/75 transition hover:bg-white/10 disabled:opacity-60"
+          >
+            {historyLoading ? 'Memuat...' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {deposits.map((deposit) => (
+            <div key={deposit.invoice} className="grid gap-3 rounded-[1.15rem] border border-white/10 bg-[#0f0b15] px-4 py-4 md:grid-cols-[1fr_auto] md:items-center">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-white">{deposit.invoice}</p>
+                <p className="mt-1 text-xs text-white/40">{formatDepositDate(deposit.created_at)}</p>
+                <p className="mt-2 text-sm font-black text-white">{formatCurrency(deposit.amount)}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${getStatusClassName(deposit.status)}`}>
+                  {getStatusLabel(deposit.status)}
+                </span>
+                {canPayDeposit(deposit) ? (
+                  <button
+                    type="button"
+                    onClick={() => void openExistingDeposit(deposit)}
+                    className="rounded-xl bg-brand px-4 py-2 text-xs font-black text-white shadow-lg shadow-brand/20 transition hover:scale-[1.01]"
+                  >
+                    Bayar
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          {!historyLoading && !deposits.length ? <p className="text-sm text-white/45">Belum ada deposit.</p> : null}
+        </div>
+      </section>
+
       <section className="rounded-[1.25rem] border border-brand/25 bg-[linear-gradient(145deg,rgba(255,0,127,0.12),rgba(255,255,255,0.035))] p-4">
         <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
           <div className="flex items-center gap-4">
@@ -632,20 +789,32 @@ function DepositTopup() {
       </section>
 
       {depositResult ? (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-[80] grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm"
+          onClick={closeDepositModal}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="w-full max-w-md overflow-hidden rounded-[1.5rem] border border-brand/25 bg-[#0f172a] shadow-[0_0_48px_rgba(255,46,136,0.22)]"
+            onClick={(event) => event.stopPropagation()}
+            className="relative w-full max-w-md overflow-hidden rounded-[1.5rem] border border-brand/25 bg-[#0f172a] shadow-[0_0_48px_rgba(255,46,136,0.22)]"
           >
+            <button
+              type="button"
+              onClick={closeDepositModal}
+              className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-black/25 text-white/75 backdrop-blur transition hover:bg-white/10"
+              aria-label="Tutup QR deposit"
+            >
+              <X className="h-4 w-4" />
+            </button>
             <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(255,46,136,0.18),rgba(17,24,39,0.96))] px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex items-start justify-between gap-4 pr-10">
+                <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-light">QRIS Deposit</p>
-                  <h3 className="mt-1 text-xl font-black text-white">{depositResult.invoice}</h3>
+                  <h3 className="mt-1 break-all text-xl font-black text-white">{depositResult.invoice}</h3>
                 </div>
-                <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-200">
-                  {depositResult.status || 'pending'}
+                <span className={`mt-1 shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${getStatusClassName(depositResult.status)}`}>
+                  {getStatusLabel(depositResult.status)}
                 </span>
               </div>
             </div>
@@ -702,7 +871,7 @@ function DepositTopup() {
               {['success', 'canceled', 'failed', 'expired'].includes(String(depositResult.status)) ? (
                 <button
                   type="button"
-                  onClick={() => setDepositResult(null)}
+                  onClick={closeDepositModal}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/75"
                 >
                   Tutup
@@ -769,11 +938,11 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
     let debounceTimer = 0;
     const refreshQuietly = () => {
       window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(() => void loadDashboardData(true), 250);
+      debounceTimer = window.setTimeout(() => void loadDashboardData(true), 1200);
     };
 
     const unsubscribe = subscribeCoreRealtime((payload) => {
-      if (['wallet_updated', 'deposit_updated', 'payment_updated', 'order_updated'].includes(String(payload.type))) {
+      if (['wallet_updated', 'deposit_updated', 'payment_updated', 'order_updated', 'wallet.updated', 'finance.updated', 'dashboard.updated', 'profit.updated', 'transaction.updated', 'analytics.updated'].includes(String(payload.type))) {
         refreshQuietly();
       }
     });
@@ -812,12 +981,12 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
       line: [1, 1, 2, 2, 3, 3, 4, 4, 5, 6],
     },
     {
-      label: 'Best User',
-      value: summary?.top_users?.length || 0,
-      icon: BarChart3,
+      label: 'Produk Aktif',
+      value: summary?.active_products || 0,
+      icon: Package,
       tone: 'amber' as const,
-      suffix: 'Top',
-      line: [1, 2, 3, 4, 4, 5, 6, 6, 7, 8],
+      suffix: '',
+      line: [2, 3, 2, 4, 4, 5, 4, 6, 7, 7],
     },
   ];
 
@@ -927,50 +1096,60 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
           </div>
         </div>
 
-        <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="grid gap-5 xl:grid-cols-[0.82fr_1.18fr]">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
-            className="rounded-[1.55rem] border border-white/10 bg-[linear-gradient(145deg,rgba(15,11,21,0.96),rgba(13,9,18,0.98))] p-5 shadow-[0_0_32px_rgba(255,0,127,.06)]"
+            className="overflow-hidden rounded-[1.35rem] border border-white/10 bg-[radial-gradient(circle_at_78%_18%,rgba(124,58,237,0.24),transparent_30%),linear-gradient(145deg,rgba(10,15,31,0.98),rgba(18,16,39,0.98))] p-4 shadow-[0_18px_42px_rgba(0,0,0,.22)]"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">Premiumin Card</p>
-                <p className="mt-3 text-sm text-white/60">Saldo Tersedia</p>
-                <div className="mt-1 flex items-end gap-2">
-                  <span className="text-lg font-bold text-brand">Rp</span>
-                  <span className="text-4xl font-black tracking-tight text-white">{formatNumber(saldo)}</span>
+            <div className="relative min-h-[188px] rounded-[1.1rem] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:18px_18px] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.24em] text-white/45">Premiumin Card</p>
+                  <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-white/70">
+                    <CreditCard className="h-3.5 w-3.5" />
+                    Balance
+                  </div>
+                </div>
+                <button className="grid h-9 w-9 place-items-center rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-200 transition-transform duration-200 hover:scale-105" aria-label="Saldo">
+                  <Sparkles className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-7">
+                <div className="flex items-end gap-2">
+                  <span className="pb-1 text-sm font-bold text-white/70">Rp</span>
+                  <span className="text-[2.35rem] font-black leading-none tracking-tight text-white">{formatNumber(saldo)}</span>
                 </div>
                 {saldoError ? <p className="mt-2 text-xs text-rose-200">{saldoError}</p> : null}
               </div>
-              <button className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white/70 transition-transform duration-200 hover:scale-105">
-                <Sparkles className="h-5 w-5" />
-              </button>
-            </div>
 
-            <div className="mt-5 grid items-center gap-4 lg:grid-cols-[1fr_0.9fr]">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/35">Card Holder</p>
-                <p className="mt-1 text-base font-extrabold tracking-tight">{session.username.toUpperCase()}</p>
+              <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/35">Card Holder</p>
+                  <p className="mt-1 truncate text-sm font-extrabold tracking-tight text-white">{session.username.toUpperCase()}</p>
+                </div>
+                <img src={cardArt} alt="Premiumin" className="h-10 w-10 shrink-0 object-contain opacity-80" />
               </div>
-              <img
-                src={cardArt}
-                alt="Premiumin Card"
-                className="mx-auto h-44 w-full object-contain drop-shadow-[0_10px_26px_rgba(255,0,127,.22)]"
-              />
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <button
                 onClick={() => navigate('/dashboard/deposit-saldo')}
-                className="rounded-2xl bg-brand px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand/20 transition-transform duration-200 hover:scale-[1.01]"
+                className="rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 transition-transform duration-200 hover:scale-[1.01]"
               >
                 Isi Saldo
               </button>
               <button
+                onClick={() => navigate('/dashboard/tarik-saldo')}
+                className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-100 transition-transform duration-200 hover:scale-[1.01] hover:bg-emerald-500/15"
+              >
+                Tarik Saldo
+              </button>
+              <button
                 onClick={() => navigate('/dashboard/mutasi-saldo')}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-semibold text-white/80 transition-transform duration-200 hover:scale-[1.01] hover:bg-white/10"
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/80 transition-transform duration-200 hover:scale-[1.01] hover:bg-white/10"
               >
                 Mutasi
               </button>
@@ -1000,22 +1179,19 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: index * 0.03 }}
-                className="rounded-[1.4rem] border border-white/10 bg-white/5 p-4"
+                className="rounded-[1.25rem] border border-white/10 bg-white/5 p-4 shadow-[0_14px_30px_rgba(0,0,0,0.12)]"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ring-1 ${toneClass}`}>
-                    <Icon className="h-5 w-5" />
+                <div className="flex items-start gap-4">
+                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1 ${toneClass}`}>
+                    <Icon className="h-4 w-4" />
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">{item.label}</p>
                     <p className="mt-2 text-xl font-extrabold tracking-tight text-white">
-                      {item.label === 'Total Pesanan' || item.label === 'Best User' ? formatNumber(item.value) : formatCurrency(item.value)}
+                      {item.label === 'Total Pesanan' || item.label === 'Produk Aktif' ? formatNumber(item.value) : formatCurrency(item.value)}
                       {item.suffix ? <span className="ml-2 text-sm font-semibold text-white/55">{item.suffix}</span> : null}
                     </p>
                   </div>
-                </div>
-                <div className="mt-2 opacity-90">
-                  <Sparkline points={item.line} />
                 </div>
               </motion.div>
             );
@@ -1024,7 +1200,7 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
 
         <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr_0.95fr]">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-            <SectionShell title="Best User" subtitle="Penjualan terbanyak">
+            <SectionShell title="Top Sultan" subtitle="Penjualan terbanyak">
               <div className="space-y-3">
                 {(summary?.top_users || []).map((item, index) => (
                   <div key={item.user_id} className="rounded-[1.2rem] border border-white/10 bg-[#0f0b15] px-4 py-4">
@@ -1066,7 +1242,6 @@ export function DashboardPage({ session, onLogout }: DashboardPageProps) {
             </SectionShell>
           </motion.div>
 
-          {session.role === 'reseller' ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
             <SectionShell title="API Console" subtitle="Developer access">
               <div className="rounded-[1.1rem] border border-white/10 bg-[#0b0f1a] p-4 font-mono text-[11px] leading-6 text-white/80">
@@ -1099,7 +1274,6 @@ developer@premiumin:~$`}
               </div>
             </SectionShell>
           </motion.div>
-          ) : null}
         </section>
 
         <footer className="py-2 text-center text-xs text-white/45">

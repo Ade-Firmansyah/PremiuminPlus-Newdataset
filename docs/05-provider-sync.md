@@ -24,7 +24,8 @@ Payment success is not provider success. Account credentials are shown only afte
 
 - Product sync guard: 60 seconds.
 - Product response cache: 15 seconds.
-- Payment/deposit status guard: 5 seconds.
+- Payment/deposit status guard: `PREMKU_PAY_STATUS_CACHE_MS`, default 25 seconds per invoice.
+- Provider order status guard: `PREMKU_ORDER_STATUS_CACHE_MS`, default 30 seconds per invoice.
 - Provider order scheduler: every 60 seconds, maximum 25 invoices per tick.
 
 ## Failure Rules

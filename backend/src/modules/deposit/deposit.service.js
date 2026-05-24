@@ -1,4 +1,4 @@
-import { createDeposit as saveDeposit, findDepositByInvoice, updateDeposit } from '../../repositories/deposit.repo.js';
+import { createDeposit as saveDeposit, findDepositByInvoice, listDepositsByUser, updateDeposit } from '../../repositories/deposit.repo.js';
 import { createActivityLog } from '../../repositories/activity.repo.js';
 import { premkuCancelPay, premkuPay, premkuPayStatus } from '../../services/premku.service.js';
 import { transaction, parseDbJson } from '../../config/db.js';
@@ -6,19 +6,42 @@ import { logger } from '../../utils/logger.js';
 import { getCache, setCache } from '../../services/cache.service.js';
 import { publishUserRefresh } from '../../services/realtime.service.js';
 import { getSaldoUtama } from '../../services/wallet.service.js';
+import { parseMysqlDate, toMysqlDate } from '../../utils/date.js';
+import env from '../../config/env.js';
 
 const QR_EXPIRY_MS = 30 * 60 * 1000;
+const PAY_STATUS_CACHE_MS = env.PREMKU_PAY_STATUS_CACHE_MS;
 
-function toMysqlDate(value = new Date()) {
-  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
+function resolveDepositStatusValue(payload) {
+  if (typeof payload === 'string') return payload;
+  if (!payload || typeof payload !== 'object') return '';
+
+  const candidates = [
+    payload.pay_status,
+    payload.data?.pay_status,
+    payload.payment_status,
+    payload.data?.payment_status,
+    payload.transaction_status,
+    payload.data?.transaction_status,
+    payload.status_pembayaran,
+    payload.data?.status_pembayaran,
+    payload.status_bayar,
+    payload.data?.status_bayar,
+    payload.data?.status,
+    payload.status,
+  ];
+
+  const value = candidates.find((item) => typeof item === 'string' && item.trim());
+  return value || '';
 }
 
 function normalizeDepositStatus(value) {
-  const status = String(value || '').toLowerCase();
+  const status = String(resolveDepositStatusValue(value) || value || '').toLowerCase();
   if (['success', 'sukses', 'paid'].includes(status)) return 'success';
-  if (['canceled', 'cancelled'].includes(status)) return 'canceled';
+  if (['canceled', 'cancelled', 'cancel'].includes(status)) return 'canceled';
   if (['failed', 'fail', 'gagal', 'error'].includes(status)) return 'failed';
   if (['expired', 'expire'].includes(status)) return 'expired';
+  if (['pending', 'process', 'processing', 'waiting', 'wait', 'unpaid', 'menunggu pembayaran', 'belum dibayar'].includes(status)) return 'pending';
   return 'pending';
 }
 
@@ -58,6 +81,35 @@ function resolvePremkuInvoice(payment) {
 
 function resolveExpiredAt(payment) {
   return toMysqlDate(new Date(Date.now() + QR_EXPIRY_MS));
+}
+
+function nextExpiryFromNow() {
+  return toMysqlDate(new Date(Date.now() + QR_EXPIRY_MS));
+}
+
+function isDepositExpired(deposit) {
+  const expiredAt = parseMysqlDate(deposit?.expired_at);
+  return Boolean(expiredAt && expiredAt.getTime() <= Date.now());
+}
+
+async function expireDeposit(invoice, externalResponse = {}) {
+  let cancelResponse = null;
+  try {
+    cancelResponse = await premkuCancelPay(invoice);
+  } catch (error) {
+    cancelResponse = { message: error instanceof Error ? error.message : 'Premku cancel_pay failed' };
+  }
+
+  const expired = await updateDeposit(invoice, {
+    status: 'expired',
+    external_status_response: {
+      ...externalResponse,
+      cancel_response: cancelResponse,
+      message: externalResponse?.message || 'Invoice expired and canceled at Premku',
+    },
+  });
+  if (expired?.user_id) publishUserRefresh(expired.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
+  return expired;
 }
 
 export async function createDeposit(user, amount) {
@@ -132,7 +184,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
       return { deposit: mapDepositRow(deposit), userId: deposit.user_id, changed: false };
     }
 
-    if (['canceled', 'expired', 'failed'].includes(deposit.status)) {
+    if (['canceled', 'failed'].includes(deposit.status)) {
       return { deposit: mapDepositRow(deposit), userId: deposit.user_id, changed: false };
     }
 
@@ -190,9 +242,21 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
 }
 
 export async function updateDepositStatus(invoice, status, externalResponse = {}) {
-  const normalizedStatus = normalizeDepositStatus(status);
+  const normalizedStatus = normalizeDepositStatus(status || externalResponse);
   if (normalizedStatus === 'success') {
     return applyDepositSuccess(invoice, externalResponse);
+  }
+
+  const existing = await findDepositByInvoice(invoice);
+  if (normalizedStatus === 'expired' && existing && !isDepositExpired(existing)) {
+    return updateDeposit(invoice, {
+      status: 'pending',
+      external_status_response: {
+        ...externalResponse,
+        ignored_status: 'expired',
+        message: 'Premku webhook returned expired before local 30 minute limit; keeping deposit pending',
+      },
+    });
   }
 
   return updateDeposit(invoice, {
@@ -207,19 +271,7 @@ export async function refreshDepositStatus(invoice) {
     return null;
   }
 
-  if (deposit.status === 'pending' && deposit.expired_at) {
-    const expiredAt = new Date(deposit.expired_at);
-    if (!Number.isNaN(expiredAt.getTime()) && expiredAt < new Date()) {
-      const expired = await updateDeposit(invoice, {
-        status: 'expired',
-        external_status_response: { message: 'Invoice expired' },
-      });
-      if (expired?.user_id) publishUserRefresh(expired.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-      return expired;
-    }
-  }
-
-  if (['success', 'failed', 'expired', 'canceled'].includes(deposit.status)) {
+  if (deposit.status === 'success' || deposit.status === 'canceled') {
     return deposit;
   }
 
@@ -237,11 +289,60 @@ export async function refreshDepositStatus(invoice) {
     return result;
   }
 
-  const nextStatus = normalizeDepositStatus(statusResponse?.pay_status ?? statusResponse?.status ?? statusResponse?.data?.status);
+  const nextStatus = normalizeDepositStatus(statusResponse);
+  const locallyExpired = isDepositExpired(deposit);
   if (nextStatus === 'success') {
     const applied = await applyDepositSuccess(invoice, statusResponse);
     setCache(`deposit-status:${invoice}`, applied, 5000);
     return applied;
+  }
+
+  if (nextStatus === 'expired' && !isDepositExpired(deposit)) {
+    const pending = await updateDeposit(invoice, {
+      status: 'pending',
+      external_status_response: {
+        ...statusResponse,
+        ignored_status: 'expired',
+        message: 'Premku returned expired before local 30 minute limit; keeping deposit pending',
+      },
+    });
+    const response = pending || (await findDepositByInvoice(invoice));
+    if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
+    setCache(`deposit-status:${invoice}`, response, PAY_STATUS_CACHE_MS);
+    return response;
+  }
+
+  if (nextStatus === 'expired') {
+    const expired = await expireDeposit(invoice, statusResponse);
+    setCache(`deposit-status:${invoice}`, expired, 5000);
+    return expired;
+  }
+
+  if (nextStatus === 'canceled' || nextStatus === 'failed') {
+    const updated = await updateDeposit(invoice, {
+      status: nextStatus,
+      external_status_response: statusResponse,
+    });
+    const response = updated || (await findDepositByInvoice(invoice));
+    if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
+    setCache(`deposit-status:${invoice}`, response, 5000);
+    return response;
+  }
+
+  if (locallyExpired || ['failed', 'expired'].includes(deposit.status)) {
+    const restored = await updateDeposit(invoice, {
+      status: 'pending',
+      expired_at: nextExpiryFromNow(),
+      external_status_response: {
+        ...statusResponse,
+        restored_from_status: deposit.status,
+        message: 'Premku masih menunggu pembayaran; deposit lokal dipulihkan ke pending',
+      },
+    });
+    const response = restored || (await findDepositByInvoice(invoice));
+    if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
+    setCache(`deposit-status:${invoice}`, response, PAY_STATUS_CACHE_MS);
+    return response;
   }
 
   const updated = await updateDeposit(invoice, {
@@ -250,8 +351,31 @@ export async function refreshDepositStatus(invoice) {
   });
   const response = updated || (await findDepositByInvoice(invoice));
   if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-  setCache(`deposit-status:${invoice}`, response, 5000);
+  setCache(`deposit-status:${invoice}`, response, nextStatus === 'pending' ? PAY_STATUS_CACHE_MS : 5000);
   return response;
+}
+
+export async function listSyncedDepositsByUser(userId) {
+  const deposits = await listDepositsByUser(userId);
+  const pendingDeposits = deposits.filter((deposit) => deposit.status === 'pending');
+  if (!pendingDeposits.length) return deposits;
+
+  const synced = new Map();
+  for (const deposit of pendingDeposits.slice(0, 10)) {
+    try {
+      const refreshed = await refreshDepositStatus(deposit.invoice);
+      if (refreshed) synced.set(refreshed.invoice, refreshed);
+    } catch (error) {
+      logger('ERROR', {
+        task: 'deposit-history-sync',
+        invoice: deposit.invoice,
+        message: error instanceof Error ? error.message : 'Deposit status sync failed',
+      });
+    }
+  }
+
+  if (!synced.size) return deposits;
+  return deposits.map((deposit) => synced.get(deposit.invoice) || deposit);
 }
 
 export async function cancelDeposit(invoice, user) {

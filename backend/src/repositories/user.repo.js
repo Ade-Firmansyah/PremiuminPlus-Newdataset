@@ -1,5 +1,5 @@
 import { execute, query, transaction } from '../config/db.js';
-import { setSaldo } from '../services/wallet.service.js';
+import { getLockedBalance, getUsableBalance, setSaldo } from '../services/wallet.service.js';
 import { hashPassword, isHashedPassword } from '../utils/password.js';
 import crypto from 'node:crypto';
 
@@ -23,9 +23,24 @@ function dbStatus(status = 'active') {
   return 'active';
 }
 
+function normalizeNullableDateTime(value) {
+  if (!value) return null;
+  const raw = String(value);
+  if (raw.startsWith('0000-00-00')) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatPublicDateTime(value) {
+  const date = normalizeNullableDateTime(value);
+  return date ? date.toISOString().replace('T', ' ').slice(0, 16) : '';
+}
+
 function toPublicUser(row) {
   if (!row) return null;
   const saldoUtama = Number(row.saldo_utama ?? 0);
+  const lockedBalance = getLockedBalance(row);
   return {
     id: row.id,
     username: row.username,
@@ -36,8 +51,8 @@ function toPublicUser(row) {
     phone: row.phone || '',
     saldo_utama: saldoUtama,
     saldo: saldoUtama,
-    locked_balance: Number(row.locked_balance || 0),
-    usable_balance: saldoUtama,
+    locked_balance: lockedBalance,
+    usable_balance: getUsableBalance(row),
     bot_enabled: Boolean(row.bot_enabled),
     bot_role: row.bot_role || 'personal',
     bot_session_status: row.bot_session_status || 'disconnected',
@@ -46,7 +61,7 @@ function toPublicUser(row) {
     status: uiStatus(row.status),
     orders: Number(row.orders || 0),
     deposits: Number(row.deposits || 0),
-    lastLogin: row.last_login_at ? new Date(row.last_login_at).toISOString().replace('T', ' ').slice(0, 16) : '',
+    lastLogin: formatPublicDateTime(row.last_login_at),
     notes: row.notes || '',
   };
 }
@@ -54,12 +69,13 @@ function toPublicUser(row) {
 function toAuthUser(row) {
   if (!row) return null;
   const saldoUtama = Number(row.saldo_utama ?? 0);
+  const lockedBalance = getLockedBalance(row);
   return {
         ...row,
         saldo_utama: saldoUtama,
         saldo: saldoUtama,
-        locked_balance: Number(row.locked_balance || 0),
-        usable_balance: saldoUtama,
+        locked_balance: lockedBalance,
+        usable_balance: getUsableBalance(row),
         bot_enabled: Boolean(row.bot_enabled),
         bot_role: row.bot_role || 'personal',
         bot_session_status: row.bot_session_status || 'disconnected',
@@ -159,7 +175,7 @@ export async function createUser(payload) {
       payload.notes || '',
       normalizeRole(payload.role),
       dbStatus(payload.status),
-      payload.lastLogin ? new Date(payload.lastLogin) : null,
+      normalizeNullableDateTime(payload.lastLogin),
     ],
   );
 
@@ -189,7 +205,7 @@ export async function updateUser(id, payload) {
     status: payload.status !== undefined ? dbStatus(payload.status) : current.status,
     fullName: payload.fullName !== undefined ? payload.fullName : current.fullName,
     notes: payload.notes !== undefined ? payload.notes : current.notes,
-    last_login_at: payload.lastLogin !== undefined ? new Date(payload.lastLogin) : current.last_login_at,
+    last_login_at: payload.lastLogin !== undefined ? normalizeNullableDateTime(payload.lastLogin) : normalizeNullableDateTime(current.last_login_at),
     markup_custom: payload.markup_custom !== undefined ? Number(payload.markup_custom) : current.markup_custom,
     markup_percent: payload.markup_percent !== undefined ? Number(payload.markup_percent) : current.markup_percent,
     theme: payload.theme !== undefined ? (payload.theme === 'light' ? 'light' : 'dark') : current.theme,

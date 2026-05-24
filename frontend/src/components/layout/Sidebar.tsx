@@ -118,21 +118,22 @@ export function Sidebar({ open, sections, onClose, username, role, saldo, onLogo
       {open && <button aria-label="Close sidebar" className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={onClose} />}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[264px] border-r border-white/10 bg-[#0d0912]/95 backdrop-blur-xl transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-[min(280px,88vw)] border-r border-white/10 bg-[#070a13]/90 shadow-[28px_0_80px_rgba(0,0,0,.28)] backdrop-blur-2xl transition-transform duration-300 lg:w-[280px] lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_35%_0%,rgba(255,46,136,.16),transparent_18rem)]" />
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+          <div className="relative flex items-center justify-between border-b border-white/10 px-3 py-3.5 sm:px-4 sm:py-4">
             <div className="flex items-center gap-3">
               <img
                 src={logoTransparent}
                 alt="Premiumin Plus"
-                className="h-11 w-11 rounded-2xl border border-white/10 bg-white/5 object-contain p-1"
+                className="h-12 w-12 rounded-2xl border border-brand/20 bg-brand/10 object-contain p-1 drop-shadow-[0_0_18px_rgba(255,46,136,.28)]"
               />
               <div>
-                <p className="text-sm font-extrabold tracking-wide text-white">Premiumin Plus</p>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">Compact panel</p>
+                <p className="truncate text-sm font-extrabold tracking-wide text-white">Premiumin Plus</p>
+                <p className="truncate text-[10px] uppercase tracking-[0.2em] text-brand-light/80">Enterprise panel</p>
               </div>
             </div>
             <button onClick={onClose} className="rounded-xl p-2 text-white/50 hover:bg-white/5 lg:hidden" aria-label="Close">
@@ -140,7 +141,7 @@ export function Sidebar({ open, sections, onClose, username, role, saldo, onLogo
             </button>
           </div>
 
-          <div className="scrollbar-hidden flex-1 overflow-y-auto px-2 py-3 pb-6">
+          <div className="scrollbar-hidden relative flex-1 overflow-y-auto px-2 py-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-2.5">
             {sections.map((section) => (
               <div key={section.label} className="mb-3 last:mb-0">
                 <p className="px-3 pb-2 text-[9px] font-bold uppercase tracking-[0.24em] text-white/30">{section.label}</p>
@@ -176,7 +177,7 @@ export function Sidebar({ open, sections, onClose, username, role, saldo, onLogo
             ))}
           </div>
 
-          <div className="relative border-t border-white/10 p-2.5">
+          <div className="relative border-t border-white/10 p-3">
             <div className={`rounded-2xl border p-3 transition-all duration-300 ${
               role === 'admin'
                 ? 'border-purple-500/30 bg-gradient-to-br from-purple-500/12 to-pink-500/8 shadow-[0_0_20px_rgba(168,85,247,0.12)]'

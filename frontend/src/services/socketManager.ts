@@ -94,6 +94,11 @@ class ManagedSocket {
     this.socket?.close();
     this.socket = null;
   }
+
+  forceClose() {
+    this.listeners.clear();
+    this.close();
+  }
 }
 
 const sockets = new Map<string, ManagedSocket>();
@@ -110,4 +115,11 @@ export function subscribeSocket(url: string, listener: SocketListener) {
     unsubscribe();
     if (socket.size === 0) sockets.delete(url);
   };
+}
+
+export function closeAllSockets() {
+  for (const socket of sockets.values()) {
+    socket.forceClose();
+  }
+  sockets.clear();
 }

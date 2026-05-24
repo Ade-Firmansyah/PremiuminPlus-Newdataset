@@ -1,4 +1,32 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+function resolveApiBaseUrl() {
+  const configured = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      const browserHost = typeof window !== 'undefined' ? window.location.hostname : '';
+      const configuredIsLocal = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+      const browserIsLocal = ['localhost', '127.0.0.1', '::1', ''].includes(browserHost);
+      if (configuredIsLocal && !browserIsLocal) {
+        url.hostname = browserHost;
+        url.protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        return url.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      return configured.replace(/\/+$/, '');
+    }
+    return configured.replace(/\/+$/, '');
+  }
+
+  if (typeof window === 'undefined') return 'http://localhost:4000/api';
+  if (window.location.protocol === 'https:' && !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
+    return `${window.location.origin}/api`;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const hostname = window.location.hostname || 'localhost';
+  return `${protocol}//${hostname}:4000/api`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 type RequestOptions = RequestInit & {
   apiKey?: string;
@@ -92,10 +120,16 @@ export interface DashboardSummaryRecord {
   saldo: number;
   total_transactions: number;
   total_spent: number;
+  total_revenue?: number;
+  total_income?: number;
+  platform_profit?: number;
+  profit_today?: number;
+  profit_month?: number;
   total_deposits: number;
   total_deposit_amount: number;
   saldo_masuk?: number;
   saldo_keluar?: number;
+  profit_income?: number;
   last_deposit?: DepositRecord | null;
   active_products: number;
   top_users?: Array<{
@@ -112,7 +146,11 @@ export interface AdminSummaryRecord {
   total_reseller_balance: number;
   total_transactions: number;
   total_revenue: number;
+  total_provider_cost?: number;
   system_profit: number;
+  total_user_profit?: number;
+  reseller_profit?: number;
+  member_profit?: number;
   pending_withdraw_count: number;
   pending_withdraw: number;
   recent_orders?: OrderRecord[];
@@ -132,14 +170,30 @@ export interface BotSettingsRecord {
   lock_satisfied?: boolean;
   saldo_sufficient?: boolean;
   bot_session_status?: 'disconnected' | 'connecting' | 'qr' | 'connected' | 'logged_out' | 'error';
+  qr_image?: string;
+  bot_engine_url?: string;
   bot_role?: string;
   account_role?: AppRole;
   user_id?: number;
   margin_setting?: number;
   greeting_template?: string;
   store_name?: string;
+  active_theme?: 'theme_1' | 'theme_2' | 'theme_3' | 'theme_4' | 'theme_5';
+  opening_hour?: string;
+  closing_hour?: string;
   admin_whatsapp?: string;
   open_hour?: string;
+  footer_text?: string;
+  bot_template?: {
+    id?: number | null;
+    user_id?: number;
+    active_theme: 'theme_1' | 'theme_2' | 'theme_3' | 'theme_4' | 'theme_5';
+    store_name: string;
+    opening_hour: string;
+    closing_hour: string;
+    admin_whatsapp?: string;
+    footer_text?: string;
+  };
   auto_reply_enabled: boolean;
   greeting_message: string;
   auto_reply_prompt: string;
@@ -148,6 +202,20 @@ export interface BotSettingsRecord {
     order_status: boolean;
     balance_check: boolean;
     product_catalog: boolean;
+  };
+}
+
+export interface BotTemplatePreviewResponse {
+  active_theme: NonNullable<BotSettingsRecord['active_theme']>;
+  template: BotSettingsRecord['bot_template'];
+  preview: string;
+  previews: {
+    greeting: string;
+    stock: string;
+    payment: string;
+    payment_success: string;
+    order_success: string;
+    admin: string;
   };
 }
 
@@ -285,7 +353,13 @@ export interface WithdrawRecord {
   amount: number;
   status: string;
   bank_account?: string;
+  account_number?: string;
+  account_name?: string;
+  withdraw_method?: string;
+  fee?: number;
+  net_amount?: number;
   notes?: string;
+  processed_at?: string | null;
   created_at?: string;
   updated_at?: string | null;
 }
@@ -294,11 +368,33 @@ export interface SaldoLogRecord {
   id: number;
   user_id: number;
   type: 'credit' | 'debit' | 'refund' | 'adjustment';
+  mutation_type?: 'deposit' | 'payment_in' | 'provider_purchase' | 'profit_income' | 'bot_profit' | 'order' | 'withdraw' | 'adjustment' | 'refund' | 'bot_activation' | 'locked_balance' | 'unlock_balance';
+  direction?: 'in' | 'out' | 'profit';
+  category?: 'income' | 'expense' | 'profit' | 'other';
   amount: number;
+  signed_amount?: number;
   balance_before: number;
   balance_after: number;
   reference?: string;
   notes?: string;
+  created_at?: string;
+}
+
+export interface SaldoLogsSummaryRecord {
+  total_in: number;
+  total_out: number;
+  total_profit: number;
+}
+
+export interface ActivityLogRecord {
+  id: number;
+  actor_id?: number | null;
+  user_id?: number | null;
+  scope: string;
+  message: string;
+  activity?: string;
+  ip_address?: string;
+  metadata?: Record<string, unknown> | null;
   created_at?: string;
 }
 
@@ -376,7 +472,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
     if (trimmed.startsWith('<')) {
       console.error('Invalid HTML response from API', { path, raw });
-      throw new Error('Invalid API response (HTML returned)');
+      const error = new Error('Invalid API response (HTML returned)');
+      (error as Error & { statusCode?: number }).statusCode = response.status;
+      throw error;
     }
 
     let parsed: Record<string, unknown>;
@@ -389,7 +487,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
     if (!response.ok) {
       const message = typeof parsed.message === 'string' ? parsed.message : 'Request gagal';
-      throw new Error(message);
+      const error = new Error(message);
+      (error as Error & { statusCode?: number; code?: string }).statusCode = response.status;
+      if (typeof parsed.code === 'string') {
+        (error as Error & { statusCode?: number; code?: string }).code = parsed.code;
+      }
+      if (response.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('premiuminplus:auth-expired', { detail: { path, message } }));
+      }
+      throw error;
     }
 
     return parsed as T;
@@ -407,6 +513,11 @@ export const premiuminApi = {
     apiRequest<LoginResponse>('/login', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+  logout: (reason = 'manual') =>
+    apiRequest<{ status: boolean; message: string }>('/logout', {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     }),
   register: (payload: { username: string; password: string; email?: string; phone?: string }) =>
     apiRequest<{ status: boolean; data: AdminUserRecord }>('/register', {
@@ -432,7 +543,7 @@ export const premiuminApi = {
   transactions: (apiKey?: string) => apiRequest<{ status: boolean; data: OrderRecord[] }>('/orders', { apiKey }),
   deposits: (apiKey?: string) => apiRequest<{ status: boolean; data: DepositRecord[] }>('/deposits', { apiKey }),
   activeCart: (apiKey?: string) => apiRequest<{ status: boolean; data: ActiveCartRecord }>('/cart/active', { apiKey }),
-  saldoLogs: (apiKey?: string) => apiRequest<{ status: boolean; data: SaldoLogRecord[] }>('/saldo/logs', { apiKey }),
+  saldoLogs: (apiKey?: string) => apiRequest<{ status: boolean; data: SaldoLogRecord[]; summary?: SaldoLogsSummaryRecord }>('/saldo/logs', { apiKey }),
   notifications: (apiKey?: string) => apiRequest<{ status: boolean; data: NotificationRecord[] }>('/notifications', { apiKey }),
   deposit: (payload: { amount: number }, apiKey?: string) =>
     apiRequest<{ status: boolean; data: DepositRecord }>('/deposit', {
@@ -447,7 +558,19 @@ export const premiuminApi = {
       apiKey,
       body: JSON.stringify({ invoice }),
     }),
-  withdraw: (payload: { amount: number; bank_account: string; account_number: string; notes?: string }, apiKey?: string) =>
+  withdraws: (apiKey?: string) => apiRequest<{ status: boolean; data: WithdrawRecord[] }>('/withdraws', { apiKey }),
+  withdraw: (
+    payload: {
+      amount: number;
+      bank_account?: string;
+      withdraw_method?: string;
+      method?: string;
+      account_number: string;
+      account_name: string;
+      notes?: string;
+    },
+    apiKey?: string,
+  ) =>
     apiRequest<{ status: boolean; data: WithdrawRecord }>('/withdraw', {
       method: 'POST',
       apiKey,
@@ -478,6 +601,7 @@ export const premiuminApi = {
   adminSummary: (apiKey?: string) => apiRequest<{ status: boolean; data: AdminSummaryRecord }>('/admin/summary', { apiKey }),
   adminPremkuProfile: (apiKey?: string) => apiRequest<{ status: boolean; data: PremkuProfileRecord }>('/admin/premku-profile', { apiKey }),
   adminTransactions: (apiKey?: string) => apiRequest<{ status: boolean; data: OrderRecord[] }>('/admin/transactions', { apiKey }),
+  adminActivityLogs: (apiKey?: string) => apiRequest<{ status: boolean; data: ActivityLogRecord[] }>('/admin/activity-logs?scope=password_reset', { apiKey }),
   adminDeposits: (apiKey?: string) => apiRequest<{ status: boolean; data: DepositRecord[] }>('/admin/deposits', { apiKey }),
   adminWithdraws: (apiKey?: string) => apiRequest<{ status: boolean; data: WithdrawRecord[] }>('/admin/withdraws', { apiKey }),
   adminApproveWithdraw: (id: number, apiKey?: string) =>
@@ -583,6 +707,12 @@ export const premiuminApi = {
   updateMyBotSettings: (payload: BotSettingsRecord, apiKey?: string) =>
     apiRequest<{ status: boolean; data: BotSettingsRecord }>('/bot/settings', {
       method: 'PATCH',
+      apiKey,
+      body: JSON.stringify(payload),
+    }),
+  botTemplatePreview: (payload: Partial<BotSettingsRecord>, apiKey?: string) =>
+    apiRequest<{ status: boolean; data: BotTemplatePreviewResponse }>('/bot/template/preview', {
+      method: 'POST',
       apiKey,
       body: JSON.stringify(payload),
     }),

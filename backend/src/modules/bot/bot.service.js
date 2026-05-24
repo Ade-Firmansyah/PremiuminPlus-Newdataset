@@ -1,11 +1,14 @@
 import { listProducts } from '../../repositories/product.repo.js';
+import { query } from '../../config/db.js';
+import env from '../../config/env.js';
 import { getBotSettings, getMarkupSetting, getSetting, setSetting } from '../../repositories/settings.repo.js';
 import { updateUser } from '../../repositories/user.repo.js';
-import { calculateRoleSellPrice } from '../../services/pricing.service.js';
-import { getBotLockRequired, getSaldoUtama, setBotBalanceLock } from '../../services/wallet.service.js';
+import { calculateFinalBotPrice } from '../../services/pricing.service.js';
+import { getBotLockRequired, getLockedBalance, getSaldoUtama, getUsableBalance, setBotBalanceLock } from '../../services/wallet.service.js';
 import { createBotOrderPayment, refreshDirectPaymentStatus } from '../payment/payment.service.js';
 import { getCache, setCache } from '../../services/cache.service.js';
 import { publishUserRefresh } from '../../services/realtime.service.js';
+import { composeOpenHour, getBotTemplateSettings, saveBotTemplateSettings } from '../../services/bot-template.service.js';
 
 const DEFAULT_USER_BOT_SETTINGS = {
   enabled: false,
@@ -21,11 +24,12 @@ const DEFAULT_USER_BOT_SETTINGS = {
 export function getBotBalanceState(user) {
   const lockRequired = getBotLockRequired(user);
   const saldo = getSaldoUtama(user);
-  const lockedBalance = Number(user?.locked_balance || 0);
+  const lockedBalance = getLockedBalance(user);
+  const usableBalance = getUsableBalance(user);
   return {
     lock_required: lockRequired,
     locked_balance: lockedBalance,
-    usable_balance: saldo,
+    usable_balance: usableBalance,
     lock_satisfied: lockedBalance >= lockRequired && saldo >= lockedBalance,
     saldo_sufficient: saldo >= lockRequired && saldo >= lockedBalance,
   };
@@ -44,6 +48,7 @@ export async function getUserBotSettings(user) {
     ...saved
   } = savedRaw && typeof savedRaw === 'object' ? savedRaw : {};
   const state = getBotBalanceState(user);
+  const template = await getBotTemplateSettings(user, saved);
   const enabled = Boolean((saved.enabled ?? user.bot_enabled) && state.lock_satisfied && state.saldo_sufficient);
   const botLocked = !state.saldo_sufficient;
 
@@ -58,6 +63,14 @@ export async function getUserBotSettings(user) {
     bot_locked: botLocked,
     bot_session_status: user.bot_session_status || 'disconnected',
     bot_role: user.bot_role || 'personal',
+    active_theme: template.active_theme,
+    store_name: template.store_name,
+    opening_hour: template.opening_hour,
+    closing_hour: template.closing_hour,
+    admin_whatsapp: template.admin_whatsapp,
+    footer_text: template.footer_text,
+    open_hour: composeOpenHour(template),
+    bot_template: template,
     ...state,
   };
 }
@@ -66,6 +79,7 @@ export async function updateUserBotSettings(user, payload = {}) {
   const wantsEnabled = Boolean(payload.enabled);
 
   const current = await getUserBotSettings(user);
+  const template = await saveBotTemplateSettings(user, payload, current);
   const next = {
     enabled: wantsEnabled,
     allow_group_reply: Boolean(payload.allow_group_reply ?? current.allow_group_reply ?? false),
@@ -78,9 +92,13 @@ export async function updateUserBotSettings(user, payload = {}) {
           .slice(0, 50),
     margin_setting: Math.max(0, Number(payload.margin_setting ?? current.margin_setting ?? 0)),
     greeting_template: String(payload.greeting_template ?? current.greeting_template ?? '').slice(0, 1200),
-    store_name: String(payload.store_name ?? current.store_name ?? 'Premiumin Plus').slice(0, 80),
-    admin_whatsapp: String(payload.admin_whatsapp ?? current.admin_whatsapp ?? '').replace(/\D/g, '').slice(0, 20),
-    open_hour: String(payload.open_hour ?? current.open_hour ?? '08.00 - 22.00 WIB').slice(0, 80),
+    store_name: template.store_name,
+    admin_whatsapp: template.admin_whatsapp,
+    open_hour: composeOpenHour(template),
+    active_theme: template.active_theme,
+    opening_hour: template.opening_hour,
+    closing_hour: template.closing_hour,
+    footer_text: template.footer_text,
   };
 
   const updated = await setBotBalanceLock(user, wantsEnabled);
@@ -102,32 +120,36 @@ export async function updateBotSession(user, status) {
 }
 
 export async function getBotCatalog(user) {
-  const cacheKey = `bot-catalog:${user.id}:${user.role}:${user.markup_percent || 0}`;
+  const userSettings = await getUserBotSettings(user);
+  const extraMargin = Math.max(0, Number(userSettings.margin_setting || 0));
+  const cacheKey = `bot-catalog:${user.id}:${user.role}:${user.markup_percent || 0}:${extraMargin}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
   const products = await listProducts();
   const markup = await getMarkupSetting();
-  const userSettings = await getUserBotSettings(user);
-  const extraMargin = Math.max(0, Number(userSettings.margin_setting || 0));
 
   const catalog = products
     .filter((product) => product.status === 'active' && product.is_bot_enabled !== false && product.is_visible !== false)
     .map((product, index) => {
-      const pricing = calculateRoleSellPrice(product, markup, user);
-      const price = pricing.sellPrice + extraMargin;
+      const pricing = calculateFinalBotPrice(product, markup, user, extraMargin);
       const stock = Number(product.effective_stock ?? product.stock ?? 0);
       return {
         id: product.id,
         bot_code: index + 1,
         name: product.name,
         stock,
-        price_sell: price,
+        provider_price: pricing.provider_price,
+        role_price: pricing.role_price,
+        bot_markup: pricing.bot_markup,
+        bot_markup_profit: pricing.bot_markup_profit,
+        final_bot_price: pricing.final_bot_price,
+        price_sell: pricing.final_bot_price,
         code: `buy ${index + 1}`,
         available: stock > 0,
       };
     });
-  setCache(cacheKey, catalog, 10 * 1000);
+  setCache(cacheKey, catalog, env.BOT_CATALOG_CACHE_MS);
   return catalog;
 }
 
@@ -145,8 +167,9 @@ export async function createBotPayment(user, payload = {}) {
     error.statusCode = 429;
     throw error;
   }
-  setCache(cacheKey, true, 10 * 1000);
+  setCache(cacheKey, true, 5000);
 
+  const targetWhatsapp = String(payload.customer_whatsapp || '').replace(/\D/g, '').slice(0, 30);
   const catalog = await getBotCatalog(user);
   const requestedCode = Number(payload.product_id || payload.code || payload.bot_code || 0);
   const product = catalog.find((item) => item.id === requestedCode || item.bot_code === requestedCode);
@@ -161,10 +184,39 @@ export async function createBotPayment(user, payload = {}) {
     throw error;
   }
 
+  const finalBotPrice = Number(product.price_sell || 0);
+  const existingPayments = await query(
+    `SELECT p.*, pr.name AS product_name
+     FROM payments p
+     LEFT JOIN products pr ON pr.id = p.product_id
+     WHERE p.user_id = ?
+       AND p.payment_type = 'bot_order'
+       AND p.status = 'pending'
+       AND p.product_id = ?
+       AND p.amount = ?
+       AND (p.expired_at IS NULL OR p.expired_at > NOW())
+       AND (? = '' OR p.target_whatsapp = ?)
+     ORDER BY p.id DESC
+     LIMIT 1`,
+    [user.id, product.id, finalBotPrice, targetWhatsapp, targetWhatsapp],
+  );
+  if (existingPayments[0]) {
+    return {
+      ...existingPayments[0],
+      amount: Number(existingPayments[0].amount || 0),
+      total_bayar: Number(existingPayments[0].total_bayar || existingPayments[0].amount || 0),
+      qty: Number(existingPayments[0].qty || 1),
+    };
+  }
+
   return createBotOrderPayment(user, {
     product_id: product.id,
     qty: 1,
     target_whatsapp: payload.customer_whatsapp,
+    final_amount: finalBotPrice,
+    role_price: Number(product.role_price || 0),
+    bot_markup: Number(product.bot_markup || 0),
+    extra_margin: Math.max(0, Number(settings.margin_setting || 0)),
   });
 }
 

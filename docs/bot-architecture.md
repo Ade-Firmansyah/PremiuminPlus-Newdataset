@@ -19,6 +19,15 @@
 - `GET /api/bot/session/status`
 - `POST /api/bot/session/logout`
 
+## Runtime Ports
+
+- Frontend runs on `3000` in local dev.
+- Backend core runs on `4000` and remains the public API source of truth.
+- Bot-engine runs on `4010` and should normally stay private.
+- MySQL runs on `3306`.
+
+Bot connect/disconnect is proxied through backend core. The frontend should not depend on direct bot-engine access unless `VITE_BOT_ENGINE_URL` is intentionally configured.
+
 ## Safety
 
 - One user owns one WhatsApp bot session.

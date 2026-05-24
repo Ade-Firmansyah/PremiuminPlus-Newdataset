@@ -1,0 +1,18 @@
+{
+  "name": "Premiumin Plus",
+  "short_name": "Premiumin",
+  "description": "Platform produk digital premium milik Premiumin Plus.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050711",
+  "theme_color": "#050711",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

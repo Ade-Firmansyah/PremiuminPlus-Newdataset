@@ -1,11 +1,102 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Eye, EyeOff, Lock, MessageCircle, Sparkles, User } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Box,
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  Headphones,
+  Lock,
+  LogIn,
+  Mail,
+  MessageCircle,
+  ShieldCheck,
+  Star,
+  User,
+  Zap,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import logoUpScale from '../asset/logo-upscale.png';
 import { premiuminApi } from '../services/api';
+import { GradientButton, GlassCard, NeonBadge } from '../components/ui';
 
-// Halaman login ini dibuat ringkas, elegan, dan bebas scroll berlebih.
+const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.com(?:\.[a-z]{2})?$/i;
+const WHATSAPP_PATTERN = /^(08\d{8,12}|628\d{8,12})$/;
+
+type RegisterField = 'username' | 'password' | 'email' | 'phone';
+type RegisterErrors = Partial<Record<RegisterField, string>>;
+type ForgotField = 'username' | 'email' | 'phone';
+type ForgotErrors = Partial<Record<ForgotField, string>>;
+
+function sanitizeWhatsappInput(value: string) {
+  return value.replace(/\D/g, '').slice(0, 16);
+}
+
+function normalizeForgotWhatsappInput(value: string) {
+  const digits = sanitizeWhatsappInput(value);
+  if (digits.startsWith('08')) return `62${digits.slice(1)}`;
+  return digits;
+}
+
+function validateRegisterFields(payload: { username: string; password: string; email: string; phone: string }) {
+  const errors: RegisterErrors = {};
+  const username = payload.username.trim();
+  const email = payload.email.trim().toLowerCase();
+  const phone = payload.phone.trim();
+
+  if (!username) errors.username = 'Username wajib diisi.';
+  else if (username.length < 4) errors.username = 'Username minimal 4 karakter.';
+  else if (!/^[a-z0-9_]+$/.test(username)) errors.username = 'Username lowercase, tanpa spasi, hanya a-z, 0-9, dan _.';
+
+  if (!payload.password) errors.password = 'Password wajib diisi.';
+  else if (payload.password.length < 6) errors.password = 'Password minimal 6 karakter.';
+
+  if (!email) errors.email = 'Email wajib diisi.';
+  else if (!EMAIL_PATTERN.test(email)) errors.email = 'Email wajib memakai format example@gmail.com.';
+
+  if (!phone) errors.phone = 'Nomor WhatsApp wajib diisi.';
+  else if (!WHATSAPP_PATTERN.test(phone)) errors.phone = 'Gunakan format 08123456789 atau 628123456789.';
+
+  return errors;
+}
+
+function validateForgotFields(payload: { username: string; email: string; phone: string }) {
+  const errors: ForgotErrors = {};
+  const username = payload.username.trim();
+  const email = payload.email.trim().toLowerCase();
+  const phone = payload.phone.trim();
+
+  if (!username) errors.username = 'Username wajib diisi.';
+  else if (!/^[a-z0-9_]{4,}$/.test(username)) errors.username = 'Username minimal 4 karakter, lowercase, tanpa spasi.';
+
+  if (!email) errors.email = 'Email wajib diisi.';
+  else if (!EMAIL_PATTERN.test(email)) errors.email = 'Gunakan format user@gmail.com.';
+
+  if (!phone) errors.phone = 'Nomor WhatsApp wajib diisi.';
+  else if (!/^628\d{8,12}$/.test(phone)) errors.phone = 'Gunakan format 628123456789.';
+
+  return errors;
+}
+
+function FieldMessage({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="text-[11px] leading-5 text-rose-200">
+      {message}
+    </motion.p>
+  );
+}
+
+function fieldWrapClass(error?: string, valid?: boolean) {
+  return [
+    'pp-input flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5',
+    error ? 'pp-input-error' : valid ? 'pp-input-valid' : '',
+  ].join(' ');
+}
+
 interface LoginPageProps {
   onLogin: (payload: {
     username: string;
@@ -15,33 +106,54 @@ interface LoginPageProps {
   initialUsername: string;
 }
 
+const featureCards = [
+  { title: 'Transaksi Cepat', desc: 'Proses otomatis 24/7', icon: Zap },
+  { title: 'Support 24/7', desc: 'Bantuan aktif kapan saja', icon: Headphones },
+  { title: 'Produk Premium', desc: 'Katalog digital lengkap', icon: Box },
+  { title: 'Aman & Terpercaya', desc: 'Akun dan transaksi terlindungi', icon: ShieldCheck },
+];
+
 export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
-  const [username, setUsername] = useState(initialUsername);
+  const [username, setUsername] = useState(initialUsername.toLowerCase());
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [registerTouched, setRegisterTouched] = useState<Partial<Record<RegisterField, boolean>>>({});
+  const [registerSubmitted, setRegisterSubmitted] = useState(false);
   const [success, setSuccess] = useState('');
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotUsername, setForgotUsername] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotPhone, setForgotPhone] = useState('');
+  const [forgotTouched, setForgotTouched] = useState<Partial<Record<ForgotField, boolean>>>({});
+  const [forgotSubmitted, setForgotSubmitted] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [copiedPassword, setCopiedPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [adminWhatsapp, setAdminWhatsapp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const formRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    setUsername(initialUsername);
+    setUsername(initialUsername.toLowerCase());
   }, [initialUsername]);
 
   useEffect(() => {
     setMode(location.pathname === '/register' ? 'register' : 'login');
   }, [location.pathname]);
+
+  useEffect(() => {
+    setError('');
+    setSuccess('');
+    setRegisterSubmitted(false);
+    setRegisterTouched({});
+  }, [mode]);
 
   useEffect(() => {
     let active = true;
@@ -57,17 +169,24 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
     };
   }, []);
 
-  useEffect(() => {
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
+  const registerErrors = validateRegisterFields({ username, password, email, phone });
+  const forgotErrors = validateForgotFields({ username: forgotUsername, email: forgotEmail, phone: forgotPhone });
+  const registerError = (field: RegisterField) => (registerSubmitted || registerTouched[field] || (field === 'username' && username) || (field === 'email' && email) || (field === 'phone' && phone) ? registerErrors[field] : undefined);
+  const forgotErrorFor = (field: ForgotField) => (forgotSubmitted || forgotTouched[field] || (field === 'username' && forgotUsername) || (field === 'email' && forgotEmail) || (field === 'phone' && forgotPhone) ? forgotErrors[field] : undefined);
+  const forgotValid = (field: ForgotField) => {
+    if (field === 'username') return Boolean(forgotUsername) && !forgotErrors.username;
+    if (field === 'email') return Boolean(forgotEmail) && !forgotErrors.email;
+    return Boolean(forgotPhone) && !forgotErrors.phone;
+  };
 
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-    };
-  }, []);
+  const usernameReady = mode === 'register' && username.length >= 4 && !registerErrors.username;
+  const formTitle = mode === 'register' ? 'Buat Akun Baru' : 'Login ke Akun Anda';
+  const formSubtitle = mode === 'register' ? 'Daftar cepat untuk mulai berjualan produk digital.' : 'Masuk untuk mengakses dashboard Premiumin Plus.';
+  const trustStars = useMemo(() => Array.from({ length: 5 }, (_, index) => index), []);
+
+  const focusAuthForm = () => {
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const submit = async () => {
     if (!username.trim() || !password.trim()) {
@@ -79,7 +198,7 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
     setLoading(true);
 
     try {
-      const nextSession = await onLogin({ username: username.trim(), password, remember });
+      const nextSession = await onLogin({ username: username.trim().toLowerCase(), password, remember });
       const role = nextSession && typeof nextSession === 'object' && 'role' in nextSession ? nextSession.role : 'member';
       navigate(role === 'admin' ? '/admin' : '/dashboard', { replace: true });
     } catch (caught) {
@@ -90,8 +209,10 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
   };
 
   const submitRegister = async () => {
-    if (!username.trim() || !password.trim()) {
-      setError('Username dan password wajib diisi.');
+    setRegisterSubmitted(true);
+    const nextErrors = validateRegisterFields({ username, password, email, phone });
+    if (Object.keys(nextErrors).length) {
+      setError('Periksa kembali data register yang ditandai merah.');
       return;
     }
 
@@ -100,14 +221,18 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
     setLoading(true);
     try {
       await premiuminApi.register({
-        username: username.trim(),
+        username: username.trim().toLowerCase(),
         password,
-        email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
+        email: email.trim().toLowerCase(),
+        phone: sanitizeWhatsappInput(phone),
       });
       setSuccess('Pendaftaran berhasil, silakan login.');
       setMode('login');
       setPassword('');
+      setEmail('');
+      setPhone('');
+      setRegisterSubmitted(false);
+      setRegisterTouched({});
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Registrasi gagal.');
     } finally {
@@ -120,300 +245,385 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
       setError('Nomor WhatsApp admin belum dikonfigurasi.');
       return;
     }
-    window.open(
-      `https://wa.me/${adminWhatsapp}?text=Masih%20ada%20slot%20join%20reseller%20%3F`,
-      '_blank',
-      'noopener,noreferrer'
-    );
+    window.open(`https://wa.me/${adminWhatsapp}?text=Masih%20ada%20slot%20join%20reseller%20%3F`, '_blank', 'noopener,noreferrer');
   };
 
   const submitForgotPassword = async () => {
-    setError('');
-    setSuccess('');
+    setForgotSubmitted(true);
+    const nextErrors = validateForgotFields({ username: forgotUsername, email: forgotEmail, phone: forgotPhone });
+    if (Object.keys(nextErrors).length) {
+      setForgotError('Periksa kembali data yang ditandai merah.');
+      return;
+    }
+
+    setForgotError('');
     setNewPassword('');
+    setCopiedPassword(false);
     setLoading(true);
     try {
       const response = await premiuminApi.forgotPassword({
-        username: forgotUsername.trim(),
-        email: forgotEmail.trim(),
-        phone: forgotPhone.trim(),
+        username: forgotUsername.trim().toLowerCase(),
+        email: forgotEmail.trim().toLowerCase(),
+        phone: normalizeForgotWhatsappInput(forgotPhone),
       });
       setNewPassword(response.password);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Reset password gagal.');
+      setForgotError(caught instanceof Error ? caught.message : 'Reset password gagal.');
     } finally {
       setLoading(false);
     }
   };
 
+  const copyNewPassword = async () => {
+    if (!newPassword) return;
+    try {
+      await navigator.clipboard.writeText(newPassword);
+      setCopiedPassword(true);
+      window.setTimeout(() => setCopiedPassword(false), 1800);
+    } catch {
+      setForgotError('Clipboard tidak tersedia. Silakan salin password secara manual.');
+    }
+  };
+
+  const closeForgotPassword = () => {
+    setForgotOpen(false);
+    setForgotSubmitted(false);
+    setForgotTouched({});
+    setForgotError('');
+    setCopiedPassword(false);
+    setNewPassword('');
+  };
+
+  const loginWithNewPassword = () => {
+    setUsername(forgotUsername.trim().toLowerCase());
+    setPassword(newPassword);
+    closeForgotPassword();
+  };
+
   return (
-    <motion.div
-      className="relative h-[100svh] overflow-hidden bg-[#090a13] px-3 py-3 text-white sm:px-4 sm:py-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.35 }}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_35%,rgba(255,0,127,0.24),transparent_28%),radial-gradient(circle_at_85%_18%,rgba(255,117,186,0.16),transparent_26%),linear-gradient(135deg,#0b1020_0%,#090812_42%,#150613_100%)]" />
-      <div className="pointer-events-none absolute left-0 top-0 h-72 w-72 opacity-20 [background-image:linear-gradient(30deg,rgba(255,255,255,.12)_12%,transparent_12.5%,transparent_87%,rgba(255,255,255,.12)_87.5%,rgba(255,255,255,.12)),linear-gradient(150deg,rgba(255,255,255,.12)_12%,transparent_12.5%,transparent_87%,rgba(255,255,255,.12)_87.5%,rgba(255,255,255,.12)),linear-gradient(30deg,rgba(255,255,255,.12)_12%,transparent_12.5%,transparent_87%,rgba(255,255,255,.12)_87.5%,rgba(255,255,255,.12)),linear-gradient(150deg,rgba(255,255,255,.12)_12%,transparent_12.5%,transparent_87%,rgba(255,255,255,.12)_87.5%,rgba(255,255,255,.12))] [background-size:80px_140px] [background-position:0_0,0_0,40px_70px,40px_70px]" />
-      <div className="pointer-events-none absolute bottom-[-18rem] left-[-10rem] h-[36rem] w-[54rem] rotate-[-18deg] rounded-[50%] border-t-4 border-brand/70 bg-brand/10 blur-[1px]" />
-      <div className="pointer-events-none absolute bottom-[-19rem] left-[-8rem] h-[32rem] w-[50rem] rotate-[-18deg] rounded-[50%] border-t border-brand/45" />
-      <div className="pointer-events-none absolute right-0 top-24 h-96 w-52 opacity-35 [background-image:radial-gradient(circle,rgba(255,0,127,.65)_1.5px,transparent_1.6px)] [background-size:18px_18px]" />
+    <main className="relative min-h-dvh overflow-x-hidden bg-[#050816] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_49%_22%,rgba(255,46,166,.18),transparent_24rem),radial-gradient(circle_at_100%_8%,rgba(168,85,247,.16),transparent_22rem),linear-gradient(135deg,#050816_0%,#0b1020_58%,#050816_100%)]" />
+      <div className="pp-grid-overlay absolute inset-0 opacity-30" />
 
-      <div className="relative mx-auto grid h-full max-w-5xl items-center gap-6 lg:grid-cols-[1fr_0.92fr]">
-        <motion.section
-          className="hidden min-h-0 flex-col justify-center px-2 lg:flex"
-          initial={{ x: -24, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.45 }}
-        >
-          <div className="relative mx-auto flex h-60 w-60 items-center justify-center sm:h-64 sm:w-64">
-            <div className="absolute inset-0 rounded-[2rem] bg-brand/15 blur-2xl" />
-            <div className="absolute inset-3 rounded-[1.75rem] border border-white/10 bg-white/5 backdrop-blur-xl" />
-            <img
-              src={logoUpScale}
-              alt="Premiumin Plus"
-              className="relative z-10 h-auto w-full max-w-[260px] rounded-[1.25rem] object-contain opacity-95 drop-shadow-[0_18px_32px_rgba(0,0,0,.35)]"
-            />
-            <Sparkles className="absolute right-2 top-6 h-8 w-8 text-brand drop-shadow-[0_0_16px_rgba(255,0,127,.75)]" />
-            <Sparkles className="absolute bottom-4 left-5 h-5 w-5 text-brand-light" />
-          </div>
-
-          <div className="mt-4 text-center">
-            <h1 className="text-4xl font-black uppercase tracking-[0.18em] text-white drop-shadow-[0_8px_20px_rgba(255,255,255,.18)]">
-              Premiumin
-            </h1>
-            <div className="mt-2 flex items-center justify-center gap-3">
-              <span className="h-1 w-14 rounded-full bg-brand" />
-              <p className="text-2xl font-black uppercase tracking-[0.45em] text-brand">Plus</p>
-              <span className="h-1 w-14 rounded-full bg-brand" />
-            </div>
-            <p className="mx-auto mt-3 max-w-xl text-base font-semibold text-white/90">
-              Solusi produk digital premium untuk reseller dan pengguna aktif
-            </p>
-            <p className="mx-auto mt-2 max-w-lg text-xs leading-5 text-white/50">
-              Dashboard cepat untuk akun premium, deposit saldo, transaksi sukses, dan layanan digital yang elegan.
-            </p>
-          </div>
-
-          <div className="mx-auto mt-5 grid w-full max-w-lg grid-cols-2 gap-2 text-xs">
-            <div className="rounded-2xl border border-brand/20 bg-black/20 p-3 backdrop-blur">
-              <p className="text-white/35">Produk Digital</p>
-              <p className="mt-1 text-base font-bold">Lebih dari 50 Produk</p>
-            </div>
-            <div className="rounded-2xl border border-brand/20 bg-black/20 p-3 backdrop-blur">
-              <p className="text-white/35">Pengguna</p>
-              <p className="mt-1 text-base font-bold">Lebih dari 1200</p>
-            </div>
-            <div className="rounded-2xl border border-brand/20 bg-black/20 p-3 backdrop-blur">
-              <p className="text-white/35">Cepat</p>
-              <p className="mt-1 text-base font-bold">Transaksi Sukses</p>
-            </div>
-            <div className="rounded-2xl border border-brand/20 bg-black/20 p-3 backdrop-blur">
-              <p className="text-white/35">UI Ringan</p>
-              <p className="mt-1 text-base font-bold">Fleksibilitas</p>
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-[1500px] flex-col px-4 py-4 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img src={logoUpScale} alt="Premiumin Plus" className="h-11 w-11 rounded-2xl object-contain drop-shadow-[0_0_18px_rgba(255,46,136,.38)]" />
+            <div>
+              <p className="text-base font-black uppercase tracking-[0.2em] text-white">Premiumin</p>
+              <p className="text-xs font-black uppercase tracking-[0.42em] text-brand-light">+ Plus</p>
             </div>
           </div>
-        </motion.section>
-
-        <motion.section
-          className="mx-auto w-full max-w-md rounded-[1.4rem] border border-brand/35 bg-[#0d1220]/72 p-5 shadow-[0_0_36px_rgba(0,0,0,.38)] backdrop-blur-xl sm:p-5 lg:p-5"
-          initial={{ x: 24, opacity: 0, scale: 0.98 }}
-          animate={{ x: 0, opacity: 1, scale: 1 }}
-          transition={{ duration: 0.45, delay: 0.05 }}
-        >
-          <div className="text-center">
-            <p className="text-base font-extrabold tracking-tight text-white sm:text-lg">Selamat Datang di</p>
-            <h2 className="mt-1.5 bg-gradient-to-r from-brand-light via-brand to-brand bg-clip-text text-[1.7rem] font-black tracking-tight text-transparent sm:text-3xl">
-              Premiumin Plus
-            </h2>
-            <p className="mt-2 text-xs text-white/75 sm:text-sm">Masuk untuk mengakses dashboard Anda</p>
-            <div className="mx-auto mt-3 flex max-w-md items-center gap-3 text-brand">
-              <span className="h-px flex-1 bg-brand/40" />
-              <Sparkles className="h-3.5 w-3.5 fill-brand" />
-              <span className="h-px flex-1 bg-brand/40" />
-            </div>
-          </div>
-
-          <form
-            className="mt-4 space-y-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (mode === 'register') {
-                void submitRegister();
-              } else {
-                void submit();
-              }
-            }}
-          >
-            <label className="block space-y-2">
-              <span className="text-[11px] font-semibold text-white/70 sm:text-xs">Username</span>
-              <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 transition focus-within:border-brand/80">
-                <User className="h-3.5 w-3.5 text-brand" />
-                <input
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/30"
-                  placeholder="Masukkan username"
-                />
-              </div>
-            </label>
-
-            <label className="block space-y-2">
-              <span className="text-[11px] font-semibold text-white/70 sm:text-xs">Password</span>
-              <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 transition focus-within:border-brand/80">
-                <Lock className="h-3.5 w-3.5 text-brand" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/30"
-                  placeholder="Masukkan password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="rounded-lg p-1 text-white/55 transition hover:text-white"
-                  aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
-                >
-                  {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            </label>
-
-            <div className="flex items-center justify-between gap-3 text-[11px] sm:text-xs">
-              <label className="flex items-center gap-2 text-white/60">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 rounded border-white/20 bg-transparent accent-brand"
-                />
-                Ingat saya
-              </label>
-              <button type="button" onClick={() => setForgotOpen(true)} className="font-semibold text-brand transition hover:text-brand-light">
-                Lupa Password?
-              </button>
-            </div>
-
-            {mode === 'register' ? (
-              <>
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 text-sm text-white outline-none focus:border-brand/80"
-                  placeholder="Email member"
-                />
-                <input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-xl border border-white/20 bg-[#101827]/80 px-4 py-3 text-sm text-white outline-none focus:border-brand/80"
-                  placeholder="Nomor WhatsApp"
-                />
-                <div className="rounded-2xl border border-brand/20 bg-brand/10 px-4 py-3 text-xs leading-5 text-pink-100">
-                  Registrasi otomatis hanya untuk member. Untuk menjadi reseller, hubungi WhatsApp Admin.
-                </div>
-              </>
-            ) : null}
-
-            {error && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
-            {success && <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{success}</div>}
-
-            <button
-              type="submit"
-              disabled={loading}
-              onClick={(event) => {
-                if (mode === 'register') {
-                  event.preventDefault();
-                  void submitRegister();
-                }
-              }}
-              className="flex w-full items-center justify-center gap-3 rounded-full bg-gradient-to-r from-brand-dark via-brand to-brand-light px-5 py-3 text-sm font-extrabold text-white shadow-[0_0_24px_rgba(255,0,127,.3)] transition hover:scale-[1.01] sm:py-3 sm:text-base"
-            >
-              {loading ? 'Memproses...' : mode === 'login' ? 'LOGIN' : 'REGISTER'}
-              <ArrowRight className="h-4 w-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setMode((value) => (value === 'login' ? 'register' : 'login'));
-                setError('');
-              }}
-              className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-white/80 transition hover:bg-white/10"
-            >
-              {mode === 'login' ? 'Daftar Account' : 'Kembali ke Login'}
-            </button>
-
-            <div className="flex items-center gap-4 text-sm text-white/45">
-              <span className="h-px flex-1 bg-white/15" />
-              atau
-              <span className="h-px flex-1 bg-white/15" />
-            </div>
-
           <button
             type="button"
-            onClick={openWhatsAppRegistration}
-            className="flex w-full items-center justify-center rounded-full bg-[#25D366] px-5 py-3 text-sm font-extrabold text-white shadow-[0_0_20px_rgba(37,211,102,.22)] transition duration-300 hover:scale-[1.01] hover:bg-[#20b85a] hover:shadow-[0_0_28px_rgba(37,211,102,.28)] focus:outline-none focus:ring-2 focus:ring-[#25D366] focus:ring-offset-2 focus:ring-offset-[#0d1220] sm:py-3 sm:text-base"
+            onClick={() => {
+              setMode('login');
+              focusAuthForm();
+            }}
+            className="inline-flex items-center gap-2 rounded-full border border-brand/35 bg-black/20 px-4 py-2 text-xs font-black text-white shadow-[0_0_16px_rgba(255,46,136,.12)] backdrop-blur transition hover:bg-brand/10"
           >
-              Daftar sekarang lewat WA
+            <LogIn className="h-4 w-4 text-brand-light" />
+            Login
           </button>
-          </form>
+        </header>
 
-        <p className="mt-4 text-center text-[11px] tracking-[0.18em] text-white/45">
-          Code by LotusVolt (Copyright)
-        </p>
-        </motion.section>
+        <section className="grid flex-1 items-center gap-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] xl:gap-8">
+          <div className="grid items-center gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(220px,310px)]">
+            <div>
+              <NeonBadge className="px-3 py-1 text-[10px]">
+                <Star className="h-3.5 w-3.5" />
+                #1 Platform Produk Digital Premium
+              </NeonBadge>
+              <h1 className="mt-4 max-w-2xl text-[2.25rem] font-black leading-[1.03] tracking-tight text-white sm:text-5xl lg:text-[3.45rem]">
+                Platform Produk Digital Premium
+                <span className="pp-gradient-text mt-1 block text-[1.55rem] sm:text-4xl lg:text-[2.65rem]">Cepat • Aman • Otomatis</span>
+              </h1>
+              <p className="mt-4 max-w-xl text-sm leading-6 text-white/68 sm:text-base">
+                Marketplace produk digital untuk member dan reseller dengan dashboard cepat, transaksi aman, dan layanan bisnis yang ringan.
+              </p>
+
+              <div className="mt-5 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
+                {featureCards.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <GlassCard key={item.title} className="rounded-2xl p-3 transition hover:-translate-y-0.5 hover:border-brand/30">
+                      <div className="grid h-9 w-9 place-items-center rounded-xl border border-brand/20 bg-brand/10 text-brand-light">
+                        <Icon className="h-4.5 w-4.5" />
+                      </div>
+                      <p className="mt-2 text-xs font-black leading-4 text-white">{item.title}</p>
+                      <p className="mt-1 text-[11px] leading-4 text-white/48">{item.desc}</p>
+                    </GlassCard>
+                  );
+                })}
+              </div>
+
+              <GlassCard className="mt-5 grid gap-3 rounded-2xl p-3 sm:grid-cols-4">
+                {[
+                  ['50+', 'Produk Digital'],
+                  ['1200+', 'Pengguna Aktif'],
+                  ['99.9%', 'Uptime System'],
+                  ['24/7', 'Support Aktif'],
+                ].map(([value, label]) => (
+                  <div key={label} className="border-white/10 sm:border-r sm:last:border-r-0">
+                    <p className="text-lg font-black text-brand-light">{value}</p>
+                    <p className="mt-0.5 text-[11px] text-white/52">{label}</p>
+                  </div>
+                ))}
+              </GlassCard>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-white/58">
+                <span>Dipercaya ribuan pengguna</span>
+                <span className="flex items-center gap-1 text-amber-300">
+                  {trustStars.map((star) => <Star key={star} className="h-3.5 w-3.5 fill-current" />)}
+                  <b className="ml-1 text-white">4.9/5</b>
+                </span>
+              </div>
+            </div>
+
+            <div className="relative hidden min-h-[22rem] place-items-center xl:grid">
+              <div className="absolute h-64 w-64 rounded-full border border-brand/20 bg-brand/10 blur-2xl" />
+              <div className="pp-glass-strong pp-premium-border relative grid h-72 w-72 place-items-center rounded-[2.25rem]">
+                <img src={logoUpScale} alt="Premiumin Plus" className="h-56 w-56 object-contain drop-shadow-[0_0_38px_rgba(255,46,136,.5)]" />
+              </div>
+            </div>
+          </div>
+
+          <section ref={formRef} className="flex items-center">
+            <GlassCard className="pp-premium-border w-full rounded-[1.75rem] p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight text-white">{formTitle}</h2>
+                  <p className="mt-1 text-sm leading-5 text-white/58">{formSubtitle}</p>
+                </div>
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-brand/20 bg-brand/10 text-brand-light">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+              </div>
+
+              <form
+                className="mt-5 space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (mode === 'register') void submitRegister();
+                  else void submit();
+                }}
+              >
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-black text-white">Username</span>
+                  <motion.div animate={registerError('username') ? { x: [0, -4, 4, -3, 3, 0] } : { x: 0 }} className={fieldWrapClass(mode === 'register' ? registerError('username') : undefined, usernameReady)}>
+                    <User className="h-4.5 w-4.5 text-white/48" />
+                    <input
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40))}
+                      onBlur={() => setRegisterTouched((current) => ({ ...current, username: true }))}
+                      className="w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/35"
+                      placeholder="username"
+                      autoComplete="username"
+                    />
+                    {usernameReady ? <Check className="h-4 w-4 text-emerald-300" /> : null}
+                  </motion.div>
+                  {mode === 'register' ? <FieldMessage message={registerError('username')} /> : null}
+                </label>
+
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-black text-white">Password</span>
+                  <motion.div animate={mode === 'register' && registerError('password') ? { x: [0, -4, 4, -3, 3, 0] } : { x: 0 }} className={fieldWrapClass(mode === 'register' ? registerError('password') : undefined, Boolean(password) && !registerErrors.password)}>
+                    <Lock className="h-4.5 w-4.5 text-white/48" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      onBlur={() => setRegisterTouched((current) => ({ ...current, password: true }))}
+                      className="w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/35"
+                      placeholder="password"
+                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                    />
+                    <button type="button" onClick={() => setShowPassword((value) => !value)} className="rounded-xl p-1 text-white/55 hover:text-white" aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}>
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </motion.div>
+                  {mode === 'register' ? <FieldMessage message={registerError('password')} /> : null}
+                </label>
+
+                {mode === 'register' ? (
+                  <>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-black text-white">Email</span>
+                      <motion.div animate={registerError('email') ? { x: [0, -4, 4, -3, 3, 0] } : { x: 0 }} className={fieldWrapClass(registerError('email'), Boolean(email) && !registerErrors.email)}>
+                        <Mail className="h-4.5 w-4.5 text-white/48" />
+                        <input
+                          type="email"
+                          inputMode="email"
+                          autoComplete="email"
+                          value={email}
+                          onChange={(event) => setEmail(event.target.value.replace(/\s/g, '').toLowerCase().slice(0, 120))}
+                          onBlur={() => setRegisterTouched((current) => ({ ...current, email: true }))}
+                          className="w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/35"
+                          placeholder="example@gmail.com"
+                        />
+                      </motion.div>
+                      <FieldMessage message={registerError('email')} />
+                    </label>
+
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-black text-white">Nomor WhatsApp</span>
+                      <motion.div animate={registerError('phone') ? { x: [0, -4, 4, -3, 3, 0] } : { x: 0 }} className={fieldWrapClass(registerError('phone'), Boolean(phone) && !registerErrors.phone)}>
+                        <MessageCircle className="h-4.5 w-4.5 text-brand-light" />
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="tel"
+                          value={phone}
+                          onChange={(event) => setPhone(sanitizeWhatsappInput(event.target.value))}
+                          onPaste={(event) => {
+                            event.preventDefault();
+                            setPhone(sanitizeWhatsappInput(event.clipboardData.getData('text')));
+                            setRegisterTouched((current) => ({ ...current, phone: true }));
+                          }}
+                          onBlur={() => setRegisterTouched((current) => ({ ...current, phone: true }))}
+                          className="w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/35"
+                          placeholder="08xxxxxxxxxx"
+                        />
+                      </motion.div>
+                      <FieldMessage message={registerError('phone')} />
+                    </label>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <label className="flex items-center gap-2 text-white/60">
+                      <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="h-4 w-4 rounded border-white/20 bg-transparent accent-brand" />
+                      Ingat saya
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotOpen(true);
+                        setForgotUsername(username.trim().toLowerCase());
+                        setForgotError('');
+                        setNewPassword('');
+                        setCopiedPassword(false);
+                      }}
+                      className="font-bold text-brand-light hover:text-white"
+                    >
+                      Lupa Password?
+                    </button>
+                  </div>
+                )}
+
+                {mode === 'register' ? (
+                  <div className="rounded-2xl border border-emerald-400/18 bg-emerald-500/10 px-3.5 py-2.5 text-[11px] leading-5 text-emerald-100">
+                    Dengan mendaftar, Anda menyetujui Syarat & Ketentuan Premiumin Plus.
+                  </div>
+                ) : null}
+
+                {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-100">{error}</div> : null}
+                {success ? <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2.5 text-xs text-emerald-100">{success}</div> : null}
+
+                <GradientButton type="submit" disabled={loading} className="w-full py-2.5">
+                  {loading ? 'Memproses...' : mode === 'login' ? 'LOGIN' : 'Daftar Sekarang'}
+                  <ArrowRight className="h-4 w-4" />
+                </GradientButton>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode((value) => (value === 'login' ? 'register' : 'login'));
+                      setError('');
+                    }}
+                    className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-2.5 text-xs font-black text-white/78 transition hover:bg-white/10"
+                  >
+                    {mode === 'login' ? 'Buat akun member' : 'Sudah punya akun?'}
+                  </button>
+                  <button type="button" onClick={openWhatsAppRegistration} className="rounded-2xl border border-emerald-400/25 bg-emerald-500/12 px-4 py-2.5 text-xs font-black text-emerald-100 transition hover:bg-emerald-500/18">
+                    Reseller via WA
+                  </button>
+                </div>
+              </form>
+            </GlassCard>
+          </section>
+        </section>
+
       </div>
 
       {forgotOpen ? (
-        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 px-4 backdrop-blur-sm">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="w-full max-w-md rounded-[1.4rem] border border-brand/25 bg-[#0f172a] p-5 shadow-[0_0_40px_rgba(255,46,136,0.22)]"
-          >
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-md">
+          <motion.div initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="pp-glass-strong w-full max-w-lg rounded-[2rem] p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-light">Reset Password</p>
-                <h3 className="mt-1 text-xl font-black text-white">Lupa Password?</h3>
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-brand-light">Reset Password</p>
+                <h3 className="mt-1 text-2xl font-black text-white">Lupa Password?</h3>
+                <p className="mt-2 text-sm leading-6 text-white/50">Reset hanya bisa dilakukan 1x dalam 24 jam per akun.</p>
               </div>
-              <button type="button" onClick={() => setForgotOpen(false)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+              <button type="button" onClick={closeForgotPassword} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white/70">
                 Tutup
               </button>
             </div>
 
-            <div className="mt-4 space-y-3">
-              <input value={forgotUsername} onChange={(e) => setForgotUsername(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Username" />
-              <input value={forgotPhone} onChange={(e) => setForgotPhone(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Nomor HP" />
-              <input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#111827] px-4 py-3 text-sm text-white outline-none focus:border-brand/60" placeholder="Email" />
+            <div className="mt-5 space-y-4">
+              {(['username', 'email', 'phone'] as ForgotField[]).map((field) => {
+                const Icon = field === 'username' ? User : field === 'email' ? Mail : MessageCircle;
+                const value = field === 'username' ? forgotUsername : field === 'email' ? forgotEmail : forgotPhone;
+                const placeholder = field === 'username' ? 'username' : field === 'email' ? 'user@gmail.com' : '628123456789';
+                const label = field === 'username' ? 'Username' : field === 'email' ? 'Email' : 'Nomor WhatsApp';
+                return (
+                  <label key={field} className="block space-y-2">
+                    <span className="text-xs font-black uppercase tracking-[0.18em] text-white/40">{label}</span>
+                    <motion.div animate={forgotErrorFor(field) || forgotError ? { x: [0, -4, 4, -3, 3, 0] } : { x: 0 }} className={fieldWrapClass(forgotErrorFor(field) || forgotError, forgotValid(field))}>
+                      <Icon className="h-5 w-5 text-brand-light" />
+                      <input
+                        type={field === 'email' ? 'email' : field === 'phone' ? 'tel' : 'text'}
+                        inputMode={field === 'phone' ? 'numeric' : field === 'email' ? 'email' : 'text'}
+                        value={value}
+                        onChange={(event) => {
+                          if (field === 'username') setForgotUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40));
+                          if (field === 'email') setForgotEmail(event.target.value.replace(/\s/g, '').toLowerCase().slice(0, 120));
+                          if (field === 'phone') setForgotPhone(normalizeForgotWhatsappInput(event.target.value));
+                        }}
+                        onBlur={() => setForgotTouched((current) => ({ ...current, [field]: true }))}
+                        className="w-full bg-transparent text-sm font-semibold text-white outline-none placeholder:text-white/35"
+                        placeholder={placeholder}
+                      />
+                      {forgotErrorFor(field) || forgotError ? <AlertTriangle className="h-4 w-4 text-rose-300" /> : forgotValid(field) ? <Check className="h-4 w-4 text-emerald-300" /> : null}
+                    </motion.div>
+                    <FieldMessage message={forgotErrorFor(field)} />
+                  </label>
+                );
+              })}
+
+              {forgotError ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{forgotError}</div> : null}
+
               {newPassword ? (
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                  <p>Password baru Anda:</p>
-                  <p className="mt-2 text-2xl font-black tracking-[0.16em] text-white">{newPassword}</p>
-                  <p className="mt-2 text-xs text-amber-100">Segera ubah password setelah login.</p>
+                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                  <p className="font-black text-white">Password baru berhasil dibuat</p>
+                  <div className="mt-3 rounded-2xl border border-emerald-300/25 bg-black/20 px-4 py-3">
+                    <input readOnly value={newPassword} className="w-full bg-transparent text-base font-black tracking-[0.12em] text-white outline-none" />
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button type="button" onClick={copyNewPassword} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">
+                      {copiedPassword ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copiedPassword ? 'Tersalin' : 'Salin Password'}
+                    </button>
+                    <button type="button" onClick={loginWithNewPassword} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-black text-white">
+                      <LogIn className="h-4 w-4" />
+                      Login Sekarang
+                    </button>
+                  </div>
                 </div>
-              ) : null}
-              {error ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div> : null}
-              <button type="button" onClick={submitForgotPassword} disabled={loading} className="w-full rounded-2xl bg-brand px-4 py-3 text-sm font-black text-white disabled:opacity-60">
-                {loading ? 'Memproses...' : 'Generate Password Baru'}
+              ) : (
+                <GradientButton type="button" onClick={submitForgotPassword} disabled={loading} className="w-full">
+                  {loading ? 'Memproses...' : 'Generate Password Baru'}
+                </GradientButton>
+              )}
+
+              <button type="button" onClick={() => adminWhatsapp && window.open(`https://wa.me/${adminWhatsapp}`, '_blank', 'noopener,noreferrer')} disabled={!adminWhatsapp} className="w-full rounded-2xl border border-emerald-400/25 bg-emerald-500/12 px-5 py-3 text-sm font-black text-emerald-100 disabled:opacity-50">
+                WhatsApp Admin
               </button>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center text-xs text-white/55">
-                Jika ada kendala hubungi admin
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (adminWhatsapp) window.open(`https://wa.me/${adminWhatsapp}`, '_blank', 'noopener,noreferrer');
-                  }}
-                  disabled={!adminWhatsapp}
-                  className="mt-2 block w-full rounded-xl bg-[#25D366] px-4 py-2 text-sm font-black text-white disabled:opacity-50"
-                >
-                  WhatsApp Admin
-                </button>
-              </div>
             </div>
           </motion.div>
         </div>
       ) : null}
-    </motion.div>
+    </main>
   );
 }

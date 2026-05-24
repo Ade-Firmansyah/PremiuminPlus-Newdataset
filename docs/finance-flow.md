@@ -8,10 +8,10 @@ Premiumin Plus treats backend as the only finance authority.
 
 - `saldo_utama`: active account balance.
 - `saldo`: compatibility alias synced to `saldo_utama`.
-- `locked_balance`: legacy bot/security lock value.
-- `usable_balance`: compatibility response that follows `saldo_utama`.
+- `locked_balance`: balance reserved for bot/security requirements.
+- `usable_balance`: spendable balance, calculated as `saldo_utama - locked_balance`.
 
-All spending and crediting uses `saldo_utama`.
+All crediting updates `saldo_utama`. Spending must respect `usable_balance` so bot lock balance is not consumed by normal purchases or withdraws.
 
 ## Mutation Rules
 
@@ -67,9 +67,9 @@ All spending and crediting uses `saldo_utama`.
 ## Withdraw
 
 1. User requests withdraw.
-2. Backend validates minimum and `saldo_utama`.
+2. Backend validates minimum Rp50.000 and `usable_balance`.
 3. Admin approves/rejects.
-4. Approved withdraw debits `saldo_utama`.
+4. Approved withdraw debits `saldo_utama` while still respecting locked balance.
 5. Backend writes mutation `debit`.
 
 ## Audit View

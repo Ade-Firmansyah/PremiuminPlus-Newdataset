@@ -1,6 +1,6 @@
-import { cancelDeposit, createDeposit, refreshDepositStatus } from './deposit.service.js';
+import { cancelDeposit, createDeposit, listSyncedDepositsByUser, refreshDepositStatus } from './deposit.service.js';
 import { requireFields } from '../../utils/validator.js';
-import { findDepositByInvoice, listDepositsByUser } from '../../repositories/deposit.repo.js';
+import { findDepositByInvoice } from '../../repositories/deposit.repo.js';
 
 export async function deposit(req, res, next) {
   try {
@@ -12,9 +12,13 @@ export async function deposit(req, res, next) {
   }
 }
 
-export async function myDeposits(req, res) {
-  const data = await listDepositsByUser(req.user.id);
-  res.json({ status: true, data });
+export async function myDeposits(req, res, next) {
+  try {
+    const data = await listSyncedDepositsByUser(req.user.id);
+    res.json({ status: true, data });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export async function depositStatus(req, res, next) {

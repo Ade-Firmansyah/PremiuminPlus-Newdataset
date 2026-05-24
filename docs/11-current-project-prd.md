@@ -162,13 +162,14 @@ Rules:
 1. User opens Bot WA page.
 2. User enables bot and clicks connect.
 3. Backend marks bot session `connecting`.
-4. Frontend calls bot-engine.
+4. Backend calls bot-engine through `BOT_ENGINE_URL`.
 5. Bot-engine opens Baileys session and emits QR.
-6. User scans QR.
-7. Bot status becomes connected.
-8. Bot can answer private chat commands.
-9. Bot order uses backend `/api/bot/order`.
-10. Backend debits the same user `saldo_utama`.
+6. Frontend receives QR through backend status polling and optional bot-engine websocket.
+7. User scans QR.
+8. Bot status becomes connected.
+9. Bot can answer private chat commands.
+10. Bot order uses backend `/api/bot/order`.
+11. Backend debits the same user `saldo_utama`.
 
 ## 11. Bot Settings
 

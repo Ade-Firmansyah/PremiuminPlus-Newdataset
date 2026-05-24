@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "./theme.css";
 @import "tailwindcss";
 
 @theme {
@@ -15,14 +16,45 @@
 
   html {
     color-scheme: dark light;
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
   }
 
   body {
-    @apply font-sans bg-[#0f172a] text-white antialiased;
+    @apply font-sans bg-[#050711] text-white antialiased;
     margin: 0;
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
     background:
-      radial-gradient(circle at 18% 0%, rgba(255, 46, 136, 0.14), transparent 28rem),
-      linear-gradient(135deg, #0f172a 0%, #111827 48%, #020617 100%);
+      radial-gradient(circle at 18% 0%, rgba(255, 46, 136, 0.18), transparent 28rem),
+      radial-gradient(circle at 85% 5%, rgba(139, 92, 246, 0.16), transparent 26rem),
+      linear-gradient(135deg, #050711 0%, #090d1a 48%, #02030a 100%);
+  }
+
+  #root {
+    width: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  *,
+  *::before,
+  *::after {
+    min-width: 0;
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
   }
 
   html.light body {
@@ -62,6 +94,17 @@
     font: inherit;
   }
 
+  input,
+  textarea,
+  select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  table {
+    max-width: 100%;
+  }
+
   ::selection {
     background: rgba(255, 0, 127, 0.35);
     color: #fff;
@@ -76,5 +119,30 @@
   .scrollbar-hidden {
     scrollbar-width: none;
     -ms-overflow-style: none;
+  }
+
+  .premium-page-shell {
+    min-height: 100dvh;
+    color: #fff;
+    background:
+      radial-gradient(circle at 18% 6%, rgba(255, 46, 136, 0.16), transparent 24rem),
+      radial-gradient(circle at 88% 10%, rgba(139, 92, 246, 0.14), transparent 26rem),
+      linear-gradient(135deg, #050711 0%, #090d1a 48%, #04050c 100%);
+  }
+
+  .pp-mobile-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+
+  @media (max-width: 640px) {
+    .pp-glass,
+    .pp-glass-strong {
+      backdrop-filter: blur(16px);
+    }
+
+    .pp-table thead {
+      position: static;
+    }
   }
 }

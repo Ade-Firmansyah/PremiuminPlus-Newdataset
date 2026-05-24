@@ -9,6 +9,7 @@ export function errorMiddleware(error, _req, res, _next) {
 
   res.status(statusCode).json({
     status: false,
+    code: error.code || undefined,
     message: statusCode >= 500 && isProduction ? 'Internal server error' : error.message || 'Internal server error',
   });
 }

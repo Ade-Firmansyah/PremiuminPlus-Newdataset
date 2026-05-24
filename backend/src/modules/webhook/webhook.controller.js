@@ -2,14 +2,29 @@ import crypto from 'node:crypto';
 import env from '../../config/env.js';
 import { execute } from '../../config/db.js';
 import { updateDepositStatus } from '../deposit/deposit.service.js';
+import { findDepositByInvoice } from '../../repositories/deposit.repo.js';
 import { updateTransactionStatus, findTransactionByInvoice, refundTransaction } from '../../repositories/transaction.repo.js';
+import { syncPaymentStatusFromWebhook } from '../payment/payment.service.js';
 
 function normalizeStatus(payload) {
-  return String(payload?.status ?? payload?.data?.status ?? payload?.transaction_status ?? '').toLowerCase();
+  return String(
+    payload?.pay_status ??
+      payload?.data?.pay_status ??
+      payload?.payment_status ??
+      payload?.data?.payment_status ??
+      payload?.transaction_status ??
+      payload?.data?.transaction_status ??
+      payload?.status_pembayaran ??
+      payload?.data?.status_pembayaran ??
+      payload?.status_bayar ??
+      payload?.data?.status_bayar ??
+      payload?.data?.status ??
+      (typeof payload?.status === 'string' ? payload.status : ''),
+  ).toLowerCase();
 }
 
 function normalizeInvoice(payload) {
-  return payload?.invoice || payload?.ref_id || payload?.data?.invoice || payload?.data?.ref_id;
+  return payload?.invoice || payload?.invoice_id || payload?.ref_id || payload?.id || payload?.data?.invoice || payload?.data?.invoice_id || payload?.data?.ref_id || payload?.data?.id;
 }
 
 function validateWebhookSecret(req) {
@@ -57,10 +72,17 @@ export async function premkuWebhook(req, res) {
   }
 
   try {
-    if (String(invoice).startsWith('DEP')) {
+    const depositRow = await findDepositByInvoice(invoice);
+    if (depositRow || String(invoice).startsWith('DEP')) {
       const deposit = await updateDepositStatus(invoice, status, req.body);
       await logWebhook(req.body, 'processed');
       return res.json({ status: true, data: deposit });
+    }
+
+    const payment = await syncPaymentStatusFromWebhook(invoice, req.body);
+    if (payment) {
+      await logWebhook(req.body, 'processed');
+      return res.json({ status: true, data: payment });
     }
 
     if (String(invoice).startsWith('ORD')) {
