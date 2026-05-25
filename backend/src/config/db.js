@@ -4,6 +4,21 @@ import { hashPassword } from '../utils/password.js';
 import crypto from 'node:crypto';
 import { logger } from '../utils/logger.js';
 
+function assertDatabaseConfig() {
+  const missing = [];
+  if (!env.DB_HOST || String(env.DB_HOST).includes('${{')) missing.push('DB_HOST/MYSQLHOST');
+  if (!env.DB_PORT) missing.push('DB_PORT/MYSQLPORT');
+  if (!env.DB_USER || String(env.DB_USER).includes('${{')) missing.push('DB_USER/MYSQLUSER');
+  if (!env.DB_PASSWORD || String(env.DB_PASSWORD).includes('${{')) missing.push('DB_PASSWORD/MYSQLPASSWORD');
+  if (!env.DB_NAME || String(env.DB_NAME).includes('${{')) missing.push('DB_NAME/MYSQLDATABASE');
+
+  if (missing.length) {
+    throw new Error(`Railway MySQL env belum lengkap: ${missing.join(', ')}. Hubungkan MySQL service atau isi variable MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE.`);
+  }
+}
+
+assertDatabaseConfig();
+
 const pool = mysql.createPool({
   host: env.DB_HOST,
   port: env.DB_PORT,
