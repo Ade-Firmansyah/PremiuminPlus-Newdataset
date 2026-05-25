@@ -1,0 +1,17 @@
+{
+  "name": "premiumin-bot-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "bot": "node index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc10",
+    "express": "^4.21.2",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
+  }
+}

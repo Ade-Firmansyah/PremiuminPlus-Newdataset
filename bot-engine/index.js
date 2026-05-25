@@ -4,7 +4,7 @@ import { createLogger } from './utils/logger.js';
 
 const logger = createLogger('BOT');
 const port = Number(process.env.BOT_ENGINE_PORT || process.env.PORT || 4100);
-const webCoreBaseUrl = process.env.BOT_API_BASE_URL || 'http://localhost:4000/api';
+const webCoreBaseUrl = process.env.BOT_API_BASE_URL || 'https://api.premiuminplus.store/api';
 
 const manager = new BotSessionManager({ logger, webCoreBaseUrl });
 const app = createBotHttpServer({ manager, logger });
