@@ -15,6 +15,10 @@ function assertDatabaseConfig() {
   if (missing.length) {
     throw new Error(`Railway MySQL env belum lengkap: ${missing.join(', ')}. Hubungkan MySQL service atau isi variable MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE.`);
   }
+
+  if (String(env.DB_HOST).endsWith('.up.railway.app') && Number(env.DB_PORT) === 3306) {
+    throw new Error('DB_HOST memakai domain HTTP Railway (*.up.railway.app) dengan port 3306. Gunakan variable MySQL Railway asli: MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE, atau MYSQL_PUBLIC_URL/DATABASE_URL.');
+  }
 }
 
 assertDatabaseConfig();

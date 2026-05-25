@@ -2,6 +2,32 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function parseDatabaseUrl() {
+  const raw =
+    process.env.DATABASE_URL ||
+    process.env.MYSQL_URL ||
+    process.env.MYSQL_PUBLIC_URL ||
+    process.env.MYSQL_PRIVATE_URL ||
+    '';
+
+  if (!raw) return {};
+
+  try {
+    const url = new URL(raw);
+    return {
+      host: url.hostname,
+      port: url.port ? Number(url.port) : 3306,
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || ''),
+    };
+  } catch {
+    return {};
+  }
+}
+
+const databaseUrl = parseDatabaseUrl();
+
 const env = {
   PORT: Number(process.env.PORT || 4000),
   PREMKU_API_KEY: process.env.API_KEY || process.env.PREMKU_API_KEY || '',
@@ -10,11 +36,11 @@ const env = {
   PREMKU_STATUS_ENDPOINT: process.env.PREMKU_STATUS_ENDPOINT || 'status',
   PREMKU_PAY_ENDPOINT: process.env.PREMKU_PAY_ENDPOINT || 'pay',
   PREMKU_WEBHOOK_SECRET: process.env.PREMKU_WEBHOOK_SECRET || '',
-  DB_HOST: process.env.DB_HOST || process.env.MYSQLHOST || '',
-  DB_PORT: Number(process.env.DB_PORT || process.env.MYSQLPORT || 3306),
-  DB_USER: process.env.DB_USER || process.env.MYSQLUSER || '',
-  DB_PASSWORD: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
-  DB_NAME: process.env.DB_NAME || process.env.MYSQLDATABASE || '',
+  DB_HOST: process.env.DB_HOST || process.env.MYSQLHOST || databaseUrl.host || '',
+  DB_PORT: Number(process.env.DB_PORT || process.env.MYSQLPORT || databaseUrl.port || 3306),
+  DB_USER: process.env.DB_USER || process.env.MYSQLUSER || databaseUrl.user || '',
+  DB_PASSWORD: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || databaseUrl.password || '',
+  DB_NAME: process.env.DB_NAME || process.env.MYSQLDATABASE || databaseUrl.database || '',
   ADMIN_CONTACT: process.env.ADMIN_WHATSAPP || process.env.ADMIN || '',
   ADMIN_USERNAME: process.env.ADMIN_USERNAME || '',
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',

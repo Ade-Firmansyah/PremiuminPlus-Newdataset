@@ -9,6 +9,8 @@ Gunakan file ini sebagai panduan copy-paste variables ke Railway. Jangan commit 
 - Start Command: `npm run backend`
 - Variables: copy dari `deploy/railway-backend.env.example`
 
+Cara paling aman adalah memakai variable MySQL bawaan Railway dari service database, bukan domain aplikasi `*.up.railway.app`.
+
 Pastikan MySQL service di Railway bernama `MySQL`. Jika namanya beda, ubah semua reference:
 
 ```txt
@@ -44,6 +46,8 @@ ${{premiumin-db.MYSQLHOST}}
 
 ```env
 DB_HOST=127.0.0.1
+DB_HOST=xxxx.up.railway.app
+DB_PORT=3306
 BOT_API_BASE_URL=http://localhost:4000/api
 VITE_API_BASE_URL=https://premiuminplus.store
 DB_PASSWORD=${{MySQL.MYSQLDATABASE}}
