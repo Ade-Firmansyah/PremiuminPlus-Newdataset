@@ -20,6 +20,25 @@ const QR_EXPIRY_MS = 30 * 60 * 1000;
 const PAY_STATUS_CACHE_MS = env.PREMKU_PAY_STATUS_CACHE_MS;
 const ORDER_STATUS_CACHE_MS = env.PREMKU_ORDER_STATUS_CACHE_MS;
 
+function cachePaymentQr(invoice, qrPayload = {}) {
+  const qr = {
+    qr_image: typeof qrPayload.qr_image === 'string' ? qrPayload.qr_image : null,
+    qr_raw: typeof qrPayload.qr_raw === 'string' ? qrPayload.qr_raw : null,
+  };
+  setCache(`payment-qr:${invoice}`, qr, QR_EXPIRY_MS);
+  return qr;
+}
+
+function attachPaymentQr(payment) {
+  if (!payment || payment.status !== 'pending') return payment;
+  const qr = getCache(`payment-qr:${payment.invoice}`);
+  return qr ? { ...payment, ...qr } : payment;
+}
+
+function clearPaymentQr(invoice) {
+  deleteCache(`payment-qr:${invoice}`);
+}
+
 function normalizePaymentStatus(payload) {
   const value = String(
     payload?.pay_status ??
@@ -147,15 +166,8 @@ async function resolveSettlementAmounts({ product, user, qty, paymentAmount, pay
 function publishPaymentLifecycle(userId, invoice, orderInvoice) {
   const events = [
     ['payment_updated', { scope: 'payment', entity: 'payment', id: invoice }],
-    ['payment.updated', { scope: 'payment', entity: 'payment', id: invoice }],
     ['order_updated', { scope: 'order', entity: 'order', id: orderInvoice }],
-    ['order.updated', { scope: 'order', entity: 'order', id: orderInvoice }],
-    ['transaction.updated', { scope: 'transaction', entity: 'transaction', id: orderInvoice }],
     ['wallet_updated', { scope: 'wallet', entity: 'saldo', id: orderInvoice }],
-    ['wallet.updated', { scope: 'wallet', entity: 'saldo', id: orderInvoice }],
-    ['finance.updated', { scope: 'finance', entity: 'ledger', id: orderInvoice }],
-    ['profit.updated', { scope: 'profit', entity: 'income', id: orderInvoice }],
-    ['analytics.updated', { scope: 'analytics', entity: 'summary', id: orderInvoice }],
     ['dashboard.updated', { scope: 'dashboard', entity: 'summary', id: orderInvoice }],
     ['bot.updated', { scope: 'bot', entity: 'payment', id: invoice }],
   ];
@@ -324,7 +336,7 @@ export async function createDirectOrderPayment(user, payload) {
     expired_at: resolveExpiredAt(payment),
   });
   publishUserRefresh(user.id, 'payment_updated', { scope: 'payment', entity: 'payment', id: created.invoice });
-  return { ...created, product_name: product.name };
+  return { ...created, ...cachePaymentQr(created.invoice, { qr_image: qrImage, qr_raw: qrRaw }), product_name: product.name };
 }
 
 async function getUserProductPricing(user, productId, qty = 1) {
@@ -424,6 +436,7 @@ export async function createBotOrderPayment(user, payload) {
   publishUserRefresh(user.id, 'payment_updated', { scope: 'payment', entity: 'payment', id: created.invoice });
   return {
     ...created,
+    ...cachePaymentQr(created.invoice, { qr_image: qrImage, qr_raw: qrRaw }),
     product_name: product.name,
     role_price: rolePrice,
     bot_markup: botMarkup,
@@ -528,13 +541,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
             throw error;
           }
         } else {
-          external = {
-            status: 'processing',
-            message: error instanceof Error ? error.message : 'Provider order delayed after payment success',
-            order_id: orderInvoice,
-            payment_invoice: invoice,
-            delayed_settlement: true,
-          };
+          throw error;
         }
       }
       orderInvoice = resolvePremkuOrderInvoice(external, orderInvoice);
@@ -558,6 +565,12 @@ async function processSuccessfulPayment(invoice, statusResponse) {
       }
       if (!manualStock) {
         accounts = extractAccounts(external);
+      }
+      if (orderStatus === 'failed' && !manualStock) {
+        const error = new Error(external?.message || external?.error || 'Provider order gagal setelah pembayaran sukses');
+        error.statusCode = 502;
+        error.code = 'PROVIDER_ORDER_FAILED_ROLLBACK';
+        throw error;
       }
     }
     const firstAccount = accounts[0] || {};
@@ -744,6 +757,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
   });
 
   if (result.changed) {
+    clearPaymentQr(invoice);
     clearPaymentLifecycleCache(invoice, result.orderInvoice, result.userId);
     publishPaymentLifecycle(result.userId, invoice, result.orderInvoice);
     if (result.order?.product_id) publishStockChanged(result.order.product_id);
@@ -788,10 +802,11 @@ export async function syncPaymentStatusFromWebhook(invoice, statusResponse = {})
     qr_raw: ['failed', 'expired', 'canceled'].includes(nextStatus) ? null : payment.qr_raw,
   });
   if (updated?.user_id) {
+    if (['failed', 'expired', 'canceled'].includes(nextStatus)) clearPaymentQr(invoice);
     clearPaymentLifecycleCache(invoice, updated.order_invoice, updated.user_id);
     publishPaymentLifecycle(updated.user_id, invoice, updated.order_invoice);
   }
-  return updated;
+  return attachPaymentQr(updated);
 }
 
 function orderResponseFromRow(order) {
@@ -1018,9 +1033,10 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     await releaseReservedManualAccount(payment.reserved_manual_account_id);
   }
   const updated = await updatePayment(invoice, { status: nextStatus, status_response: statusResponse });
+  if (['failed', 'expired', 'canceled'].includes(nextStatus)) clearPaymentQr(invoice);
   if (updated?.user_id) publishUserRefresh(updated.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
   setCache(`payment-status:${invoice}`, updated, nextStatus === 'pending' ? PAY_STATUS_CACHE_MS : 5000);
-  return updated;
+  return attachPaymentQr(updated);
 }
 
 export async function cancelDirectPayment(invoice, user) {
@@ -1050,6 +1066,7 @@ export async function cancelDirectPayment(invoice, user) {
   logger('PAYMENT', { invoice, user_id: user.id, status: 'canceled' });
   if (payment.reserved_manual_account_id) await releaseReservedManualAccount(payment.reserved_manual_account_id);
   const updated = await updatePayment(invoice, { status: 'canceled', status_response: response, canceled_at: toMysqlDate() });
+  clearPaymentQr(invoice);
   if (updated?.user_id) publishUserRefresh(updated.user_id, 'payment_updated', { scope: 'payment', entity: 'payment', id: invoice });
   return updated;
 }

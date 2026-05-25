@@ -1,64 +1,63 @@
-# Premiumin Pluus Public Deploy Checklist
+# Premiumin Plus Public Deploy Checklist
 
 ## DNS
 
-- `domainkamu.com` points to Vercel.
-- `api.domainkamu.com` points to the VPS public IP.
-- `bot.domainkamu.com` points to the VPS public IP if direct bot websocket is enabled.
+- `premiuminplus.store` points to Vercel with `A @ 76.76.21.21`.
+- `www.premiuminplus.store` points to `cname.vercel-dns.com`.
+- `api.premiuminplus.store` points to the Railway backend custom domain target.
+- `bot.premiuminplus.store` points to the Railway bot custom domain target.
 
-## Vercel
+## Vercel Frontend
 
 - Build command: `npm run build`
 - Output directory: `dist`
 - Env:
 
 ```env
-VITE_API_BASE_URL=https://api.domainkamu.com/api
+VITE_API_BASE_URL=https://api.premiuminplus.store
 VITE_BOT_ENGINE_URL=
 ```
 
-Use `VITE_BOT_ENGINE_URL=https://bot.domainkamu.com` only when bot-engine is intentionally exposed through Nginx + SSL.
+Use `VITE_BOT_ENGINE_URL=https://bot.premiuminplus.store` only when direct bot realtime access is intentionally public.
 
-## VPS
+## Railway Backend
 
-```bash
-npm ci
-npm run build
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup
-```
+- Start command: `npm run backend`
+- Env template: `deploy/railway-backend.env.example`
+- Health check: `https://api.premiuminplus.store/health`
+- WebSocket check: `wss://api.premiuminplus.store/realtime`
 
-Manual equivalent:
+## Railway Bot Engine
 
-```bash
-pm2 start backend/server.js --name premiumin-api
-pm2 start bot-engine/server.js --name premiumin-bot
-pm2 save
-pm2 startup
-```
+- Start command: `npm run bot`
+- Env template: `deploy/railway-bot.env.example`
+- Health check: `https://bot.premiuminplus.store/health`
+- Session storage must use a persistent volume if the bot must survive service restarts.
 
-## Nginx + SSL
+## MongoDB Atlas
 
-```bash
-sudo cp deploy/nginx-premiumin-plus.conf /etc/nginx/sites-available/premiumin-plus
-sudo ln -s /etc/nginx/sites-available/premiumin-plus /etc/nginx/sites-enabled/premiumin-plus
-sudo nginx -t
-sudo systemctl reload nginx
-sudo certbot --nginx -d api.domainkamu.com -d bot.domainkamu.com
-sudo systemctl status certbot.timer
-```
+- `MONGODB_URI` is set only in Railway backend.
+- TTL indexes are created by backend startup and cleanup scheduler.
+- QR base64 is not persisted after payment close.
+- Backup command: `npm run backup:db`
+- Restore command: `npm run restore:db -- ./backups/<backup-folder>`
 
 ## Runtime Checks
 
-- `https://domainkamu.com` opens the Vercel frontend.
-- `https://api.domainkamu.com/health` returns backend health.
-- `https://bot.domainkamu.com/health` returns bot-engine health if exposed.
-- `pm2 status` shows `premiumin-api` and `premiumin-bot` online.
-- Login/register works.
-- Admin dashboard loads without CORS error.
-- QRIS create/check works.
-- Bot connect shows QR and stays connected after frontend tab closes.
-- Realtime saldo/order updates work.
-- No mixed-content errors in browser console.
+- Register and login work.
+- Dashboard opens without CORS errors.
+- Backend realtime emits wallet/order/stock/dashboard updates.
+- QRIS payment opens, closes on success, and cannot be processed twice.
+- Hybrid stock uses manual stock first and provider fallback second.
+- Manual stock sale decrements stock realtime.
+- Provider failure rolls back the local DB transaction.
+- Bot login QR appears.
+- Bot `stok` follows selected template theme.
+- Bot `buy 1` sends QRIS, removes QR after success, sends processing, then account.
+- Deposits, withdraws, wallet sync, and profit sync work.
 
+## Failover
+
+- New Railway service can reuse the same MongoDB Atlas URI and env values.
+- Move custom domains from old Railway services to the new services.
+- Keep database persistent; do not create a new database for app runtime failover.

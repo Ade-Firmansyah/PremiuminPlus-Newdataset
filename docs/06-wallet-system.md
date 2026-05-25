@@ -64,8 +64,7 @@ Every balance mutation must store:
 
 ## Atomicity
 
-- Balance changes use MySQL transaction.
-- User rows are locked with `SELECT ... FOR UPDATE`.
+- Balance changes use backend repository atomicity. SQL compatibility paths use transactions and `SELECT ... FOR UPDATE`; MongoDB foundation paths use indexed user/wallet documents and idempotent references.
 - Mutations are idempotent by reference/idempotency key.
 - Backend is the only writer for balance changes.
 

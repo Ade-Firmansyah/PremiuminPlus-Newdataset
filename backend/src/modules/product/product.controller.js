@@ -41,7 +41,11 @@ export async function getProducts(_req, res) {
     return res.json(cached);
   }
 
-  const products = await listProducts({ visibleOnly: true });
+  const products = await listProducts({
+    visibleOnly: true,
+    limit: Math.min(Math.max(Number(_req.query.limit || 50), 1), 100),
+    page: Math.max(Number(_req.query.page || 1), 1),
+  });
 
   const response = {
     status: true,

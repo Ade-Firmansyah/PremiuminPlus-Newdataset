@@ -15,9 +15,11 @@ function toNotification(row) {
   };
 }
 
+const NOTIFICATION_COLUMNS = 'id, title, message, type, is_active, is_pinned, target_role, created_by, created_at';
+
 export async function listNotificationsForRole(role) {
   const rows = await query(
-    `SELECT *
+    `SELECT ${NOTIFICATION_COLUMNS}
      FROM notifications
      WHERE is_active = 1 AND (target_role = 'all' OR target_role = ?)
      ORDER BY is_pinned DESC, id DESC
@@ -28,7 +30,7 @@ export async function listNotificationsForRole(role) {
 }
 
 export async function listNotifications() {
-  const rows = await query('SELECT * FROM notifications ORDER BY is_pinned DESC, id DESC LIMIT 100');
+  const rows = await query(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications ORDER BY is_pinned DESC, id DESC LIMIT 100`);
   return rows.map(toNotification);
 }
 
@@ -47,12 +49,12 @@ export async function createNotification(payload) {
     ],
   );
 
-  const rows = await query('SELECT * FROM notifications WHERE id = ? LIMIT 1', [result.insertId]);
+  const rows = await query(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications WHERE id = ? LIMIT 1`, [result.insertId]);
   return toNotification(rows[0] || null);
 }
 
 export async function updateNotification(id, payload = {}) {
-  const currentRows = await query('SELECT * FROM notifications WHERE id = ? LIMIT 1', [Number(id)]);
+  const currentRows = await query(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications WHERE id = ? LIMIT 1`, [Number(id)]);
   const current = currentRows[0];
   if (!current) return null;
 
@@ -71,12 +73,12 @@ export async function updateNotification(id, payload = {}) {
     ],
   );
 
-  const rows = await query('SELECT * FROM notifications WHERE id = ? LIMIT 1', [Number(id)]);
+  const rows = await query(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications WHERE id = ? LIMIT 1`, [Number(id)]);
   return toNotification(rows[0] || null);
 }
 
 export async function deleteNotification(id) {
-  const rows = await query('SELECT * FROM notifications WHERE id = ? LIMIT 1', [Number(id)]);
+  const rows = await query(`SELECT ${NOTIFICATION_COLUMNS} FROM notifications WHERE id = ? LIMIT 1`, [Number(id)]);
   const current = rows[0];
   if (!current) return null;
   await execute('DELETE FROM notifications WHERE id = ?', [Number(id)]);

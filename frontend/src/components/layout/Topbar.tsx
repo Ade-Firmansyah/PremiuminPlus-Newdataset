@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatCurrency } from '../../utils/format';
 import { premiuminApi, type NotificationRecord } from '../../services/api';
 import { getApiKey } from '../../store/useAuth';
+import { subscribeCoreRealtime } from '../../services/coreRealtime';
 
 // Komponen ini menjadi navbar atas untuk pencarian ringan, identitas user, dan logout cepat.
 interface TopbarProps {
@@ -38,7 +39,7 @@ export function Topbar({ title, subtitle, username, role, saldo, onMenuClick }: 
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClock(new Date()), 1000);
+    const timer = window.setInterval(() => setClock(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -47,6 +48,7 @@ export function Topbar({ title, subtitle, username, role, saldo, onMenuClick }: 
     if (!apiKey) return;
 
     let active = true;
+    let debounceTimer = 0;
     const loadNotifications = async () => {
       try {
         const response = await premiuminApi.notifications(apiKey);
@@ -60,10 +62,15 @@ export function Topbar({ title, subtitle, username, role, saldo, onMenuClick }: 
     };
 
     void loadNotifications();
-    const timer = window.setInterval(loadNotifications, 30000);
+    const unsubscribe = subscribeCoreRealtime((payload) => {
+      if (!['notification', 'dashboard'].includes(String(payload.scope || ''))) return;
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(loadNotifications, 1200);
+    });
     return () => {
       active = false;
-      window.clearInterval(timer);
+      window.clearTimeout(debounceTimer);
+      unsubscribe();
     };
   }, []);
 

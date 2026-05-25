@@ -10,7 +10,7 @@
 - Security headers.
 - JSON body limit.
 - Rate limit per IP/path.
-- Parameterized MySQL queries.
+- Parameterized SQL compatibility queries and indexed MongoDB access through Mongoose/native driver.
 - Webhook secret validation.
 - Finance row locking.
 - Duplicate protection through invoice, `processed_at`, and idempotency keys.
@@ -20,7 +20,7 @@
 
 - `NODE_ENV=production`
 - long random `JWT_SECRET`
-- database credentials
+- `MONGODB_URI` stored only in deployment environment variables
 - Premku API key
 - frontend origin
 

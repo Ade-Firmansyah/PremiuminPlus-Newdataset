@@ -27,7 +27,11 @@ function normalizeRow(row, fallback = {}) {
 }
 
 export async function findBotTemplateByUserId(userId, fallback = {}) {
-  const rows = await query('SELECT * FROM bot_template_settings WHERE user_id = ? LIMIT 1', [Number(userId)]);
+  const rows = await query(
+    `SELECT id, user_id, active_theme, store_name, opening_hour, closing_hour, admin_whatsapp, footer_text, created_at, updated_at
+     FROM bot_template_settings WHERE user_id = ? LIMIT 1`,
+    [Number(userId)],
+  );
   return normalizeRow(rows[0] || null, { ...fallback, user_id: Number(userId) });
 }
 
@@ -57,7 +61,11 @@ export async function upsertBotTemplate(userId, payload = {}) {
   );
 
   const id = result.insertId || userId;
-  const rows = await query('SELECT * FROM bot_template_settings WHERE user_id = ? OR id = ? LIMIT 1', [Number(userId), Number(id)]);
+  const rows = await query(
+    `SELECT id, user_id, active_theme, store_name, opening_hour, closing_hour, admin_whatsapp, footer_text, created_at, updated_at
+     FROM bot_template_settings WHERE user_id = ? OR id = ? LIMIT 1`,
+    [Number(userId), Number(id)],
+  );
   return normalizeRow(rows[0] || null, { ...data, user_id: Number(userId) });
 }
 

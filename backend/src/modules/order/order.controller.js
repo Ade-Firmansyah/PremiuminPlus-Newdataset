@@ -48,7 +48,9 @@ export async function orderStatus(req, res) {
 }
 
 export async function myOrders(req, res) {
-  const data = await listTransactionsByUser(req.user.id);
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 100);
+  const page = Math.max(Number(req.query.page || 1), 1);
+  const data = await listTransactionsByUser(req.user.id, { limit, page });
   res.json({ status: true, data });
 }
 

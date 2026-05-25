@@ -93,9 +93,11 @@ Every balance mutation must write:
 - idempotency key.
 - description.
 
-Important tables:
+Important MongoDB collections / compatibility tables:
 
 - `users`: identity, role, saldo_utama, saldo, bot status.
+- `wallets`: compact wallet balance document.
+- `wallet_mutations`: permanent wallet audit.
 - `saldo_logs`: readable finance log.
 - `saldo_mutations`: canonical audit mutation.
 - `transactions`: product order transaction records.

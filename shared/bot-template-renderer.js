@@ -69,7 +69,7 @@ function productsSplit(products = []) {
 }
 
 function productPrice(item = {}) {
-  return item.price_sell ?? item.final_bot_price ?? item.final_price ?? item.price ?? item.amount ?? 0;
+  return item.final_bot_price ?? item.final_price ?? item.price_sell ?? item.price ?? item.amount ?? 0;
 }
 
 function productCode(item = {}) {
@@ -107,7 +107,7 @@ function stockRowsTheme1(products = []) {
   if (available.length) {
     lines.push(
       ...available.flatMap((item) => [
-        `📦 *${upper(item.name)}*`,
+        `📦 ${upper(item.name)}`,
         `┣ 💰 Harga : ${formatCurrency(productPrice(item))}`,
         `┣ 📊 Stock : ${Number(item.stock || 0)} AKUN`,
         `╰ 🔑 BUY : buy ${productCode(item)}`,
@@ -130,8 +130,8 @@ function stockRowsBox(products = [], availableTitle = '✅ AVAILABLE STOCK', emp
     lines.push(
       ...available.flatMap((item) => [
         `📦 ${upper(item.name)}`,
-        `┣ 💰 ${formatCurrency(productPrice(item))}`,
-        `┣ 📊 ${Number(item.stock || 0)} AKUN READY`,
+        `┣ 💰 Harga : ${formatCurrency(productPrice(item))}`,
+        `┣ 📊 Stock : ${Number(item.stock || 0)} AKUN`,
         `╰ 🔑 BUY : buy ${productCode(item)}`,
         '',
         '════════════════════',
@@ -379,7 +379,13 @@ const renderers = {
       const lines = [`┌─ Katalog ${settings.store_name}`, '│'];
       if (available.length) {
         available.forEach((item) => {
-          lines.push(`│ ${upper(item.name)}`, `│ Harga ${formatCurrency(productPrice(item))}`, `│ Stock ${Number(item.stock || 0)} akun`, `│ buy ${productCode(item)}`, '│');
+          lines.push(
+            `📦 ${upper(item.name)}`,
+            `┣ 💰 Harga : ${formatCurrency(productPrice(item))}`,
+            `┣ 📊 Stock : ${Number(item.stock || 0)} AKUN`,
+            `╰ 🔑 BUY : buy ${productCode(item)}`,
+            '│',
+          );
         });
       } else {
         lines.push('│ Belum ada stock ready.', '│');

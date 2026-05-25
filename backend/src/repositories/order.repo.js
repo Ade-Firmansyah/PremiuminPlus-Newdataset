@@ -71,12 +71,26 @@ export async function upsertOrderRecord(payload) {
 }
 
 export async function findOrderByInvoice(invoice) {
-  const rows = await query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [invoice]);
+  const rows = await query(
+    `SELECT id, user_id, role, invoice, payment_invoice, product_id, product_name, email_account, password_account,
+            payment_status, order_status, target_whatsapp, delivery_status, delivery_time, total_price,
+            raw_response, created_at, updated_at
+     FROM orders WHERE invoice = ? LIMIT 1`,
+    [invoice],
+  );
   return toOrder(rows[0] || null);
 }
 
-export async function listOrdersByUser(userId) {
-  const rows = await query('SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC', [Number(userId)]);
+export async function listOrdersByUser(userId, { limit = 50, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 100);
+  const offset = (Math.max(Number(page || 1), 1) - 1) * safeLimit;
+  const rows = await query(
+    `SELECT id, user_id, role, invoice, payment_invoice, product_id, product_name, email_account, password_account,
+            payment_status, order_status, target_whatsapp, delivery_status, delivery_time, total_price,
+            NULL AS raw_response, created_at, updated_at
+     FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [Number(userId), safeLimit, offset],
+  );
   return rows.map(toOrder);
 }
 

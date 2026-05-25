@@ -2,7 +2,7 @@
 
 Updated: 2026-05-13
 
-Premiumin Pluus adalah platform SaaS produk digital untuk admin, reseller, dan member. Sistem memakai React, Express, MySQL, dan integrasi Premku. Backend adalah source of truth untuk user, saldo, pricing, QRIS, order, mutasi saldo, riwayat produk, dan bot WhatsApp.
+Premiumin Pluus adalah platform SaaS produk digital untuk admin, reseller, dan member. Sistem V4 memakai React, Express, MongoDB Atlas foundation, dan integrasi Premku. Backend adalah source of truth untuk user, saldo, pricing, QRIS, order, mutasi saldo, riwayat produk, dan bot WhatsApp.
 
 ## Goals
 
@@ -22,11 +22,11 @@ Premiumin Pluus adalah platform SaaS produk digital untuk admin, reseller, dan m
 ## Stack
 
 - Frontend: React, TypeScript, Tailwind, Vite.
-- Backend: Express.js, MySQL, JWT/API key auth, repository layer, service layer.
+- Backend: Express.js, MongoDB Atlas via Mongoose foundation, JWT/API key auth, repository layer, service layer.
 - Bot Engine: Node.js, Baileys, isolated session manager, WebSocket realtime QR/status.
 - Provider: Premku via backend-only service.
 - Realtime: core backend websocket untuk finance/order events, bot-engine websocket untuk QR/session status.
-- Database: MySQL InnoDB dengan runtime migration/validation.
+- Database: MongoDB Atlas sebagai cloud target; SQL compatibility schema tetap tersedia selama fase transisi.
 
 ## Core Rules
 

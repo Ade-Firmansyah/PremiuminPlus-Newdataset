@@ -7,7 +7,11 @@ import { touchWebSession } from './web-session.service.js';
 const clientsByUser = new Map();
 const adminClients = new Set();
 const pendingEmits = new Map();
+const recentPayloads = new Map();
 let wsServer = null;
+let heartbeatTimer = null;
+const HEARTBEAT_MS = 30_000;
+const RECENT_EVENT_TTL_MS = 2_000;
 
 function send(socket, payload) {
   if (socket.readyState === 1) {
@@ -19,7 +23,12 @@ function send(socket, payload) {
 
 function addToBucket(bucket, socket) {
   bucket.add(socket);
+  socket.isAlive = true;
+  socket.on('pong', () => {
+    socket.isAlive = true;
+  });
   socket.on('close', () => bucket.delete(socket));
+  socket.on('error', () => bucket.delete(socket));
 }
 
 async function findRealtimeUser({ token, apiKey }) {
@@ -83,6 +92,26 @@ export function initRealtime(server) {
     }
   });
 
+  heartbeatTimer = setInterval(() => {
+    for (const bucket of clientsByUser.values()) {
+      for (const socket of bucket) {
+        if (socket.isAlive === false) {
+          bucket.delete(socket);
+          socket.terminate();
+          continue;
+        }
+        socket.isAlive = false;
+        socket.ping?.();
+      }
+    }
+    cleanBucket(adminClients);
+    for (const [userId, bucket] of clientsByUser.entries()) {
+      cleanBucket(bucket);
+      if (!bucket.size) clientsByUser.delete(userId);
+    }
+  }, HEARTBEAT_MS);
+  heartbeatTimer.unref?.();
+
   return wsServer;
 }
 
@@ -99,6 +128,10 @@ function emitToBucket(bucket, payload) {
 }
 
 function scheduleEmit(key, fn) {
+  const now = Date.now();
+  const recent = recentPayloads.get(key);
+  if (recent && now - recent < RECENT_EVENT_TTL_MS) return;
+  recentPayloads.set(key, now);
   const existing = pendingEmits.get(key);
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
@@ -131,11 +164,17 @@ export function publishRealtimeEvent(event = {}) {
 
 export function publishUserRefresh(userId, type, extra = {}) {
   publishRealtimeEvent({ ...extra, userId, type, admin: true });
+  if (typeof type === 'string' && type.endsWith('_updated')) {
+    publishRealtimeEvent({ ...extra, userId, type: type.replace(/_updated$/, '.updated'), admin: true });
+  }
 }
 
 export function closeRealtime() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
   for (const timer of pendingEmits.values()) clearTimeout(timer);
   pendingEmits.clear();
+  recentPayloads.clear();
   for (const bucket of clientsByUser.values()) {
     for (const socket of bucket) socket.close(1001, 'server_shutdown');
   }

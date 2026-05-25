@@ -9,8 +9,8 @@ function toDeposit(row) {
     amount: Number(row.amount || 0),
     total_bayar: Number(row.total_bayar || 0),
     status: row.status,
-    qr_data: row.qr_data || null,
-    qr_image: row.qr_image || null,
+    qr_data: null,
+    qr_image: null,
     external_response: parseDbJson(row.external_response, null),
     external_status_response: parseDbJson(row.external_status_response, null),
     processed_at: row.processed_at || null,
@@ -22,7 +22,12 @@ function toDeposit(row) {
 }
 
 async function getDepositRow(invoice) {
-  const rows = await query('SELECT * FROM deposits WHERE invoice = ? LIMIT 1', [invoice]);
+  const rows = await query(
+    `SELECT id, user_id, invoice, amount, total_bayar, status, qr_data, qr_image, external_response,
+            external_status_response, processed_at, expired_at, canceled_at, created_at, updated_at
+     FROM deposits WHERE invoice = ? LIMIT 1`,
+    [invoice],
+  );
   return rows[0] || null;
 }
 
@@ -37,8 +42,8 @@ export async function createDeposit(payload) {
       Number(payload.amount || 0),
       Number(payload.total_bayar || payload.amount || 0),
       payload.status || 'pending',
-      payload.qr_data || null,
-      payload.qr_image || null,
+      null,
+      null,
       JSON.stringify(payload.external_response ?? null),
       payload.expired_at || null,
     ],
@@ -47,13 +52,33 @@ export async function createDeposit(payload) {
   return findDepositByInvoice(payload.invoice);
 }
 
-export async function listDeposits() {
-  const rows = await query('SELECT * FROM deposits ORDER BY id DESC');
+function normalizePagination({ limit = 50, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 100);
+  const safePage = Math.max(Number(page || 1), 1);
+  return { limit: safeLimit, offset: (safePage - 1) * safeLimit };
+}
+
+export async function listDeposits(options = {}) {
+  const { limit, offset } = normalizePagination(options);
+  const rows = await query(
+    `SELECT id, user_id, invoice, amount, total_bayar, status, NULL AS qr_data, NULL AS qr_image,
+            NULL AS external_response, NULL AS external_status_response, processed_at, expired_at,
+            canceled_at, created_at, updated_at
+     FROM deposits ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [limit, offset],
+  );
   return rows.map(toDeposit);
 }
 
-export async function listDepositsByUser(userId) {
-  const rows = await query('SELECT * FROM deposits WHERE user_id = ? ORDER BY id DESC', [Number(userId)]);
+export async function listDepositsByUser(userId, options = {}) {
+  const { limit, offset } = normalizePagination(options);
+  const rows = await query(
+    `SELECT id, user_id, invoice, amount, total_bayar, status, NULL AS qr_data, NULL AS qr_image,
+            NULL AS external_response, NULL AS external_status_response, processed_at, expired_at,
+            canceled_at, created_at, updated_at
+     FROM deposits WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [Number(userId), limit, offset],
+  );
   return rows.map(toDeposit);
 }
 
@@ -68,12 +93,10 @@ export async function updateDeposit(invoice, payload) {
 
   await execute(
     `UPDATE deposits
-     SET status = ?, qr_data = ?, qr_image = ?, external_response = ?, external_status_response = ?, processed_at = ?, expired_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
+     SET status = ?, qr_data = NULL, qr_image = NULL, external_response = ?, external_status_response = ?, processed_at = ?, expired_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
      WHERE invoice = ? AND processed_at IS NULL AND status <> 'success'`,
     [
       payload.status || current.status,
-      payload.qr_data !== undefined ? payload.qr_data : current.qr_data,
-      payload.qr_image !== undefined ? payload.qr_image : current.qr_image,
       JSON.stringify(payload.external_response ?? parseDbJson(current.external_response, null)),
       JSON.stringify(payload.external_status_response ?? parseDbJson(current.external_status_response, null)),
       payload.processed_at || current.processed_at || null,

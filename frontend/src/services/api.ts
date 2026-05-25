@@ -9,12 +9,14 @@ function resolveApiBaseUrl() {
       if (configuredIsLocal && !browserIsLocal) {
         url.hostname = browserHost;
         url.protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        url.pathname = normalizeApiPath(url.pathname);
         return url.toString().replace(/\/+$/, '');
       }
+      url.pathname = normalizeApiPath(url.pathname);
+      return url.toString().replace(/\/+$/, '');
     } catch {
       return configured.replace(/\/+$/, '');
     }
-    return configured.replace(/\/+$/, '');
   }
 
   if (typeof window === 'undefined') return 'http://localhost:4000/api';
@@ -24,6 +26,13 @@ function resolveApiBaseUrl() {
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
   const hostname = window.location.hostname || 'localhost';
   return `${protocol}//${hostname}:4000/api`;
+}
+
+function normalizeApiPath(pathname: string) {
+  const path = String(pathname || '/').replace(/\/+$/, '');
+  if (!path || path === '/') return '/api';
+  if (path.endsWith('/api')) return path;
+  return `${path}/api`;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

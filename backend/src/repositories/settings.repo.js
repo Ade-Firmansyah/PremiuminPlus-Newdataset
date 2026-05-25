@@ -18,7 +18,10 @@ function parseSettingValue(value) {
 }
 
 async function getSettingRow(key) {
-  const rows = await query('SELECT * FROM settings WHERE setting_key = ? OR `key` = ? ORDER BY id DESC LIMIT 1', [key, key]);
+  const rows = await query(
+    'SELECT id, setting_key, `key`, setting_value, value, updated_at FROM settings WHERE setting_key = ? OR `key` = ? ORDER BY id DESC LIMIT 1',
+    [key, key],
+  );
   return rows[0] || null;
 }
 

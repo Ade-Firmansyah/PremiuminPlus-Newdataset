@@ -10,8 +10,8 @@ function toPayment(row) {
     total_bayar: Number(row.total_bayar || row.amount || 0),
     payment_type: row.payment_type || 'direct_order',
     status: row.status,
-    qr_image: row.qr_image || null,
-    qr_raw: row.qr_raw || null,
+    qr_image: null,
+    qr_raw: null,
     product_id: row.product_id || null,
     qty: Number(row.qty || 1),
     target_whatsapp: row.target_whatsapp || null,
@@ -42,8 +42,8 @@ export async function createPayment(payload) {
       Number(payload.total_bayar || payload.amount || 0),
       payload.payment_type || 'direct_order',
       payload.status || 'pending',
-      payload.qr_image || null,
-      payload.qr_raw || null,
+      null,
+      null,
       payload.product_id || null,
       Number(payload.qty || 1),
       payload.target_whatsapp || null,
@@ -59,7 +59,13 @@ export async function createPayment(payload) {
 }
 
 export async function findPaymentByInvoice(invoice) {
-  const rows = await query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
+  const rows = await query(
+    `SELECT id, user_id, invoice, amount, total_bayar, payment_type, status, qr_image, qr_raw, product_id, qty,
+            target_whatsapp, role_price, bot_markup, final_price, order_invoice, reserved_manual_account_id,
+            raw_response, status_response, processed_at, expired_at, canceled_at, created_at, updated_at
+     FROM payments WHERE invoice = ? LIMIT 1`,
+    [invoice],
+  );
   return toPayment(rows[0] || null);
 }
 
@@ -69,12 +75,10 @@ export async function updatePayment(invoice, payload = {}) {
 
   await execute(
     `UPDATE payments
-     SET status = ?, qr_image = ?, qr_raw = ?, status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, expired_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
+     SET status = ?, qr_image = NULL, qr_raw = NULL, status_response = CAST(? AS JSON), order_invoice = ?, processed_at = ?, expired_at = ?, canceled_at = ?, updated_at = CURRENT_TIMESTAMP
      WHERE invoice = ?`,
     [
       payload.status || current.status,
-      payload.qr_image !== undefined ? payload.qr_image : current.qr_image,
-      payload.qr_raw !== undefined ? payload.qr_raw : current.qr_raw,
       JSON.stringify(payload.status_response ?? current.status_response ?? null),
       payload.order_invoice ?? current.order_invoice ?? null,
       payload.processed_at ?? current.processed_at ?? null,

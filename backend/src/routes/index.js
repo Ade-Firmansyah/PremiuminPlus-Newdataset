@@ -90,7 +90,6 @@ router.get('/deposit/:invoice', auth, depositStatus);
 router.post('/withdraw', auth, withdraw);
 router.get('/withdraws', auth, myWithdraws);
 router.get('/saldo', auth, saldo);
-router.get('/saldo-logs', auth, saldoLogs);
 router.get('/saldo/logs', auth, saldoLogs);
 router.get('/notifications', auth, myNotifications);
 router.get('/bot-settings', auth, myBotSettings);
@@ -119,8 +118,6 @@ router.post('/admin/products', auth, adminOnly, adminCreateProduct);
 router.patch('/admin/products/:id', auth, adminOnly, adminUpdateProduct);
 router.post('/admin/products/:id/stock', auth, adminOnly, adminAddManualStock);
 router.delete('/admin/products/:id', auth, adminOnly, adminDeleteProduct);
-router.get('/users', auth, adminOnly, users);
-router.get('/transactions/all', auth, adminOnly, transactions);
 router.get('/admin/deposits', auth, adminOnly, deposits);
 router.get('/admin/withdraws', auth, adminOnly, withdraws);
 router.patch('/admin/withdraws/:id/approve', auth, adminOnly, approveWithdraw);
@@ -135,8 +132,6 @@ router.patch('/admin/notifications/:id', auth, adminOnly, updateAdminNotificatio
 router.delete('/admin/notifications/:id', auth, adminOnly, deleteAdminNotification);
 router.get('/admin/premku-key', auth, adminOnly, getPremkuKey);
 router.patch('/admin/premku-key', auth, adminOnly, updatePremkuKey);
-router.get('/admin/settings', auth, adminOnly, getPremkuKey);
-router.patch('/admin/settings', auth, adminOnly, updatePremkuKey);
 router.get('/admin/bot-settings', auth, adminOnly, botSettings);
 router.patch('/admin/bot-settings', auth, adminOnly, updateBotSettings);
 
@@ -164,7 +159,6 @@ router.get('/docs', (_req, res) => {
       'POST /api/withdraw',
       'GET /api/withdraws',
       'GET /api/saldo',
-      'GET /api/saldo-logs',
       'GET /api/saldo/logs',
       'GET /api/notifications',
       'GET /api/bot/profile',

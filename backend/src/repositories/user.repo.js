@@ -124,14 +124,25 @@ export async function findUserByApiKey(apiKey) {
   return toAuthUser(rows[0] || null);
 }
 
-export async function listUsers() {
-  const rows = await query('SELECT * FROM users ORDER BY id DESC');
-  return Promise.all(
-    rows.map(async (row) => {
-      const counters = await seedUserCounters(row.id);
-      return toPublicUser({ ...row, ...counters });
-    }),
+export async function listUsers({ limit = 50, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 100);
+  const offset = (Math.max(Number(page || 1), 1) - 1) * safeLimit;
+  const rows = await query(
+    `SELECT
+       u.id, u.username, u.email, u.phone, u.api_key, u.saldo_utama, u.saldo, u.locked_balance,
+       u.bot_enabled, u.bot_role, u.bot_session_status, u.markup_custom, u.markup_percent,
+       u.theme, u.fullName, u.notes, u.role, u.status, u.last_login_at,
+       COUNT(DISTINCT t.id) AS orders,
+       COUNT(DISTINCT d.id) AS deposits
+     FROM users u
+     LEFT JOIN transactions t ON t.user_id = u.id
+     LEFT JOIN deposits d ON d.user_id = u.id
+     GROUP BY u.id
+     ORDER BY u.id DESC
+     LIMIT ? OFFSET ?`,
+    [safeLimit, offset],
   );
+  return rows.map(toPublicUser);
 }
 
 export async function getUserById(id) {

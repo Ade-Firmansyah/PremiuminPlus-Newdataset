@@ -1,8 +1,14 @@
 const cache = new Map();
+const MAX_CACHE_ENTRIES = Number(process.env.MEMORY_CACHE_MAX_ENTRIES || 500);
 
 function pruneExpired(now = Date.now()) {
   for (const [key, entry] of cache.entries()) {
     if (entry.expiresAt <= now) cache.delete(key);
+  }
+  while (cache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
   }
 }
 

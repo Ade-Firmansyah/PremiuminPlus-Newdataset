@@ -2,7 +2,7 @@
 
 Note: this is a historical v3.2 requirement snapshot. For the current project rules, use `docs/11-current-project-prd.md` and `docs/01-prd.md`.
 
-Premiumin Pluus v3.2 adalah SaaS produk digital berbasis React, Express, MySQL, JWT, dan integrasi Premku melalui backend-only provider service.
+Premiumin Pluus v3.2 adalah snapshot historis. Premiumin Plus V4 menargetkan React/Vercel, Express/Railway, MongoDB Atlas foundation, JWT, dan integrasi Premku melalui backend-only provider service.
 
 ## Requirement Utama
 
@@ -43,7 +43,7 @@ WebSocket push dan Redis adalah opsi scaling masa depan, bukan dependency runtim
 
 - Backend deployable ke Railway.
 - Frontend deployable ke Vercel/static hosting.
-- MySQL managed database.
+- MongoDB Atlas untuk cloud foundation; schema SQL lama masih menjadi compatibility layer selama transisi.
 - `NODE_ENV=production` wajib memiliki env valid.
 - `JWT_SECRET` wajib panjang dan random.
 - `CORS_ORIGIN` wajib mengarah ke frontend production.

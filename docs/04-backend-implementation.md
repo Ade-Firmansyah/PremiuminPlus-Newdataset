@@ -4,12 +4,13 @@
 
 1. Load `.env`.
 2. Validate production env when `NODE_ENV=production`.
-3. Ensure database exists.
-4. Create/repair schema.
-5. Seed admin when configured.
-6. Start maintenance scheduler.
-7. Start provider sync scheduler.
+3. Connect MongoDB via Mongoose.
+4. Ping MongoDB and ensure collections/indexes.
+5. Create/repair compatibility schema.
+6. Seed admin when configured.
+7. Initialize websocket.
 8. Start Express API.
+9. Start maintenance, cleanup, and provider sync schedulers.
 
 If the port is already used, backend exits with a clear `EADDRINUSE` message.
 
@@ -81,5 +82,6 @@ Withdraw:
 - Backend start command: `npm run backend`.
 - Frontend build command: `npm run build`.
 - Typecheck command: `npm run lint`.
-- MySQL must be reachable before backend starts.
+- MongoDB Atlas must be reachable before backend starts.
+- Compatibility SQL database must be reachable while SQL repositories are still active.
 

@@ -15,6 +15,7 @@ export class SessionManager {
   constructor({ broadcast }) {
     this.broadcast = broadcast;
     this.sessions = new Map();
+    this.reconnectTimers = new Map();
     this.cleanupTimer = null;
     this.cleanupRunning = false;
   }
@@ -25,6 +26,11 @@ export class SessionManager {
 
   async connect({ userId, apiKey, resetRetries = 0 }) {
     const sessionId = String(userId);
+    const pendingReconnect = this.reconnectTimers.get(sessionId);
+    if (pendingReconnect) {
+      clearTimeout(pendingReconnect);
+      this.reconnectTimers.delete(sessionId);
+    }
     const existing = this.sessions.get(sessionId);
     if (existing?.sock) return this.snapshot(sessionId);
     await this.pruneSessionFiles(sessionId).catch(() => {});
@@ -36,7 +42,7 @@ export class SessionManager {
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const latest = await fetchLatestBaileysVersion().catch(() => null);
     const backoff = new ReconnectBackoff();
-    const queue = new MessageQueue();
+    const queue = new MessageQueue({ maxSize: config.messageQueue.maxSize, recentTtlMs: config.messageQueue.recentTtlMs });
     const paymentLocks = new Map();
 
     const sock = makeWASocket({
@@ -50,7 +56,7 @@ export class SessionManager {
     });
 
     const handler = new MessageHandler({ sessionId, sock, api, paymentLocks });
-    const session = { sessionId, apiKey, api, sock, queue, backoff, paymentLocks, handler, status: 'connecting', qr: '', resetRetries };
+    const session = { sessionId, apiKey, api, sock, queue, backoff, paymentLocks, handler, status: 'connecting', qr: '', qrImage: '', resetRetries };
     this.sessions.set(sessionId, session);
 
     sock.ev.on('creds.update', saveCreds);
@@ -73,11 +79,13 @@ export class SessionManager {
       session.status = 'qr';
       await session.api.sessionStatus('qr').catch(() => {});
       const qr_image = await QRCode.toDataURL(update.qr).catch(() => '');
+      session.qrImage = qr_image;
       this.broadcast(sessionId, { type: 'qr', qr: update.qr, qr_image });
     }
     if (update.connection === 'open') {
       session.status = 'connected';
       session.qr = '';
+      session.qrImage = '';
       session.backoff.reset();
       await session.api.sessionStatus('connected').catch(() => {});
       this.broadcast(sessionId, { type: 'status', status: 'connected' });
@@ -90,13 +98,17 @@ export class SessionManager {
       const apiKey = session.apiKey;
       await this.cleanup(sessionId, loggedOut ? 'logged_out' : 'disconnected');
       if (retryFreshSession) {
-        setTimeout(() => this.connect({ userId: sessionId, apiKey, resetRetries: session.resetRetries + 1 }).catch(() => {}), 750).unref();
+        const timer = setTimeout(() => this.connect({ userId: sessionId, apiKey, resetRetries: session.resetRetries + 1 }).catch(() => {}), 750);
+        timer.unref?.();
+        this.reconnectTimers.set(String(sessionId), timer);
         return;
       }
       if (!loggedOut) {
         const delay = session.backoff.nextDelay();
         if (delay !== null) {
-          setTimeout(() => this.connect({ userId: sessionId, apiKey: session.apiKey }).catch(() => {}), delay).unref();
+          const timer = setTimeout(() => this.connect({ userId: sessionId, apiKey: session.apiKey }).catch(() => {}), delay);
+          timer.unref?.();
+          this.reconnectTimers.set(String(sessionId), timer);
         } else {
           await session.api.sessionStatus('error').catch(() => {});
         }
@@ -111,9 +123,18 @@ export class SessionManager {
   }
 
   async cleanup(sessionId, status = 'disconnected') {
+    const pendingReconnect = this.reconnectTimers.get(String(sessionId));
+    if (pendingReconnect) {
+      clearTimeout(pendingReconnect);
+      this.reconnectTimers.delete(String(sessionId));
+    }
     const session = this.sessions.get(String(sessionId));
     if (!session) return;
-    for (const lock of session.paymentLocks.values()) clearInterval(lock?.timer || lock);
+    for (const lock of session.paymentLocks.values()) {
+      if (lock?.timer) clearInterval(lock.timer);
+      if (lock?.firstTimer) clearTimeout(lock.firstTimer);
+      if (!lock?.timer && !lock?.firstTimer) clearInterval(lock);
+    }
     session.paymentLocks.clear();
     session.queue.clear();
     session.sock.ev.removeAllListeners('connection.update');
@@ -148,6 +169,8 @@ export class SessionManager {
 
   async shutdownAll(status = 'disconnected') {
     this.stopSessionPruner();
+    for (const timer of this.reconnectTimers.values()) clearTimeout(timer);
+    this.reconnectTimers.clear();
     const ids = Array.from(this.sessions.keys());
     await Promise.allSettled(ids.map((sessionId) => this.cleanup(sessionId, status)));
   }
@@ -221,6 +244,7 @@ export class SessionManager {
       status: session?.status || 'disconnected',
       hasSocket: Boolean(session?.sock),
       qr: session?.qr || '',
+      qr_image: session?.qrImage || '',
     };
   }
 }

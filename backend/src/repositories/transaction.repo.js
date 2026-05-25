@@ -67,6 +67,14 @@ const ORDER_HISTORY_WHERE = `
   AND LOWER(COALESCE(channel, '')) NOT IN ('deposit', 'qris', 'payment')
 `;
 
+const TRANSACTION_LIST_COLUMNS = `
+  id, invoice, ref_id, user_id, product_id, transaction_type, amount, product_name, qty, price_base, price_sell,
+  total_price, profit, provider_price, user_markup, admin_markup, final_price, reseller_profit, platform_profit,
+  gross_amount, provider_cost, user_profit, admin_profit, final_amount, payment_amount, net_amount, role_price,
+  bot_markup, bot_markup_profit, gross_income, net_profit, status, account_data, refund_at, processed_at,
+  product_image, description, channel, idempotency_key, created_at, updated_at
+`;
+
 async function getTransactionRow(invoice) {
   const rows = await query('SELECT * FROM transactions WHERE invoice = ? LIMIT 1', [invoice]);
   return rows[0] || null;
@@ -121,17 +129,26 @@ export async function createTransaction(payload) {
   return findTransactionByInvoice(payload.invoice);
 }
 
-export async function listTransactions() {
+function normalizePagination({ limit = 50, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 100);
+  const safePage = Math.max(Number(page || 1), 1);
+  return { limit: safeLimit, offset: (safePage - 1) * safeLimit };
+}
+
+export async function listTransactions(options = {}) {
+  const { limit, offset } = normalizePagination(options);
   const rows = await query(
-    `SELECT * FROM transactions WHERE ${ORDER_HISTORY_WHERE} ORDER BY id DESC`,
+    `SELECT ${TRANSACTION_LIST_COLUMNS} FROM transactions WHERE ${ORDER_HISTORY_WHERE} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [limit, offset],
   );
   return rows.map(toTransaction);
 }
 
-export async function listTransactionsByUser(userId) {
+export async function listTransactionsByUser(userId, options = {}) {
+  const { limit, offset } = normalizePagination(options);
   const rows = await query(
-    `SELECT * FROM transactions WHERE user_id = ? AND ${ORDER_HISTORY_WHERE} ORDER BY id DESC`,
-    [Number(userId)],
+    `SELECT ${TRANSACTION_LIST_COLUMNS} FROM transactions WHERE user_id = ? AND ${ORDER_HISTORY_WHERE} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [Number(userId), limit, offset],
   );
   return rows.map(toTransaction);
 }

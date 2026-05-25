@@ -187,23 +187,11 @@ async function markExpiredInvoices() {
 }
 
 /**
- * Cleanup data history/log yang sudah melewati retention period (default 7 hari).
- * HANYA menghapus data audit/history, bukan master data:
- * - webhook_logs: API webhook payloads (non-critical)
- * - activity_logs: System/automation logs (non-critical)
- * - saldo_logs/saldo_mutations: Mutasi saldo lama
- * - transactions/orders: Riwayat pesanan lama
- * - deposits/payments: Riwayat deposit/payment lama
- * 
- * TIDAK menghapus data critical:
- * - users: User profiles + saldo + apikey
- * - withdraws: Withdraw history
- * - products + stock manual
- * - settings/pricing/provider config
+ * Cleanup hanya untuk data sementara/non-critical.
+ * Ledger dan riwayat transaksi permanen tidak boleh dihapus otomatis.
  */
 async function cleanupTemporaryLogs(retentionDays) {
   try {
-    // 1. Hapus webhook logs yang sudah expired
     const webhookDeleted = await execute(
       'DELETE FROM webhook_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)',
       [retentionDays],
@@ -215,8 +203,6 @@ async function cleanupTemporaryLogs(retentionDays) {
       retention_days: retentionDays,
     });
 
-    // 2. Hapus activity logs yang non-critical dan sudah expired
-    // JANGAN hapus logs dengan scope SECURITY, USER_AUTH (untuk audit trail penting)
     const activityDeleted = await execute(
       `DELETE FROM activity_logs
        WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
@@ -230,48 +216,20 @@ async function cleanupTemporaryLogs(retentionDays) {
       retention_days: retentionDays,
     });
 
-    // 3. Hapus saldo logs/mutasi yang sudah expired.
-    const saldoDeleted = await execute(
-      `DELETE FROM saldo_logs
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
+    await execute(
+      `UPDATE deposits
+       SET qr_data = NULL, qr_image = NULL
+       WHERE status IN ('success', 'expired', 'failed', 'canceled')
+         AND (qr_data IS NOT NULL OR qr_image IS NOT NULL)`,
     );
-    const mutationsDeleted = await execute(
-      `DELETE FROM saldo_mutations
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    logger('SYSTEM', {
-      task: 'maintenance',
-      type: 'saldo_cleanup',
-      saldo_logs_deleted: saldoDeleted?.affectedRows || 0,
-      saldo_mutations_deleted: mutationsDeleted?.affectedRows || 0,
-      retention_days: retentionDays,
-    });
-
-    // 4. Hapus history pembayaran/deposit/order lama.
-    const ordersDeleted = await execute(
-      `DELETE FROM orders
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    const transactionsDeleted = await execute(
-      `DELETE FROM transactions
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    const paymentsDeleted = await execute(
-      `DELETE FROM payments
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
-    );
-    const depositsDeleted = await execute(
-      `DELETE FROM deposits
-       WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [retentionDays],
+    await execute(
+      `UPDATE payments
+       SET qr_image = NULL, qr_raw = NULL
+       WHERE status IN ('success', 'expired', 'failed', 'canceled')
+         AND (qr_image IS NOT NULL OR qr_raw IS NOT NULL)`,
     );
 
-    const optimizedTables = ['webhook_logs', 'activity_logs', 'saldo_logs', 'saldo_mutations', 'orders', 'transactions', 'payments', 'deposits'];
+    const optimizedTables = ['webhook_logs', 'activity_logs'];
     for (const table of optimizedTables) {
       await execute(`OPTIMIZE TABLE ${table}`);
     }
@@ -280,12 +238,7 @@ async function cleanupTemporaryLogs(retentionDays) {
       success: true,
       webhook_logs_deleted: webhookDeleted?.affectedRows || 0,
       activity_logs_deleted: activityDeleted?.affectedRows || 0,
-      saldo_logs_deleted: saldoDeleted?.affectedRows || 0,
-      saldo_mutations_deleted: mutationsDeleted?.affectedRows || 0,
-      orders_deleted: ordersDeleted?.affectedRows || 0,
-      transactions_deleted: transactionsDeleted?.affectedRows || 0,
-      payments_deleted: paymentsDeleted?.affectedRows || 0,
-      deposits_deleted: depositsDeleted?.affectedRows || 0,
+      permanent_tables_deleted: 0,
       optimized_tables: optimizedTables,
     };
   } catch (error) {

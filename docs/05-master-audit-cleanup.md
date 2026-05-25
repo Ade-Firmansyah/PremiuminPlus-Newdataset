@@ -81,7 +81,7 @@ bot-engine/
 
 - `backend/src/modules/order/order.service.js` menangkap error Premku lalu melakukan refund, tetapi tidak melempar ulang error ke caller. Ini membuat UI bisa menerima transaksi berstatus failed tanpa pesan kegagalan yang kuat.
 - `locked_balance` bot rule masih bersifat dokumen/target; schema runtime saat ini belum punya kolom dan enforcement usable balance.
-- Cache layer masih lightweight dan belum ada Redis-backed cache aktif meskipun `backend/src/config/redis.js` tersedia.
+- Cache layer tetap in-memory lightweight; stub Redis/queue/worker lama sudah dihapus agar tidak membentuk fake cache layer.
 - Bundle frontend masih besar di satu chunk; build lolos, tetapi Vite memberi warning chunk di atas 500 kB.
 
 ## Verifikasi

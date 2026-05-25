@@ -3,7 +3,7 @@ import env from './src/config/env.js';
 import http from 'node:http';
 import { validateProductionEnv } from './src/config/validate-env.js';
 import { closePool, ensureInitialized } from './src/config/db.js';
-import { connectMongo, closeMongo } from './src/config/mongo.js';
+import { closeDatabase, connectDatabase } from './src/config/database.js';
 import { startMaintenanceScheduler, stopMaintenanceScheduler } from './src/workers/maintenance.scheduler.js';
 import { startCleanupScheduler, stopCleanupScheduler } from './src/workers/cleanup.scheduler.js';
 import { startProviderSyncScheduler, stopProviderSyncScheduler } from './src/workers/provider-sync.scheduler.js';
@@ -11,7 +11,7 @@ import { closeRealtime, initRealtime } from './src/services/realtime.service.js'
 
 validateProductionEnv();
 try {
-  await connectMongo();
+  await connectDatabase();
   if (env.VERBOSE_SYSTEM_LOGS) console.log('[MONGO] Connected to MongoDB');
 } catch (err) {
   console.error('[MONGO] Connection error', err);
@@ -37,7 +37,7 @@ if (globalThis[globalKey]) {
     server.close(async () => {
       try {
         stopCleanupScheduler();
-        await closeMongo();
+        await closeDatabase();
         await closePool();
       } finally {
         delete globalThis[globalKey];
@@ -66,4 +66,3 @@ if (globalThis[globalKey]) {
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
-

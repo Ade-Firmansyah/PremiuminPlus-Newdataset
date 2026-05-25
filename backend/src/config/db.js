@@ -626,6 +626,8 @@ async function ensureSchema(connection) {
 
 async function ensurePerformanceIndexes(connection) {
   const indexes = [
+    ['users', 'idx_users_username_lookup', 'CREATE INDEX idx_users_username_lookup ON users (username)'],
+    ['users', 'idx_users_email_lookup', 'CREATE INDEX idx_users_email_lookup ON users (email)'],
     ['deposits', 'idx_deposits_invoice_status', 'CREATE INDEX idx_deposits_invoice_status ON deposits (invoice, status)'],
     ['deposits', 'idx_deposits_expired_at', 'CREATE INDEX idx_deposits_expired_at ON deposits (status, expired_at)'],
     ['payments', 'idx_payments_invoice_status', 'CREATE INDEX idx_payments_invoice_status ON payments (invoice, status)'],
@@ -636,6 +638,8 @@ async function ensurePerformanceIndexes(connection) {
     ['produk_stock_manual', 'idx_manual_stock_product_status', 'CREATE INDEX idx_manual_stock_product_status ON produk_stock_manual (product_id, status)'],
     ['produk_stock_manual', 'idx_manual_stock_product_id_status', 'CREATE INDEX idx_manual_stock_product_id_status ON produk_stock_manual (product_id, status)'],
     ['product_credentials', 'idx_product_credentials_product_status', 'CREATE INDEX idx_product_credentials_product_status ON product_credentials (product_id, status)'],
+    ['products', 'idx_products_slug_lookup', 'CREATE INDEX idx_products_slug_lookup ON products (slug)'],
+    ['products', 'idx_products_code_lookup', 'CREATE INDEX idx_products_code_lookup ON products (code)'],
     ['products', 'idx_products_source_visible', 'CREATE INDEX idx_products_source_visible ON products (product_source, is_visible, status)'],
     ['bot_template_settings', 'idx_bot_template_settings_theme', 'CREATE INDEX idx_bot_template_settings_theme ON bot_template_settings (active_theme)'],
     ['activity_logs', 'idx_activity_logs_retention', 'CREATE INDEX idx_activity_logs_retention ON activity_logs (scope, created_at)'],
@@ -954,7 +958,16 @@ async function ensureCanonicalSchema(connection) {
        ELSE provider_stock + manual_stock
      END`,
   );
-  await connection.query('UPDATE deposits SET qr_raw = qr_data WHERE qr_raw IS NULL AND qr_data IS NOT NULL');
+  await connection.query(
+    `UPDATE deposits
+     SET qr_raw = NULL, qr_data = NULL, qr_image = NULL
+     WHERE status IN ('success', 'expired', 'failed', 'canceled')`,
+  );
+  await connection.query(
+    `UPDATE payments
+     SET qr_raw = NULL, qr_image = NULL
+     WHERE status IN ('success', 'expired', 'failed', 'canceled')`,
+  );
   await connection.query('UPDATE settings SET `key` = setting_key WHERE `key` IS NULL AND setting_key IS NOT NULL');
   await connection.query('UPDATE settings SET value = setting_value WHERE value IS NULL AND setting_value IS NOT NULL');
   await connection.query('UPDATE activity_logs SET user_id = actor_id WHERE user_id IS NULL AND actor_id IS NOT NULL');

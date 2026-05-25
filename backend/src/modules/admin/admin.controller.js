@@ -64,8 +64,15 @@ function sanitizeAdminUserPayload(source = {}) {
   return payload;
 }
 
-export async function users(_req, res) {
-  res.json({ status: true, data: await listUsers() });
+function pageOptions(req, fallbackLimit = 50) {
+  return {
+    limit: Math.min(Math.max(Number(req.query.limit || fallbackLimit), 1), 100),
+    page: Math.max(Number(req.query.page || 1), 1),
+  };
+}
+
+export async function users(req, res) {
+  res.json({ status: true, data: await listUsers(pageOptions(req)) });
 }
 
 export async function adminSummary(_req, res) {
@@ -263,8 +270,8 @@ export async function deleteAdminUser(req, res) {
   }
 }
 
-export async function transactions(_req, res) {
-  res.json({ status: true, data: await listTransactions() });
+export async function transactions(req, res) {
+  res.json({ status: true, data: await listTransactions(pageOptions(req)) });
 }
 
 export async function activityLogs(req, res) {
@@ -275,8 +282,8 @@ export async function activityLogs(req, res) {
   res.json({ status: true, data });
 }
 
-export async function deposits(_req, res) {
-  res.json({ status: true, data: await listDeposits() });
+export async function deposits(req, res) {
+  res.json({ status: true, data: await listDeposits(pageOptions(req)) });
 }
 
 export async function withdraws(_req, res) {

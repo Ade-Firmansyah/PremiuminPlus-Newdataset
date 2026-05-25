@@ -5,6 +5,7 @@ import { PageHero, NeonCard } from './dashboardPageKit';
 import { formatCurrency } from '../utils/format';
 import { getApiKey } from '../store/useAuth';
 import { premiuminApi, type AppRole, type DirectPaymentRecord, type ProductRecord } from '../services/api';
+import { startAdaptivePolling } from '../services/adaptivePolling';
 
 const PAYMENT_STATUS_POLL_MS = 25000;
 
@@ -112,14 +113,16 @@ export default function Order() {
   };
 
   const checkDirectPayment = async (invoice = directPayment?.invoice) => {
-    if (!invoice || checkingPayment) return;
+    if (!invoice || checkingPayment) return null;
     setCheckingPayment(true);
     setError('');
     try {
       const response = await premiuminApi.directPaymentStatus(invoice, apiKey || undefined);
       await applyDirectPaymentResult(response.data);
+      return response.data;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal mengecek status pembayaran.');
+      return null;
     } finally {
       setCheckingPayment(false);
     }
@@ -127,9 +130,13 @@ export default function Order() {
 
   useEffect(() => {
     if (!directPayment || directPayment.status !== 'pending') return;
-    const timer = window.setInterval(() => void checkDirectPayment(directPayment.invoice), PAYMENT_STATUS_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [directPayment?.invoice, directPayment?.status]);
+    return startAdaptivePolling({
+      task: () => checkDirectPayment(directPayment.invoice),
+      shouldContinue: (payment) => !payment || payment.status === 'pending',
+      activeMs: PAYMENT_STATUS_POLL_MS,
+      idleMs: 45000,
+    });
+  }, [directPayment?.invoice, directPayment?.status, apiKey]);
 
   const startDirectPayment = async () => {
     if (!selectedProduct) return;

@@ -47,7 +47,16 @@ export async function getUserBotSettings(user) {
     saldo_sufficient: _savedSaldoSufficient,
     ...saved
   } = savedRaw && typeof savedRaw === 'object' ? savedRaw : {};
-  const state = getBotBalanceState(user);
+  let state = getBotBalanceState(user);
+  const desiredEnabled = Boolean(saved.enabled ?? user.bot_enabled);
+  if (desiredEnabled && !state.saldo_sufficient) {
+    await updateUser(user.id, { bot_enabled: false, locked_balance: 0, bot_session_status: 'disconnected' });
+    await setSetting(`bot_settings:user:${user.id}`, { ...saved, enabled: false });
+    publishUserRefresh(user.id, 'bot.updated', { scope: 'bot', entity: 'safety_lock' });
+    saved.enabled = false;
+    user = { ...user, bot_enabled: false, locked_balance: 0, bot_session_status: 'disconnected' };
+    state = getBotBalanceState(user);
+  }
   const template = await getBotTemplateSettings(user, saved);
   const enabled = Boolean((saved.enabled ?? user.bot_enabled) && state.lock_satisfied && state.saldo_sufficient);
   const botLocked = !state.saldo_sufficient;
@@ -126,7 +135,7 @@ export async function getBotCatalog(user) {
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
-  const products = await listProducts();
+  const products = await listProducts({ visibleOnly: true, limit: 200 });
   const markup = await getMarkupSetting();
 
   const catalog = products

@@ -1,10 +1,9 @@
-import { getDb, startSession } from '../config/mongo.js';
-import { getDb as getSqlDb } from '../config/db.js';
+import { getDatabase, startDatabaseSession } from '../config/database.js';
 
-const users = () => getDb().collection('users');
-const saldoLogs = () => getDb().collection('saldo_logs');
-const saldoMutations = () => getDb().collection('saldo_mutations');
-const activityLogs = () => getDb().collection('activity_logs');
+const users = () => getDatabase().collection('users');
+const saldoLogs = () => getDatabase().collection('saldo_logs');
+const saldoMutations = () => getDatabase().collection('saldo_mutations');
+const activityLogs = () => getDatabase().collection('activity_logs');
 
 function toPublicUser(doc) {
   if (!doc) return null;
@@ -18,7 +17,7 @@ function toPublicUser(doc) {
 }
 
 export async function changeSaldo(userId, amount, reference, type, notes = '', mutationType = null) {
-  const session = startSession();
+  const session = startDatabaseSession();
   try {
     session.startTransaction();
     const ucol = users();
@@ -57,7 +56,7 @@ export async function changeSaldo(userId, amount, reference, type, notes = '', m
 }
 
 export async function setSaldo(userId, nextSaldo, reference = 'admin-adjustment') {
-  const session = startSession();
+  const session = startDatabaseSession();
   try {
     session.startTransaction();
     const ucol = users();
@@ -88,7 +87,7 @@ export async function setSaldo(userId, nextSaldo, reference = 'admin-adjustment'
 }
 
 export async function setBotBalanceLock(userId, wantsEnabled) {
-  const session = startSession();
+  const session = startDatabaseSession();
   try {
     session.startTransaction();
     const ucol = users();

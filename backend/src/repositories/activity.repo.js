@@ -38,6 +38,10 @@ export async function safeCreateActivityLog(payload) {
 }
 
 export async function listActivityLogs(limit = 50) {
-  const rows = await query('SELECT * FROM activity_logs ORDER BY id DESC LIMIT ?', [Number(limit)]);
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 200);
+  const rows = await query(
+    'SELECT id, actor_id, user_id, scope, message, activity, ip_address, metadata, created_at FROM activity_logs ORDER BY id DESC LIMIT ?',
+    [safeLimit],
+  );
   return rows.map(toActivity);
 }

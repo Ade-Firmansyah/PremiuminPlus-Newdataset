@@ -31,6 +31,7 @@ import { ApiKeyCard } from '../components/ApiKeyCard';
 import { premiuminApi, type DashboardSummaryRecord, type DepositRecord, type OrderRecord } from '../services/api';
 import { getApiKey } from '../store/useAuth';
 import { subscribeCoreRealtime } from '../services/coreRealtime';
+import { startAdaptivePolling } from '../services/adaptivePolling';
 import { formatCurrency, formatNumber, getGreeting } from '../utils/format';
 import cardArt from '../asset/logo-upscale.png';
 
@@ -445,7 +446,10 @@ function DepositTopup() {
     if (!depositResult?.invoice || !modalOpen) return;
 
     let active = true;
-    const timer = window.setInterval(async () => {
+    const stopPolling = startAdaptivePolling({
+      activeMs: PAYMENT_STATUS_POLL_MS,
+      idleMs: 45000,
+      task: async () => {
       if (!active) return;
       try {
         const response = await premiuminApi.depositStatus(depositResult.invoice, apiKey || undefined);
@@ -456,16 +460,19 @@ function DepositTopup() {
           window.dispatchEvent(new Event('premiuminplus:balance-updated'));
           void loadDepositHistory();
           active = false;
-          window.clearInterval(timer);
         }
+        return response.data;
       } catch {
         // Manual check will surface errors; polling stays quiet to keep the modal calm.
+        return null;
       }
-    }, PAYMENT_STATUS_POLL_MS);
+      },
+      shouldContinue: (deposit) => active && (!deposit || deposit.status === 'pending'),
+    });
 
     return () => {
       active = false;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [depositResult?.invoice, modalOpen, apiKey, loadDepositHistory]);
 

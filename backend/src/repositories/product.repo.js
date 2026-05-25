@@ -161,8 +161,19 @@ function normalizeProductPayload(payload = {}, current = {}) {
   };
 }
 
-export async function listProducts({ visibleOnly = false } = {}) {
-  const rows = await query(`SELECT * FROM products ${visibleOnly ? 'WHERE is_visible = 1' : ''} ORDER BY id ASC`);
+export async function listProducts({ visibleOnly = false, limit = 50, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 200);
+  const offset = (Math.max(Number(page || 1), 1) - 1) * safeLimit;
+  const rows = await query(
+    `SELECT id, premku_id, name, code, slug, note, description, tag, image, image_url, product_type, product_source,
+            stock_mode, provider, provider_status, price_base, base_price, price_sell, member_price, reseller_price,
+            admin_margin, member_markup, reseller_markup, stock, provider_stock, manual_stock, is_bot_enabled,
+            is_visible, status
+     FROM products ${visibleOnly ? 'WHERE is_visible = 1' : ''}
+     ORDER BY id ASC
+     LIMIT ? OFFSET ?`,
+    [safeLimit, offset],
+  );
   return rows.map(toProduct);
 }
 
@@ -241,7 +252,7 @@ export async function replaceProducts(nextProducts) {
     );
   }
 
-  return listProducts();
+  return listProducts({ limit: 200 });
 }
 
 export async function createProduct(payload) {

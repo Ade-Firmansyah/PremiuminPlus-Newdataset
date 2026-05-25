@@ -3,7 +3,7 @@ import { createActivityLog } from '../../repositories/activity.repo.js';
 import { premkuCancelPay, premkuPay, premkuPayStatus } from '../../services/premku.service.js';
 import { transaction, parseDbJson } from '../../config/db.js';
 import { logger } from '../../utils/logger.js';
-import { getCache, setCache } from '../../services/cache.service.js';
+import { deleteCache, getCache, setCache } from '../../services/cache.service.js';
 import { publishUserRefresh } from '../../services/realtime.service.js';
 import { getSaldoUtama } from '../../services/wallet.service.js';
 import { parseMysqlDate, toMysqlDate } from '../../utils/date.js';
@@ -11,6 +11,25 @@ import env from '../../config/env.js';
 
 const QR_EXPIRY_MS = 30 * 60 * 1000;
 const PAY_STATUS_CACHE_MS = env.PREMKU_PAY_STATUS_CACHE_MS;
+
+function cacheDepositQr(invoice, qrPayload = {}) {
+  const qr = {
+    qr_data: typeof qrPayload.qr_data === 'string' ? qrPayload.qr_data : null,
+    qr_image: typeof qrPayload.qr_image === 'string' ? qrPayload.qr_image : null,
+  };
+  setCache(`deposit-qr:${invoice}`, qr, QR_EXPIRY_MS);
+  return qr;
+}
+
+function attachDepositQr(deposit) {
+  if (!deposit || deposit.status !== 'pending') return deposit;
+  const qr = getCache(`deposit-qr:${deposit.invoice}`);
+  return qr ? { ...deposit, ...qr } : deposit;
+}
+
+function clearDepositQr(invoice) {
+  deleteCache(`deposit-qr:${invoice}`);
+}
 
 function resolveDepositStatusValue(payload) {
   if (typeof payload === 'string') return payload;
@@ -102,12 +121,15 @@ async function expireDeposit(invoice, externalResponse = {}) {
 
   const expired = await updateDeposit(invoice, {
     status: 'expired',
+    qr_data: null,
+    qr_image: null,
     external_status_response: {
       ...externalResponse,
       cancel_response: cancelResponse,
       message: externalResponse?.message || 'Invoice expired and canceled at Premku',
     },
   });
+  clearDepositQr(invoice);
   if (expired?.user_id) publishUserRefresh(expired.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
   return expired;
 }
@@ -167,7 +189,7 @@ export async function createDeposit(user, amount) {
     external_response: payment,
   });
   publishUserRefresh(user.id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: created.invoice });
-  return created;
+  return { ...created, ...cacheDepositQr(created.invoice, { qr_data: qrValue, qr_image: qrImageValue }) };
 }
 
 export async function applyDepositSuccess(invoice, externalResponse = {}) {
@@ -203,7 +225,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
 
     await connection.query(
       `UPDATE deposits
-       SET status = 'success', external_status_response = ?, processed_at = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'success', qr_data = NULL, qr_image = NULL, external_status_response = ?, processed_at = ?, updated_at = CURRENT_TIMESTAMP
        WHERE invoice = ? AND processed_at IS NULL AND status <> 'success'`,
       [JSON.stringify(externalResponse ?? parseDbJson(deposit.external_response, null)), processedAt, invoice],
     );
@@ -235,6 +257,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
   });
 
   if (result.changed) {
+    clearDepositQr(invoice);
     publishUserRefresh(result.userId, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
     publishUserRefresh(result.userId, 'wallet_updated', { scope: 'wallet', entity: 'saldo', id: invoice });
   }
@@ -259,6 +282,7 @@ export async function updateDepositStatus(invoice, status, externalResponse = {}
     });
   }
 
+  if (['expired', 'failed', 'canceled'].includes(normalizedStatus)) clearDepositQr(invoice);
   return updateDeposit(invoice, {
     status: normalizedStatus,
     external_status_response: externalResponse,
@@ -278,7 +302,7 @@ export async function refreshDepositStatus(invoice) {
   let statusResponse;
   try {
     const cached = getCache(`deposit-status:${invoice}`);
-    if (cached) return cached;
+    if (cached) return attachDepositQr(cached);
     statusResponse = await premkuPayStatus(invoice);
   } catch (error) {
     const updated = await updateDeposit(invoice, {
@@ -286,7 +310,7 @@ export async function refreshDepositStatus(invoice) {
     });
     const result = updated || (await findDepositByInvoice(invoice));
     if (result?.user_id) publishUserRefresh(result.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-    return result;
+    return attachDepositQr(result);
   }
 
   const nextStatus = normalizeDepositStatus(statusResponse);
@@ -308,12 +332,14 @@ export async function refreshDepositStatus(invoice) {
     });
     const response = pending || (await findDepositByInvoice(invoice));
     if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-    setCache(`deposit-status:${invoice}`, response, PAY_STATUS_CACHE_MS);
-    return response;
+    const withQr = attachDepositQr(response);
+    setCache(`deposit-status:${invoice}`, withQr, PAY_STATUS_CACHE_MS);
+    return withQr;
   }
 
   if (nextStatus === 'expired') {
     const expired = await expireDeposit(invoice, statusResponse);
+    clearDepositQr(invoice);
     setCache(`deposit-status:${invoice}`, expired, 5000);
     return expired;
   }
@@ -324,9 +350,10 @@ export async function refreshDepositStatus(invoice) {
       external_status_response: statusResponse,
     });
     const response = updated || (await findDepositByInvoice(invoice));
+    clearDepositQr(invoice);
     if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
     setCache(`deposit-status:${invoice}`, response, 5000);
-    return response;
+    return attachDepositQr(response);
   }
 
   if (locallyExpired || ['failed', 'expired'].includes(deposit.status)) {
@@ -341,8 +368,9 @@ export async function refreshDepositStatus(invoice) {
     });
     const response = restored || (await findDepositByInvoice(invoice));
     if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-    setCache(`deposit-status:${invoice}`, response, PAY_STATUS_CACHE_MS);
-    return response;
+    const withQr = attachDepositQr(response);
+    setCache(`deposit-status:${invoice}`, withQr, PAY_STATUS_CACHE_MS);
+    return withQr;
   }
 
   const updated = await updateDeposit(invoice, {
@@ -351,8 +379,9 @@ export async function refreshDepositStatus(invoice) {
   });
   const response = updated || (await findDepositByInvoice(invoice));
   if (response?.user_id) publishUserRefresh(response.user_id, 'deposit_updated', { scope: 'deposit', entity: 'deposit', id: invoice });
-  setCache(`deposit-status:${invoice}`, response, nextStatus === 'pending' ? PAY_STATUS_CACHE_MS : 5000);
-  return response;
+  const withQr = attachDepositQr(response);
+  setCache(`deposit-status:${invoice}`, withQr, nextStatus === 'pending' ? PAY_STATUS_CACHE_MS : 5000);
+  return withQr;
 }
 
 export async function listSyncedDepositsByUser(userId) {
@@ -407,6 +436,8 @@ export async function cancelDeposit(invoice, user) {
 
   const updated = await updateDeposit(invoice, {
     status: 'canceled',
+    qr_data: null,
+    qr_image: null,
     external_status_response: cancelResponse,
     canceled_at: toMysqlDate(),
   });

@@ -74,12 +74,22 @@ export async function createSaldoLog(payload) {
       payload.notes || null,
     ],
   );
-  const rows = await query('SELECT * FROM saldo_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1', [Number(payload.user_id)]);
+  const rows = await query(
+    `SELECT id, user_id, type, amount, balance_before, balance_after, reference, notes, created_at
+     FROM saldo_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1`,
+    [Number(payload.user_id)],
+  );
   return toLog(rows[0] || null);
 }
 
-export async function listSaldoLogs() {
-  const rows = await query('SELECT * FROM saldo_logs ORDER BY id DESC');
+export async function listSaldoLogs({ limit = 100, page = 1 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit || 100), 1), 200);
+  const offset = (Math.max(Number(page || 1), 1) - 1) * safeLimit;
+  const rows = await query(
+    `SELECT id, user_id, type, amount, balance_before, balance_after, reference, notes, created_at
+     FROM saldo_logs ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [safeLimit, offset],
+  );
   return rows.map(toLog);
 }
 
