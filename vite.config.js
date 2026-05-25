@@ -17,7 +17,13 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
+      host: '0.0.0.0',
+      allowedHosts: [
+        'premiuminplus.store',
+        'www.premiuminplus.store',
+        'api.premiuminplus.store',
+      ],
+      // HMR is disabled in Premiumin Plus via DISABLE_HMR env var.
       // Do not modify - file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
