@@ -4,11 +4,11 @@ export const BOT_TEMPLATE_THEMES = ['theme_1', 'theme_2', 'theme_3', 'theme_4', 
 
 export const DEFAULT_BOT_TEMPLATE = {
   active_theme: 'theme_1',
-  store_name: 'Premiumin Pluus',
+  store_name: 'Premiumin Plus',
   opening_hour: '08.00',
   closing_hour: '22.00',
   admin_whatsapp: '',
-  footer_text: 'Premiumin Pluus',
+  footer_text: 'Premiumin Plus',
 };
 
 function normalizeRow(row, fallback = {}) {

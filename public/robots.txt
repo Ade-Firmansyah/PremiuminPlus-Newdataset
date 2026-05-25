@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://premiumin.plus/sitemap.xml
+Sitemap: https://premiuminplus.store/sitemap.xml

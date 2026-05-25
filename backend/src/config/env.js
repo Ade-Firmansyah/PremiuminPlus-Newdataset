@@ -18,7 +18,7 @@ const env = {
   PREMKU_PAY_STATUS_CACHE_MS: envMs('PREMKU_PAY_STATUS_CACHE_MS', 25000, 5000),
   PREMKU_ORDER_STATUS_CACHE_MS: envMs('PREMKU_ORDER_STATUS_CACHE_MS', 30000, 10000),
   PREMKU_WEBHOOK_SECRET: process.env.PREMKU_WEBHOOK_SECRET || '',
-  JWT_SECRET: process.env.JWT_SECRET || process.env.SESSION_SECRET || 'premiumin-pluus-local-dev-secret',
+  JWT_SECRET: process.env.JWT_SECRET || process.env.SESSION_SECRET || 'premiumin-plus-local-dev-secret',
   MONGODB_URI: process.env.MONGODB_URI || process.env.MONGO_URI || '',
   MONGODB_DBNAME: process.env.MONGODB_DBNAME || process.env.MONGO_DBNAME || 'premiuminpluus',
   MONGO_SINGLE_SOURCE_OF_TRUTH: String(process.env.MONGO_SINGLE_SOURCE_OF_TRUTH || '').toLowerCase() === 'true',

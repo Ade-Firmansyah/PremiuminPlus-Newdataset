@@ -33,7 +33,7 @@ Tanggal audit: 2026-05-12
   - `backend-migration-check.log`
 - `bot-engine/` ditambahkan sebagai boundary transport WhatsApp terisolasi.
 - Maintenance scheduler ditambahkan di `backend/src/workers/maintenance.scheduler.js` dan dijalankan saat backend start.
-- Metadata package dinormalisasi menjadi `premiumin-pluus`.
+- Metadata package dinormalisasi menjadi `premiumin-plus`.
 
 ## Struktur Produksi Setelah Cleanup
 

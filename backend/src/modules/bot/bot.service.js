@@ -16,7 +16,7 @@ const DEFAULT_USER_BOT_SETTINGS = {
   allowed_group_lids: [],
   margin_setting: 0,
   greeting_template: '',
-  store_name: 'Premiumin Pluus',
+  store_name: 'Premiumin Plus',
   admin_whatsapp: '',
   open_hour: '08.00 - 22.00 WIB',
 };
@@ -165,7 +165,7 @@ export async function getBotCatalog(user) {
 export async function createBotPayment(user, payload = {}) {
   const settings = await getUserBotSettings(user);
   if (!settings.enabled || settings.bot_locked) {
-    const error = new Error('Saldo bot tidak mencukupi. Silahkan isi saldo Premiumin Pluus terlebih dahulu.');
+    const error = new Error('Saldo bot tidak mencukupi. Silahkan isi saldo Premiumin Plus terlebih dahulu.');
     error.statusCode = 403;
     throw error;
   }

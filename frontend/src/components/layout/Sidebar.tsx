@@ -128,11 +128,11 @@ export function Sidebar({ open, sections, onClose, username, role, saldo, onLogo
             <div className="flex items-center gap-3">
               <img
                 src={logoTransparent}
-                alt="Premiumin Pluus"
+                alt="Premiumin Plus"
                 className="h-12 w-12 rounded-2xl border border-brand/20 bg-brand/10 object-contain p-1 drop-shadow-[0_0_18px_rgba(255,46,136,.28)]"
               />
               <div>
-                <p className="truncate text-sm font-extrabold tracking-wide text-white">Premiumin Pluus</p>
+                <p className="truncate text-sm font-extrabold tracking-wide text-white">Premiumin Plus</p>
                 <p className="truncate text-[10px] uppercase tracking-[0.2em] text-brand-light/80">Enterprise panel</p>
               </div>
             </div>

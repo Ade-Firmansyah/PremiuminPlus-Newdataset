@@ -181,7 +181,7 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
 
   const usernameReady = mode === 'register' && username.length >= 4 && !registerErrors.username;
   const formTitle = mode === 'register' ? 'Buat Akun Baru' : 'Login ke Akun Anda';
-  const formSubtitle = mode === 'register' ? 'Daftar cepat untuk mulai berjualan produk digital.' : 'Masuk untuk mengakses dashboard Premiumin Pluus.';
+  const formSubtitle = mode === 'register' ? 'Daftar cepat untuk mulai berjualan produk digital.' : 'Masuk untuk mengakses dashboard Premiumin Plus.';
   const trustStars = useMemo(() => Array.from({ length: 5 }, (_, index) => index), []);
 
   const focusAuthForm = () => {
@@ -308,7 +308,7 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-[1500px] flex-col px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src={logoUpScale} alt="Premiumin Pluus" className="h-11 w-11 rounded-2xl object-contain drop-shadow-[0_0_18px_rgba(255,46,136,.38)]" />
+            <img src={logoUpScale} alt="Premiumin Plus" className="h-11 w-11 rounded-2xl object-contain drop-shadow-[0_0_18px_rgba(255,46,136,.38)]" />
             <div>
               <p className="text-base font-black uppercase tracking-[0.2em] text-white">Premiumin</p>
               <p className="text-xs font-black uppercase tracking-[0.42em] text-brand-light">+ Plus</p>
@@ -383,7 +383,7 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
             <div className="relative hidden min-h-[22rem] place-items-center xl:grid">
               <div className="absolute h-64 w-64 rounded-full border border-brand/20 bg-brand/10 blur-2xl" />
               <div className="pp-glass-strong pp-premium-border relative grid h-72 w-72 place-items-center rounded-[2.25rem]">
-                <img src={logoUpScale} alt="Premiumin Pluus" className="h-56 w-56 object-contain drop-shadow-[0_0_38px_rgba(255,46,136,.5)]" />
+                <img src={logoUpScale} alt="Premiumin Plus" className="h-56 w-56 object-contain drop-shadow-[0_0_38px_rgba(255,46,136,.5)]" />
               </div>
             </div>
           </div>
@@ -513,7 +513,7 @@ export function LoginPage({ onLogin, initialUsername }: LoginPageProps) {
 
                 {mode === 'register' ? (
                   <div className="rounded-2xl border border-emerald-400/18 bg-emerald-500/10 px-3.5 py-2.5 text-[11px] leading-5 text-emerald-100">
-                    Dengan mendaftar, Anda menyetujui Syarat & Ketentuan Premiumin Pluus.
+                    Dengan mendaftar, Anda menyetujui Syarat & Ketentuan Premiumin Plus.
                   </div>
                 ) : null}
 

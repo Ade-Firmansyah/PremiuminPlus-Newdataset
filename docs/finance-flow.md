@@ -2,7 +2,7 @@
 
 Updated: 2026-05-13
 
-Premiumin Pluus treats backend as the only finance authority.
+Premiumin Plus treats backend as the only finance authority.
 
 ## Balance Concepts
 

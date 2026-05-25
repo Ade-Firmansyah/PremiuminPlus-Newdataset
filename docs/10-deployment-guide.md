@@ -205,7 +205,7 @@ sudo systemctl status certbot.timer
 WhatsApp auth state must live on persistent disk:
 
 ```text
-BOT_SESSIONS_DIR=/var/lib/premiumin-pluus/bot-sessions
+BOT_SESSIONS_DIR=/var/lib/premiumin-plus/bot-sessions
 ```
 
 Default local path is also valid:

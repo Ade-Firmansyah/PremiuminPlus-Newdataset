@@ -217,7 +217,7 @@ Expected response:
 ```json
 {
   "status": true,
-  "service": "premiumin-pluus-backend"
+  "service": "premiumin-plus-backend"
 }
 ```
 

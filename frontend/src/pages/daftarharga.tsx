@@ -56,7 +56,7 @@ function ProductCard({ product }: { product: ProductRecord }) {
       </div>
 
       <h3 className="mt-5 line-clamp-2 min-h-[52px] text-[19px] font-black leading-tight tracking-tight text-white">{product.name}</h3>
-      <p className="mt-2 line-clamp-2 min-h-[40px] text-xs leading-5 text-white/42">{product.note || 'Produk digital aktif dari database Premiumin Pluus.'}</p>
+      <p className="mt-2 line-clamp-2 min-h-[40px] text-xs leading-5 text-white/42">{product.note || 'Produk digital aktif dari database Premiumin Plus.'}</p>
 
       <div className="mt-3 flex items-end gap-2">
         <p className="text-2xl font-black tracking-tight text-brand-light">{formatCurrency(product.price_sell)}</p>

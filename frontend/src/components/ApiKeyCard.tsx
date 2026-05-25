@@ -41,7 +41,7 @@ export function ApiKeyCard({ username, apiKey }: ApiKeyCardProps) {
       </div>
 
       <p className="mt-4 text-sm leading-6 text-white/58">
-        Gunakan kunci API ini untuk mengintegrasikan website atau bot WhatsApp Anda secara langsung ke sistem Premiumin Pluus.
+        Gunakan kunci API ini untuk mengintegrasikan website atau bot WhatsApp Anda secara langsung ke sistem Premiumin Plus.
       </p>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-[#0f0b15] px-3 py-3 sm:px-4">

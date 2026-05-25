@@ -1,4 +1,4 @@
--- Premiumin Pluus canonical MySQL schema reference.
+-- Premiumin Plus canonical MySQL schema reference.
 -- Runtime source of truth remains backend/src/config/db.js because it auto-validates and repairs schema on startup.
 
 CREATE TABLE IF NOT EXISTS users (

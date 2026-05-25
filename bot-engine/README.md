@@ -1,6 +1,6 @@
-# Premiumin Pluus Bot Engine
+# Premiumin Plus Bot Engine
 
-Isolated WhatsApp transport for Premiumin Pluus.
+Isolated WhatsApp transport for Premiumin Plus.
 
 - Uses Baileys Multi Device with `useMultiFileAuthState`.
 - Stores one session folder per user in `bot-engine/sessions/{userId}`.

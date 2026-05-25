@@ -50,7 +50,7 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '256kb' }));
 
-const globalKey = Symbol.for('premiumin-pluus.bot-engine.server');
+const globalKey = Symbol.for('premiumin-plus.bot-engine.server');
 if (globalThis[globalKey]) {
   console.warn('[bot-engine] server already started in this process; skipping duplicate listen.');
 }
@@ -58,7 +58,7 @@ if (globalThis[globalKey]) {
 const server = globalThis[globalKey] || http.createServer(app);
 globalThis[globalKey] = server;
 
-const wsKey = Symbol.for('premiumin-pluus.bot-engine.ws');
+const wsKey = Symbol.for('premiumin-plus.bot-engine.ws');
 const wsAlreadyStarted = Boolean(globalThis[wsKey]);
 const wsServer = globalThis[wsKey] || new WebSocketServer({ server, path: '/realtime' });
 globalThis[wsKey] = wsServer;
@@ -137,7 +137,7 @@ if (!wsAlreadyStarted) wsServer.on('connection', async (socket, request) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: true, service: 'premiumin-pluus-bot-engine' });
+  res.json({ status: true, service: 'premiumin-plus-bot-engine' });
 });
 
 app.post('/sessions/:userId/connect', async (req, res) => {

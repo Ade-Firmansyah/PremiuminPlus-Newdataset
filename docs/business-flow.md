@@ -1,10 +1,10 @@
-# Premiumin Pluus - Flow Bisnis Canonical
+# Premiumin Plus - Flow Bisnis Canonical
 
 Dokumen ini adalah ringkasan alur final project.
 
 ## Tujuan Sistem
 
-Premiumin Pluus menjual produk digital dari provider Premku melalui dashboard lokal. Sistem menjaga akun lokal, saldo lokal, transaksi, notifikasi, dan riwayat order. Premku hanya dipakai sebagai provider produk, pembayaran QRIS, order, dan status.
+Premiumin Plus menjual produk digital dari provider Premku melalui dashboard lokal. Sistem menjaga akun lokal, saldo lokal, transaksi, notifikasi, dan riwayat order. Premku hanya dipakai sebagai provider produk, pembayaran QRIS, order, dan status.
 
 ## Role
 

@@ -1,4 +1,4 @@
-# Premiumin Pluus v3.2 Architecture & API
+# Premiumin Plus v3.2 Architecture & API
 
 ## Architecture
 

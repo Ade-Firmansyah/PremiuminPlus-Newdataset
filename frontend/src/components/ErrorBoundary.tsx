@@ -27,7 +27,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBound
       return (
         <main className="grid min-h-screen place-items-center bg-slate-950 px-4 text-white">
           <section className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6 shadow-2xl">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-rose-300">Premiumin Pluus</p>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-rose-300">Premiumin Plus</p>
             <h1 className="mt-3 text-2xl font-black">Halaman gagal dimuat</h1>
             <p className="mt-3 text-sm leading-6 text-white/65">{this.state.message}</p>
             <button

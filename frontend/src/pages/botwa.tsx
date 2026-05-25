@@ -56,13 +56,13 @@ const fallback: BotSettingsRecord = {
   order_format: '',
   margin_setting: 0,
   greeting_template: '',
-  store_name: 'Premiumin Pluus',
+  store_name: 'Premiumin Plus',
   admin_whatsapp: '',
   open_hour: '08.00 - 22.00 WIB',
   active_theme: 'theme_1',
   opening_hour: '08.00',
   closing_hour: '22.00',
-  footer_text: 'Premiumin Pluus',
+  footer_text: 'Premiumin Plus',
   bot_session_status: 'disconnected',
   features: {
     order_status: false,
@@ -156,11 +156,11 @@ export default function BotWA() {
         const response = await premiuminApi.botTemplatePreview(
           {
             active_theme: settings.active_theme || 'theme_1',
-            store_name: settings.store_name || 'Premiumin Pluus',
+            store_name: settings.store_name || 'Premiumin Plus',
             opening_hour: settings.opening_hour || '08.00',
             closing_hour: settings.closing_hour || '22.00',
             admin_whatsapp: settings.admin_whatsapp || '',
-            footer_text: settings.footer_text || 'Premiumin Pluus',
+            footer_text: settings.footer_text || 'Premiumin Plus',
           },
           apiKey || undefined,
         );
@@ -476,7 +476,7 @@ export default function BotWA() {
                 value={settings.footer_text || ''}
                 onChange={(event) => setSettings((current) => ({ ...current, footer_text: event.target.value }))}
                 className="mt-2 w-full bg-transparent text-sm font-bold text-white outline-none"
-                placeholder="Premiumin Pluus"
+                placeholder="Premiumin Plus"
               />
             </label>
             <div className="rounded-2xl border border-white/10 bg-[#0b0f1a] p-4">

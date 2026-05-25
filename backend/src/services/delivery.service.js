@@ -16,7 +16,7 @@ export function validateWhatsapp(value) {
 
 export function buildDeliveryMessage(order) {
   return [
-    'Pesanan Premiumin Pluus berhasil.',
+    'Pesanan Premiumin Plus berhasil.',
     `Invoice: ${order.invoice}`,
     `Produk: ${order.product_name || '-'}`,
     `Email: ${order.email_account || '-'}`,

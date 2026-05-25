@@ -1,7 +1,7 @@
 {
-  "name": "Premiumin Pluus",
+  "name": "Premiumin Plus",
   "short_name": "Premiumin",
-  "description": "Platform produk digital premium milik Premiumin Pluus.",
+  "description": "Platform produk digital premium milik Premiumin Plus.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

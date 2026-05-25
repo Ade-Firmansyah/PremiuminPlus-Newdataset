@@ -1,8 +1,8 @@
-# Premiumin Pluus PRD
+# Premiumin Plus PRD
 
 Updated: 2026-05-13
 
-Premiumin Pluus adalah platform SaaS produk digital untuk admin, reseller, dan member. Sistem V4 memakai React, Express, MongoDB Atlas foundation, dan integrasi Premku. Backend adalah source of truth untuk user, saldo, pricing, QRIS, order, mutasi saldo, riwayat produk, dan bot WhatsApp.
+Premiumin Plus adalah platform SaaS produk digital untuk admin, reseller, dan member. Sistem V4 memakai React, Express, MongoDB Atlas foundation, dan integrasi Premku. Backend adalah source of truth untuk user, saldo, pricing, QRIS, order, mutasi saldo, riwayat produk, dan bot WhatsApp.
 
 ## Goals
 
@@ -112,5 +112,5 @@ Premiumin Pluus adalah platform SaaS produk digital untuk admin, reseller, dan m
 
 ## Current Production Target
 
-Premiumin Pluus harus stabil, finance-safe, anti mismatch, bot-safe, deploy-ready, dan mudah diaudit. Semua flow transaksi harus bisa ditelusuri dari saldo sebelum, nominal, saldo sesudah, invoice/ref id, user id, dan sumber transaksi.
+Premiumin Plus harus stabil, finance-safe, anti mismatch, bot-safe, deploy-ready, dan mudah diaudit. Semua flow transaksi harus bisa ditelusuri dari saldo sebelum, nominal, saldo sesudah, invoice/ref id, user id, dan sumber transaksi.
 

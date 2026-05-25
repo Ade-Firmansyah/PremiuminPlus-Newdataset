@@ -60,7 +60,7 @@ if (globalThis[globalKey]) {
     startMaintenanceScheduler();
     startCleanupScheduler({ intervalMs: 24 * 60 * 60 * 1000, retentionDays: Number(env.CLEANUP_RETENTION_DAYS || 7) });
     startProviderSyncScheduler();
-    console.log(`Premiumin Pluus backend running on port ${env.PORT}`);
+    console.log(`Premiumin Plus backend running on port ${env.PORT}`);
   });
 
   process.once('SIGINT', () => void shutdown('SIGINT'));

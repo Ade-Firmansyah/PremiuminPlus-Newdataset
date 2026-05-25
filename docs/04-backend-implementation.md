@@ -1,4 +1,4 @@
-# Premiumin Pluus v3.2 Backend Implementation
+# Premiumin Plus v3.2 Backend Implementation
 
 ## Startup
 

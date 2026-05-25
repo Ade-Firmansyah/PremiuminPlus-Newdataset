@@ -21,7 +21,7 @@ export function validateProductionEnv() {
     throw new Error(`Missing production environment variables: ${missing.join(', ')}`);
   }
 
-  if (env.JWT_SECRET === 'premiumin-pluus-local-dev-secret' || env.JWT_SECRET.length < 24) {
+  if (env.JWT_SECRET === 'premiumin-plus-local-dev-secret' || env.JWT_SECRET.length < 24) {
     throw new Error('JWT_SECRET must be a long random value in production');
   }
 

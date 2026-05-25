@@ -161,7 +161,7 @@ export async function getBotSettings() {
   return getSetting('bot_settings', {
     enabled: false,
     auto_reply_enabled: false,
-    greeting_message: 'Halo, selamat datang di Premiumin Pluus.',
+    greeting_message: 'Halo, selamat datang di Premiumin Plus.',
     auto_reply_prompt: 'Balas pelanggan dengan ramah, singkat, dan arahkan ke format order resmi.',
     order_format: 'ORDER#KODE_PRODUK#QTY#NOMOR_WA',
     features: {
