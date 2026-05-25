@@ -7,8 +7,8 @@ import { logger } from './src/utils/logger.js';
 await ensureInitialized();
 startMaintenanceScheduler();
 
-const server = app.listen(env.PORT, () => {
-  logger('BACKEND', { event: 'server-started', port: env.PORT });
+const server = app.listen(env.PORT, '0.0.0.0', () => {
+  logger('BACKEND', { event: 'server-started', host: '0.0.0.0', port: env.PORT });
 });
 
 function shutdown(signal) {
