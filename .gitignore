@@ -35,3 +35,5 @@ database/*.db-*
 database/db.js
 !database/schema.mysql.sql
 !database/.gitkeep
+
+.vercel
