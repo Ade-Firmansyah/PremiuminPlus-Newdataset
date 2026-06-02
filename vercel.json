@@ -3,6 +3,14 @@
   "outputDirectory": "apps/web/dist",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://premiuminplus-newdataset-production.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://premiuminplus-newdataset-production.up.railway.app/health"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
