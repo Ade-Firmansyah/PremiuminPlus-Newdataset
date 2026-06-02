@@ -38,6 +38,7 @@ import {
   notifications,
   pendingOrders,
   rejectWithdraw,
+  regenerateAdminUserApiKey,
   retryOrder,
   sendManualOrder,
   completeOrder,
@@ -49,6 +50,8 @@ import {
   updateDiscount,
   updateAdminUser,
   updateAdminUserPassword,
+  updateAdminUserRole,
+  updateAdminUserStatus,
   updateAdminNotification,
   updateMarkup,
   updatePremkuKey,
@@ -180,13 +183,19 @@ router.post('/bot/session/logout', auth, resellerOnly, botSessionLogout);
 router.get('/admin/users', auth, adminOnly, users);
 router.get('/admin/summary', auth, adminOnly, adminSummary);
 router.get('/admin/pending-orders', auth, adminOnly, pendingOrders);
-router.post('/admin/orders/:invoice/manual-send', auth, adminOnly, sendManualOrder);
 router.post('/admin/orders/:invoice/manual-complete', auth, adminOnly, completeOrder);
+router.post('/admin/orders/:invoice/manual-send', auth, adminOnly, sendManualOrder);
+router.post('/admin/orders/:invoice/manual-fulfill', auth, adminOnly, sendManualOrder);
 router.post('/admin/orders/:invoice/cancel-refund', auth, adminOnly, cancelRefundOrder);
+router.post('/admin/orders/:invoice/cancel', auth, adminOnly, cancelRefundOrder);
 router.post('/admin/orders/:invoice/retry', auth, adminOnly, retryOrder);
 router.get('/admin/premku-profile', auth, adminOnly, premkuFinanceProfile);
 router.post('/admin/create-user', auth, adminOnly, createAdminUser);
 router.patch('/admin/update-user/:id', auth, adminOnly, updateAdminUser);
+router.patch('/admin/users/:id', auth, adminOnly, updateAdminUser);
+router.post('/admin/users/:id/regenerate-api-key', auth, adminOnly, regenerateAdminUserApiKey);
+router.patch('/admin/users/:id/status', auth, adminOnly, updateAdminUserStatus);
+router.patch('/admin/users/:id/role', auth, adminOnly, updateAdminUserRole);
 router.patch('/admin/users/:id/password', auth, adminOnly, updateAdminUserPassword);
 router.delete('/admin/delete-user/:id', auth, adminOnly, deleteAdminUser);
 router.get('/admin/transactions', auth, adminOnly, transactions);

@@ -1,4 +1,4 @@
-import { createUser, deleteUserWithCleanup, listUsers, updateUser } from '../../repositories/user.repo.js';
+import { createUser, deleteUserWithCleanup, listUsers, regenerateUserApiKey, updateUser } from '../../repositories/user.repo.js';
 import { listTransactions } from '../../repositories/transaction.repo.js';
 import { listDeposits } from '../../repositories/deposit.repo.js';
 import { findWithdrawById, listWithdraws, updateWithdraw } from '../../repositories/withdraw.repo.js';
@@ -389,6 +389,46 @@ export async function updateAdminUser(req, res) {
     res.status(error.statusCode || 500).json({
       status: false,
       message: error.message || 'Gagal memperbarui user',
+    });
+  }
+}
+
+export async function updateAdminUserStatus(req, res) {
+  req.body = { status: req.body?.status };
+  return updateAdminUser(req, res);
+}
+
+export async function updateAdminUserRole(req, res) {
+  req.body = { role: req.body?.role };
+  return updateAdminUser(req, res);
+}
+
+export async function regenerateAdminUserApiKey(req, res) {
+  try {
+    const data = await regenerateUserApiKey(req.params.id);
+    if (!data) {
+      return res.status(404).json({ status: false, message: 'User tidak ditemukan' });
+    }
+
+    await safeCreateAdminLog({
+      admin_id: req.user?.id,
+      action: 'regenerate_user_api_key',
+      target_type: 'user',
+      target_id: data.id,
+      ip_address: req.ip,
+      metadata: { username: data.username },
+    });
+    deleteCachePrefix('admin:');
+    deleteCachePrefix(`dashboard:user:${data.id}`);
+
+    return res.json({
+      status: true,
+      data: { id: data.id, username: data.username, api_key: data.api_key },
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      status: false,
+      message: error.message || 'Gagal regenerate API key user',
     });
   }
 }

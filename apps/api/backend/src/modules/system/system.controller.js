@@ -23,7 +23,7 @@ const BACKUP_TABLES = [
   'admin_logs',
 ];
 
-const REQUIRED_ZIP_FILES = ['backup.json', 'metadata.json', 'backup_info.json'];
+const REQUIRED_ZIP_FILES = ['database.sql', 'backup.json', 'settings.json', 'metadata.json', 'backup_info.json', 'checksums.json'];
 const restoreJobs = new Map();
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
@@ -180,16 +180,72 @@ async function buildChecksums(tables) {
     transactions_count: tables.transactions?.length || 0,
     saldo_mutations_count: tables.saldo_mutations?.length || 0,
     settings_count: tables.settings?.length || 0,
+    saldo_total: saldoSum,
     saldo_sum: saldoSum,
+    created_at: new Date().toISOString(),
   };
 }
 
-function summarize(backup = {}) {
+function summarizeObject(backup = {}) {
   const tables = backup.tables && typeof backup.tables === 'object' ? backup.tables : {};
-  return BACKUP_TABLES.map((table) => ({
-    table,
-    rows: Array.isArray(tables[table]) ? tables[table].length : 0,
-  }));
+  return BACKUP_TABLES.reduce((summary, table) => {
+    summary[table] = Array.isArray(tables[table]) ? tables[table].length : 0;
+    return summary;
+  }, {});
+}
+
+function summarize(backup = {}) {
+  const summary = summarizeObject(backup);
+  return BACKUP_TABLES.map((table) => ({ table, rows: summary[table] || 0 }));
+}
+
+function sanitizeErrorMessage(error) {
+  return String(error?.message || error || 'Restore gagal')
+    .replace(/api_[a-z0-9_]+/gi, 'api_***')
+    .replace(/[a-f0-9]{32,}/gi, '***');
+}
+
+function validateBackupPayload(backup) {
+  if (!backup || typeof backup !== 'object') {
+    const error = new Error('Backup JSON tidak valid.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!backup.tables || typeof backup.tables !== 'object') {
+    const error = new Error('backup.json wajib memiliki object tables.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const missingTables = BACKUP_TABLES.filter((table) => !Array.isArray(backup.tables[table]));
+  if (missingTables.length) {
+    const error = new Error(`Backup table tidak lengkap: ${missingTables.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const summary = summarizeObject(backup);
+  const checksums = backup.checksums || {};
+  const expected = {
+    users: Number(checksums.users_count ?? summary.users),
+    products: Number(checksums.products_count ?? summary.products),
+    orders: Number(checksums.orders_count ?? summary.orders),
+    transactions: Number(checksums.transactions_count ?? summary.transactions),
+    settings: Number(checksums.settings_count ?? summary.settings),
+  };
+  const mismatch = [];
+  if (expected.users !== summary.users) mismatch.push(`users ${summary.users}/${expected.users}`);
+  if (expected.products !== summary.products) mismatch.push(`products ${summary.products}/${expected.products}`);
+  if (expected.orders !== summary.orders) mismatch.push(`orders ${summary.orders}/${expected.orders}`);
+  if (expected.transactions !== summary.transactions) mismatch.push(`transactions ${summary.transactions}/${expected.transactions}`);
+  if (expected.settings !== summary.settings) mismatch.push(`settings ${summary.settings}/${expected.settings}`);
+  if (mismatch.length) {
+    const error = new Error(`Checksum count mismatch: ${mismatch.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return summary;
 }
 
 function extractZipBackup(buffer) {
@@ -248,6 +304,8 @@ function makeJob({ type = 'restore', createdBy = null, backup = null, files = []
     backup,
     files,
     preview: summarize(backup),
+    preview_counts: summarizeObject(backup),
+    result: null,
   };
   restoreJobs.set(id, job);
   return job;
@@ -269,9 +327,11 @@ function publicJob(job) {
     failed_at: job.failed_at,
     files: job.files,
     preview: job.preview,
+    preview_counts: job.preview_counts,
     metadata: job.backup?.metadata || null,
     backup_info: job.backup?.backup_info || null,
     checksums: job.backup?.checksums || null,
+    result: job.result || null,
   };
 }
 
@@ -283,27 +343,50 @@ function updateJob(job, progress, message) {
   job.logs.push(`[${now}] ${message}`);
 }
 
+async function countRestoredState(backup) {
+  const summary = summarizeObject(backup);
+  const result = {};
+  for (const table of BACKUP_TABLES) {
+    const backupRows = summary[table] || 0;
+    const [row] = await query(`SELECT COUNT(*) AS total FROM ${quoteId(table)}`);
+    result[table] = {
+      backup: backupRows,
+      database: Number(row?.total || 0),
+      ok: Number(row?.total || 0) >= backupRows,
+    };
+  }
+
+  const [saldoRow] = await query('SELECT COALESCE(SUM(saldo), 0) AS saldo_total FROM users');
+  const backupSaldo = Number(backup.checksums?.saldo_total ?? backup.checksums?.saldo_sum ?? 0);
+  result.saldo_total = {
+    backup: backupSaldo,
+    database: Number(saldoRow?.saldo_total || 0),
+    ok: Number(saldoRow?.saldo_total || 0) >= backupSaldo,
+  };
+  return result;
+}
+
 async function restoreBackupData(backup, onProgress = () => {}) {
+  validateBackupPayload(backup);
   await transaction(async (connection) => {
     await connection.query('SET FOREIGN_KEY_CHECKS=0');
     try {
-      onProgress(8, 'Clearing existing tables');
-      for (const table of [...BACKUP_TABLES].reverse()) {
-        await connection.query(`DELETE FROM ${quoteId(table)}`);
-      }
-
       let index = 0;
       for (const table of BACKUP_TABLES) {
         index += 1;
         const rows = Array.isArray(backup.tables?.[table]) ? backup.tables[table] : [];
-        onProgress(10 + Math.round((index / BACKUP_TABLES.length) * 78), `Restoring ${table}`);
+        onProgress(8 + Math.round((index / BACKUP_TABLES.length) * 82), `Restoring ${table}`);
         for (const row of rows) {
           const columns = Object.keys(row);
           if (!columns.length) continue;
           const columnSql = columns.map((column) => `\`${column.replace(/`/g, '')}\``).join(', ');
           const placeholders = columns.map(() => '?').join(', ');
+          const updateSql = columns
+            .filter((column) => column !== 'id')
+            .map((column) => `\`${column.replace(/`/g, '')}\` = VALUES(\`${column.replace(/`/g, '')}\`)`)
+            .join(', ');
           await connection.query(
-            `INSERT INTO ${quoteId(table)} (${columnSql}) VALUES (${placeholders})`,
+            `INSERT INTO ${quoteId(table)} (${columnSql}) VALUES (${placeholders})${updateSql ? ` ON DUPLICATE KEY UPDATE ${updateSql}` : ''}`,
             columns.map((column) => row[column]),
           );
         }
@@ -323,14 +406,14 @@ export async function downloadSystemBackup(_req, res, next) {
 
     const metadata = {
       app: 'premiumin-plus',
-      version: '3.2.1',
+      version: '3.2.2',
       created_at: new Date().toISOString(),
       format: 'zip-json-sql-v1',
       source_backend: process.env.PUBLIC_BACKEND_URL || process.env.BACKEND_URL || null,
     };
     const backupInfo = {
       app: 'Premiumin Plus',
-      version: '3.2.1',
+      version: '3.2.2',
       created_at: metadata.created_at,
       source_backend: metadata.source_backend,
       tables: BACKUP_TABLES,
@@ -417,6 +500,7 @@ export async function uploadRestoreBackup(req, res, next) {
   try {
     const buffer = readUploadBuffer(req.body);
     const { backup, files } = extractZipBackup(buffer);
+    validateBackupPayload(backup);
     const job = makeJob({
       type: 'restore',
       createdBy: req.user?.id || null,
@@ -427,7 +511,7 @@ export async function uploadRestoreBackup(req, res, next) {
       status: true,
       success: true,
       mode: 'preview',
-      message: 'Backup ZIP valid. Preview siap dikonfirmasi.',
+      message: 'Backup berhasil divalidasi. Menunggu konfirmasi restore.',
       data: publicJob(job),
     });
   } catch (error) {
@@ -450,7 +534,7 @@ export async function confirmRestoreJob(req, res, next) {
     const job = restoreJobs.get(req.params.jobId);
     if (!job) return res.status(404).json({ status: false, success: false, message: 'Restore job tidak ditemukan' });
     if (job.status === 'running') return res.status(409).json({ status: false, success: false, message: 'Restore job sedang berjalan' });
-    if (job.status === 'completed') return res.json({ status: true, success: true, data: publicJob(job) });
+    if (['completed', 'completed_with_warning'].includes(job.status)) return res.json({ status: true, success: true, data: publicJob(job) });
 
     job.status = 'running';
     updateJob(job, 3, 'Restore confirmed');
@@ -460,9 +544,24 @@ export async function confirmRestoreJob(req, res, next) {
         updateJob(job, 94, 'Clearing cache');
         deleteCachePrefix('');
         updateJob(job, 98, 'Validating restored state');
-        job.status = 'completed';
+        const validation = await countRestoredState(job.backup);
+        const warnings = Object.entries(validation)
+          .filter(([, item]) => item && item.ok === false)
+          .map(([table, item]) => `${table}: database ${item.database}, backup ${item.backup}`);
+        job.result = {
+          validation,
+          warnings,
+          checklist: {
+            users: validation.users?.ok === true,
+            products: validation.products?.ok === true,
+            settings: validation.settings?.ok === true,
+            finance: validation.transactions?.ok === true && validation.saldo_mutations?.ok === true,
+            orders: validation.orders?.ok === true,
+          },
+        };
+        job.status = warnings.length ? 'completed_with_warning' : 'completed';
         job.completed_at = new Date().toISOString();
-        updateJob(job, 100, 'Restore completed');
+        updateJob(job, 100, warnings.length ? `Restore selesai dengan warning: ${warnings.join('; ')}` : 'Restore sukses. Semua data berhasil diterapkan.');
         await safeCreateActivityLog({
           actor_id: req.user?.id || null,
           scope: 'SYSTEM',
@@ -473,7 +572,7 @@ export async function confirmRestoreJob(req, res, next) {
       } catch (error) {
         job.status = 'failed';
         job.failed_at = new Date().toISOString();
-        updateJob(job, job.progress || 1, error instanceof Error ? error.message : 'Restore gagal');
+        updateJob(job, job.progress || 1, sanitizeErrorMessage(error));
       }
     })();
 
@@ -491,6 +590,7 @@ export async function confirmRestoreJob(req, res, next) {
 export async function restoreSystemBackup(req, res, next) {
   try {
     const backup = req.body?.backup && typeof req.body.backup === 'object' ? req.body.backup : req.body;
+    validateBackupPayload(backup);
     const summary = summarize(backup);
 
     if (!req.body?.confirm) {

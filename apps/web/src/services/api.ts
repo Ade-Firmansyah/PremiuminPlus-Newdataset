@@ -219,15 +219,21 @@ export interface MaintenanceStatusRecord {
 export interface RestoreJobRecord {
   id: string;
   type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'completed_with_warning' | 'failed';
   progress: number;
   message: string;
   logs: string[];
   files?: string[];
   preview: Array<{ table: string; rows: number }>;
+  preview_counts?: Record<string, number>;
   metadata?: Record<string, unknown> | null;
   backup_info?: Record<string, unknown> | null;
   checksums?: Record<string, number> | null;
+  result?: {
+    warnings?: string[];
+    checklist?: Record<string, boolean>;
+    validation?: Record<string, { backup: number; database: number; ok: boolean }>;
+  } | null;
 }
 
 export interface PublicStatsRecord {
@@ -786,11 +792,11 @@ export const premiuminApi = {
   adminTransactions: (apiKey?: string) => apiRequest<{ status: boolean; data: OrderRecord[] }>('/admin/transactions', { apiKey }),
   adminPendingOrders: (apiKey?: string) => apiRequest<{ status: boolean; data: OrderRecord[] }>('/admin/pending-orders', { apiKey }),
   adminSendManualOrder: (invoice: string, payload: { email: string; password: string; note?: string }, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/manual-send`, { apiKey, method: 'POST', body: JSON.stringify(payload) }),
+    apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/manual-fulfill`, { apiKey, method: 'POST', body: JSON.stringify(payload) }),
   adminCompleteOrder: (invoice: string, apiKey?: string) =>
     apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/manual-complete`, { apiKey, method: 'POST' }),
   adminCancelRefundOrder: (invoice: string, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/cancel-refund`, { apiKey, method: 'POST' }),
+    apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/cancel`, { apiKey, method: 'POST' }),
   adminRetryOrder: (invoice: string, apiKey?: string) =>
     apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/retry`, { apiKey, method: 'POST' }),
   adminDeposits: (apiKey?: string) => apiRequest<{ status: boolean; data: DepositRecord[] }>('/admin/deposits', { apiKey }),
@@ -899,10 +905,16 @@ export const premiuminApi = {
       body: JSON.stringify(payload),
     }),
   adminUpdateUser: (id: number, payload: Record<string, unknown>, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: AdminUserRecord }>(`/admin/update-user/${id}`, {
+    apiRequest<{ status: boolean; data: AdminUserRecord }>(`/admin/users/${id}`, {
       method: 'PATCH',
       apiKey,
       body: JSON.stringify(payload),
+    }),
+  adminRegenerateUserApiKey: (id: number, apiKey?: string) =>
+    apiRequest<{ status: boolean; data: { id: number; username: string; api_key: string } }>(`/admin/users/${id}/regenerate-api-key`, {
+      method: 'POST',
+      apiKey,
+      body: JSON.stringify({}),
     }),
   publicConfig: () => apiRequest<{ status: boolean; data: { admin_whatsapp: string; support_whatsapp?: string; stats?: PublicStatsRecord } }>('/config/public'),
   adminDeleteUser: (id: number, username_confirmation: string, apiKey?: string) =>

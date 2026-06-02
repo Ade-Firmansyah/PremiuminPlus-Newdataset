@@ -34,6 +34,28 @@ function productPalette(product: ProductRecord) {
   return fallbackPalettes[hashText(value) % fallbackPalettes.length];
 }
 
+function getBadgeStyle(provider: string) {
+  const styles: Record<string, { bg: string; border: string; text: string }> = {
+    manual: {
+      bg: 'linear-gradient(90deg, rgba(34,197,234,0.15), rgba(6,182,212,0.15))',
+      border: '1px solid rgba(34,197,234,0.35)',
+      text: '#a5f3fc',
+    },
+    hybrid: {
+      bg: 'linear-gradient(90deg, rgba(34,197,234,0.15), rgba(52,211,153,0.15))',
+      border: '1px solid rgba(52,211,153,0.35)',
+      text: '#86efac',
+    },
+    provider: {
+      bg: 'linear-gradient(90deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15))',
+      border: '1px solid rgba(236,72,153,0.35)',
+      text: '#f8bef8',
+    },
+  };
+
+  return styles[provider?.toLowerCase()] || styles.provider;
+}
+
 function ProductCard({ product, role }: { product: ProductRecord; role: string }) {
   const ready = product.status === 'active' && product.stock > 0;
   const label = product.tag || product.code || 'Produk';
@@ -47,6 +69,10 @@ function ProductCard({ product, role }: { product: ProductRecord; role: string }
     '--product-border': palette.border,
   } as CSSProperties;
 
+  const provider = product.product_source || 'provider';
+  const badgeStyle = getBadgeStyle(provider);
+  const badgeText = discountPercent > 0 ? `• DISKON ${discountPercent}%` : provider.toUpperCase();
+
   return (
     <article
       style={cardStyle}
@@ -55,15 +81,17 @@ function ProductCard({ product, role }: { product: ProductRecord; role: string }
         'shadow-[0_18px_36px_rgba(0,0,0,0.22)] hover:-translate-y-1 hover:border-brand/45 hover:shadow-[0_0_34px_rgba(255,0,127,0.14)]',
       ].join(' ')}
     >
-      <div className="absolute right-0 top-0 rounded-bl-2xl bg-[linear-gradient(135deg,#ff4f87,#b91552)] px-3 py-2 text-[10px] font-black uppercase text-white shadow-[0_10px_24px_rgba(255,0,96,0.28)]">
-        {product.product_source || 'provider'}
+      <div
+        className="absolute right-4 top-4 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] backdrop-blur-sm"
+        style={{
+          background: badgeStyle.bg,
+          border: badgeStyle.border,
+          color: badgeStyle.text,
+        }}
+      >
+        {badgeText}
       </div>
-      {discountPercent > 0 ? (
-        <div className="absolute right-0 top-9 rounded-bl-2xl border-b border-l border-amber-300/20 bg-[linear-gradient(135deg,#f59e0b,#ff2f92)] px-3 py-1.5 text-[10px] font-black uppercase text-white shadow-[0_10px_24px_rgba(245,158,11,0.18)]">
-          Diskon {discountPercent}%
-        </div>
-      ) : null}
-      <div className="flex items-start gap-4 pr-28">
+      <div className="flex items-start gap-4 pr-32">
         <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/30">
           {product.image ? <img src={product.image} alt={product.name} className="h-full w-full object-cover" /> : <ImageIcon className="h-6 w-6 text-white/30" />}
         </div>
