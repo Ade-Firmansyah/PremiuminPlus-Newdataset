@@ -69,19 +69,6 @@ export function calculateRoleSellPrice(product, markupSetting, user = {}) {
 
   const role = String(user?.role || 'member').toLowerCase();
   const storedRolePrice = role === 'reseller' ? Number(product?.reseller_price || 0) : Number(product?.member_price || 0);
-  if (Number.isFinite(storedRolePrice) && storedRolePrice > 0) {
-    return {
-      basePrice,
-      adminMargin: 0,
-      role,
-      roleMarkup: Math.max(storedRolePrice - basePrice, 0),
-      resellerMarkup: 0,
-      reseller_markup_percent: 0,
-      sellPrice: storedRolePrice,
-    };
-  }
-
-  const type = markupSetting?.markup_type === 'fixed' ? 'fixed' : 'percent';
   const resellerMarkupPercent = Number(user?.reseller_margin_percent ?? user?.markup_percent ?? user?.markup_custom ?? 0);
 
   if (!Number.isFinite(resellerMarkupPercent) || resellerMarkupPercent < 0) {
@@ -90,21 +77,40 @@ export function calculateRoleSellPrice(product, markupSetting, user = {}) {
     throw error;
   }
 
+  if (Number.isFinite(storedRolePrice) && storedRolePrice > 0) {
+    const includePersonalMarkup = role === 'reseller' && Boolean(user?.include_personal_markup);
+    const personalMarkup = includePersonalMarkup ? Math.round((storedRolePrice * resellerMarkupPercent) / 100) : 0;
+    return {
+      basePrice,
+      adminMargin: 0,
+      role,
+      roleMarkup: Math.max(storedRolePrice - basePrice, 0),
+      modalPrice: storedRolePrice,
+      resellerMarkup: personalMarkup,
+      reseller_markup_percent: resellerMarkupPercent,
+      sellPrice: storedRolePrice + personalMarkup,
+    };
+  }
+
+  const type = markupSetting?.markup_type === 'fixed' ? 'fixed' : 'percent';
+
   const adminMargin = Number(product?.admin_margin || 0);
   const roleRanges = role === 'reseller' ? markupSetting?.reseller_markup_ranges : markupSetting?.member_markup_ranges;
   const rangeMarkup = getRangeMarkup(basePrice + adminMargin, roleRanges);
   const roleMarkupValue = rangeMarkup ?? (role === 'reseller' ? markupSetting?.reseller_markup : markupSetting?.member_markup);
   const roleMarkup = calculateMarkupAmount(basePrice + adminMargin, roleMarkupValue ?? markupSetting?.markup ?? 0, type);
-  const includePersonalMarkup = role === 'reseller' || Boolean(user?.include_personal_markup);
-  const personalMarkup = includePersonalMarkup ? Math.round(((basePrice + adminMargin + roleMarkup) * resellerMarkupPercent) / 100) : 0;
+  const modalPrice = basePrice + adminMargin + roleMarkup;
+  const includePersonalMarkup = role === 'reseller' && Boolean(user?.include_personal_markup);
+  const personalMarkup = includePersonalMarkup ? Math.round((modalPrice * resellerMarkupPercent) / 100) : 0;
 
   return {
     basePrice,
     adminMargin,
     role,
     roleMarkup,
+    modalPrice,
     resellerMarkup: personalMarkup,
     reseller_markup_percent: resellerMarkupPercent,
-    sellPrice: basePrice + adminMargin + roleMarkup + personalMarkup,
+    sellPrice: modalPrice + personalMarkup,
   };
 }

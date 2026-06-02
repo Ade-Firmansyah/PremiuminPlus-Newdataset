@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, KeyRound, LogOut, QrCode, RefreshCw, Save, Store, ToggleRight, Wifi } from 'lucide-react';
+import { Bot, CheckCircle2, CircleDollarSign, KeyRound, LogOut, QrCode, RefreshCw, Save, ScanLine, ShieldCheck, Smartphone, Store, ToggleRight, Wifi } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from './dashboardPageKit';
 import { getApiKey } from '../store/useAuth';
 import { premiuminApi, type BotSettingsRecord, type DepositRecord, type MeRecord } from '../services/api';
 import { useStablePolling } from '../hooks/useStablePolling';
 import { formatCurrency } from '../utils/format';
+import { BotActivationPanel } from '../components/bot/BotActivationPanel';
 
 const fallback: BotSettingsRecord = {
+  brand_name: 'PREMIUMIN PLUS BOT',
+  greeting_hooks: 'p,ping,halo,haloo,bro',
+  welcome_message: 'Selamat datang, silakan berbelanja.',
+  admin_whatsapp: '',
+  operational_hours: '08.00 - 21.00 WIB',
+  closing_message: 'Kepuasan pelanggan adalah prioritas kami.',
+  catalog_template: 'template_1',
+  order_template: 'template_1',
+  terms_text: 'Simpan data akun baik-baik. Garansi mengikuti ketentuan produk.',
+  reseller_margin_type: 'percent',
+  reseller_margin_value: 10,
+  is_active: true,
   enabled: false,
   auto_reply_enabled: false,
   panel_name: 'Premiumin Plus',
@@ -34,8 +47,11 @@ export default function BotWA() {
   const [success, setSuccess] = useState('');
   const [botStatus, setBotStatus] = useState<Awaited<ReturnType<typeof premiuminApi.botSessionStatus>>['data'] | null>(null);
   const [me, setMe] = useState<MeRecord | null>(null);
+  const [analytics, setAnalytics] = useState<Awaited<ReturnType<typeof premiuminApi.botAnalytics>>['data'] | null>(null);
   const [activationDeposit, setActivationDeposit] = useState<DepositRecord | null>(null);
   const [activationLoading, setActivationLoading] = useState(false);
+  const [activationChecking, setActivationChecking] = useState(false);
+  const [showActivationQr, setShowActivationQr] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [apiKeyMasked, setApiKeyMasked] = useState('');
   const [marginDraft, setMarginDraft] = useState(0);
@@ -53,17 +69,33 @@ export default function BotWA() {
       setError('');
       try {
         const [response, meResponse] = await Promise.all([
-          premiuminApi.myBotSettings(apiKey || undefined),
+          premiuminApi.resellerBotSettings(apiKey || undefined),
           premiuminApi.me(apiKey || undefined),
         ]);
         if (!active) return;
-        const resolvedMargin = Number(meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
+        const resolvedMargin = Number(response.data.reseller_margin_value ?? meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
         setMe(meResponse.data);
         setSettings(response.data);
         setMarginDraft(resolvedMargin);
         marginDesired.current = resolvedMargin;
         setPersistedMargin(resolvedMargin);
         setApiKeyMasked(meResponse.data.api_key ? `${meResponse.data.api_key.slice(0, 10)}...${meResponse.data.api_key.slice(-6)}` : '-');
+        premiuminApi.deposits(apiKey || undefined)
+          .then((depositResponse) => {
+            if (!active) return;
+            const latestActivation = depositResponse.data.find((item) => item.payment_type === 'bot_activation' && isPendingDepositStatus(item.status));
+            if (latestActivation) setActivationDeposit(latestActivation);
+          })
+          .catch(() => {
+            if (active) setActivationDeposit(null);
+          });
+        premiuminApi.botAnalytics(apiKey || undefined)
+          .then((analyticsResponse) => {
+            if (active) setAnalytics(analyticsResponse.data);
+          })
+          .catch(() => {
+            if (active) setAnalytics(null);
+          });
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : 'Gagal memuat setting bot.');
       } finally {
@@ -108,6 +140,7 @@ export default function BotWA() {
 
   useEffect(() => {
     if (loading || marginDraft === persistedMargin) return;
+    if (settings.reseller_margin_type !== 'percent') return;
     if (marginSaveTimer.current) window.clearTimeout(marginSaveTimer.current);
     marginSaveTimer.current = window.setTimeout(() => {
       void persistMargin(marginDraft, true);
@@ -136,16 +169,34 @@ export default function BotWA() {
     focusThrottleMs: 15000,
   });
 
-  useStablePolling(
-    async () => {
-      if (!activationDeposit?.invoice || !isPendingDepositStatus(activationDeposit.status)) return;
-      const response = await premiuminApi.depositStatus(activationDeposit.invoice, apiKey || undefined);
+  const checkActivationDeposit = useCallback(async (invoice = activationDeposit?.invoice, silent = false) => {
+    if (!invoice || activationChecking) return;
+    setActivationChecking(true);
+    if (!silent) {
+      setError('');
+      setSuccess('');
+    }
+    try {
+      const response = await premiuminApi.depositStatus(invoice, apiKey || undefined);
       setActivationDeposit(response.data);
       if (response.data.status === 'success') {
         const meResponse = await premiuminApi.me(apiKey || undefined);
         setMe(meResponse.data);
+        setShowActivationQr(false);
+        setSuccess('Aktivasi Bot WhatsApp berhasil. Dashboard bot sudah aktif.');
         window.dispatchEvent(new Event('premiuminplus:balance-updated'));
       }
+    } catch (caught) {
+      if (!silent) setError(caught instanceof Error ? caught.message : 'Gagal mengecek pembayaran aktivasi.');
+    } finally {
+      setActivationChecking(false);
+    }
+  }, [activationChecking, activationDeposit?.invoice, apiKey]);
+
+  useStablePolling(
+    async () => {
+      if (!activationDeposit?.invoice || !isPendingDepositStatus(activationDeposit.status)) return;
+      await checkActivationDeposit(activationDeposit.invoice, true);
     },
     15000,
     {
@@ -161,7 +212,7 @@ export default function BotWA() {
     setError('');
     setSuccess('');
     try {
-      const response = await premiuminApi.updateMyBotSettings(settings, apiKey || undefined);
+      const response = await premiuminApi.updateResellerBotSettings(settings, apiKey || undefined);
       await persistMargin(marginDraft, true);
       setSettings(response.data);
       setSuccess('Bot settings dan margin up tersimpan.');
@@ -175,7 +226,22 @@ export default function BotWA() {
   const saveMargin = async () => {
     setError('');
     setSuccess('');
-    await persistMargin(marginDraft);
+    setMarginSaving(true);
+    try {
+      const response = await premiuminApi.updateResellerBotSettings({
+        reseller_margin_type: settings.reseller_margin_type || 'percent',
+        reseller_margin_value: marginDraft,
+      }, apiKey || undefined);
+      setSettings(response.data);
+      if ((response.data.reseller_margin_type || settings.reseller_margin_type) === 'percent') {
+        await persistMargin(marginDraft, true);
+      }
+      setSuccess('Margin bot tersimpan.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal menyimpan margin bot.');
+    } finally {
+      setMarginSaving(false);
+    }
   };
 
   const connectBot = async () => {
@@ -194,12 +260,17 @@ export default function BotWA() {
   };
 
   const startActivation = async () => {
+    if (activationDeposit?.invoice && isPendingDepositStatus(activationDeposit.status)) {
+      setShowActivationQr(true);
+      return;
+    }
     setActivationLoading(true);
     setError('');
     setSuccess('');
     try {
       const response = await premiuminApi.botActivationDeposit(apiKey || undefined);
       setActivationDeposit(response.data);
+      setShowActivationQr(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal membuat QR aktivasi bot.');
     } finally {
@@ -208,70 +279,53 @@ export default function BotWA() {
   };
 
   if (!botUnlocked) {
-    const qrValue = activationDeposit?.qr_image || activationDeposit?.qr_raw || activationDeposit?.qr_data || '';
-    const qrSource = qrValue ? (qrValue.startsWith('data:') ? qrValue : `data:image/png;base64,${qrValue}`) : '';
+    const cancelActivation = async () => {
+      if (!activationDeposit?.invoice || !isPendingDepositStatus(activationDeposit.status)) return;
+      setActivationLoading(true);
+      setError('');
+      try {
+        const response = await premiuminApi.depositCancel(activationDeposit.invoice, apiKey || undefined);
+        setActivationDeposit(response.data);
+        setShowActivationQr(false);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Gagal membatalkan QR aktivasi.');
+      } finally {
+        setActivationLoading(false);
+      }
+    };
 
     return (
       <div className="bot-wa space-y-4">
         <PageHero
           title="Bot WhatsApp"
-          subtitle="Fitur premium terkunci sampai locked balance aktif."
-          slogan="Aktivasi ringan, saldo tetap milik kamu, dan bisa ditarik kembali."
-          tone="from-amber-500/15 via-brand/10 to-cyan-500/10"
-          chips={['Premium', 'QRIS', 'Locked balance']}
+          subtitle="Aktivasi automation WhatsApp premium untuk reseller."
+          slogan="Locked balance tetap milik Anda dan dapat ditarik kembali melalui Withdraw."
+          tone="from-brand/15 via-fuchsia-500/10 to-cyan-500/10"
+          chips={['Activation', 'QRIS', 'Locked balance']}
         />
 
-        <PageSection title="Fitur Bot WhatsApp Terkunci" subtitle="Akses premium bot">
-          <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
-            <NeonCard>
-              <p className="text-2xl font-black text-white">FITUR BOT WHATSAPP TERKUNCI</p>
-              <p className="mt-4 text-sm leading-6 text-white/65">
-                Untuk membuka akses Bot WhatsApp, anda harus memiliki saldo minimum {formatCurrency(50000)}.
-                Saldo ini digunakan sebagai akses premium bot, menjaga kestabilan layanan bot, dan menjaga session tetap aktif.
-              </p>
-              <p className="mt-3 text-sm leading-6 text-emerald-200">
-                Saldo tetap milik anda dan tetap bisa ditarik kembali melalui menu Withdraw.
-              </p>
-              <div className="mt-5 grid gap-2 text-sm text-white/70">
-                {['Auto respon pembeli', 'Auto kirim QRIS', 'Auto kirim akun', 'Multi transaksi realtime', 'Bot pribadi', 'Harga jual sendiri'].map((item) => (
-                  <span key={item} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">{item}</span>
-                ))}
-              </div>
-              {error ? <div className="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
-              {me?.bot_disabled_reason ? (
-                <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                  BOT DINONAKTIFKAN<br />
-                  {me.bot_disabled_reason}. Silahkan topup saldo kembali agar bot aktif otomatis.
-                </div>
-              ) : null}
-              <button onClick={startActivation} disabled={activationLoading} className="mt-5 w-full rounded-2xl bg-brand px-4 py-3 text-sm font-black text-white shadow-lg shadow-brand/20 disabled:opacity-60">
-                {activationLoading ? 'Membuat QRIS...' : 'Buka Bot Sekarang'}
-              </button>
-            </NeonCard>
-
-            <NeonCard>
-              <p className="text-sm font-black text-white">Bot WhatsApp Activation</p>
-              <p className="mt-2 text-3xl font-black text-white">{formatCurrency(50000)}</p>
-              {!activationDeposit ? <p className="mt-3 text-sm leading-6 text-white/55">Klik tombol aktivasi untuk membuat QRIS fixed amount.</p> : null}
-              {activationDeposit ? (
-                <div className="mt-4 space-y-3">
-                  <p className="text-xs text-white/45">{activationDeposit.invoice}</p>
-                  <p className="text-sm font-bold text-white">Status: {activationDeposit.status}</p>
-                  {qrSource && isPendingDepositStatus(activationDeposit.status) ? (
-                    <div className="rounded-2xl bg-white p-3">
-                      <img src={qrSource} alt="QRIS Bot Activation" className="aspect-square w-full rounded-xl object-contain" />
-                    </div>
-                  ) : null}
-                  {activationDeposit.status === 'success' ? (
-                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                      Bot berhasil dibuka. Panel bot aktif otomatis.
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </NeonCard>
+        {me?.bot_disabled_reason ? (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
+            BOT DINONAKTIFKAN<br />
+            {me.bot_disabled_reason}. Silakan top up saldo kembali agar bot aktif otomatis.
           </div>
-        </PageSection>
+        ) : null}
+
+        <BotActivationPanel
+          activationDeposit={activationDeposit}
+          activationLoading={activationLoading}
+          checking={activationChecking}
+          error={error}
+          me={me}
+          showQr={showActivationQr}
+          onCancel={cancelActivation}
+          onCheck={() => void checkActivationDeposit()}
+          onCloseQr={() => setShowActivationQr(false)}
+          onOpenQr={() => {
+            if (activationDeposit?.invoice && isPendingDepositStatus(activationDeposit.status)) setShowActivationQr(true);
+          }}
+          onStart={startActivation}
+        />
       </div>
     );
   }
@@ -291,18 +345,34 @@ export default function BotWA() {
     }
   };
 
+  const sessionStatus = String(botStatus?.status || 'idle').toLowerCase();
+  const sessionConnected = Boolean(botStatus?.connected);
+  const hasQr = Boolean(botStatus?.qr);
+  const sessionLabel = sessionConnected ? 'Connected' : hasQr ? 'Menunggu scan QR' : sessionStatus === 'logged_out' ? 'Logged out' : 'Belum connect';
+  const sessionDescription = sessionConnected
+    ? 'Bot siap menerima chat pembeli dan membuat QRIS melalui backend Premiumin Plus.'
+    : hasQr
+      ? 'Scan barcode ini dari WhatsApp agar session terhubung ke akun reseller.'
+      : sessionStatus === 'logged_out'
+        ? 'Session sudah logout. Klik connect untuk membuat QR login baru.'
+        : 'Klik connect untuk membuat QR login WhatsApp.';
+  const previewModal = 12_000;
+  const marginType = settings.reseller_margin_type || 'percent';
+  const previewMarkup = marginType === 'fixed' ? Math.round(Number(marginDraft || 0)) : Math.round((previewModal * Number(marginDraft || 0)) / 100);
+  const previewTotal = previewModal + previewMarkup;
+
   return (
     <div className="bot-wa space-y-4">
       <PageHero
-        title="Bot Wa Setting"
-        subtitle="WhatsApp bot, margin jual, dan API key dalam satu panel ringan."
-        slogan="Margin tersimpan otomatis dan sinkron ke database."
+        title="Bot WhatsApp"
+        subtitle="Kelola session, margin jual, dan identitas toko WhatsApp reseller."
+        slogan="Semua order, QRIS, mutasi, dan profit tetap diproses backend agar saldo tidak mismatch."
         tone="from-cyan-500/15 via-emerald-500/10 to-brand/10"
-        chips={['WA ready', 'Margin realtime', 'API']}
+        chips={['Connect QR', 'Margin sinkron', 'Wallet-safe']}
       />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
-        <PageSection title="Bot bisnis digital" subtitle="Status, QR, dan identitas toko">
+        <PageSection title="Pengaturan Bot" subtitle="Branding, hooks, template, dan syarat">
           <div className="space-y-3">
             {loading ? <p className="text-sm text-white/45">Memuat setting bot...</p> : null}
             <div className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
@@ -313,34 +383,73 @@ export default function BotWA() {
               <ToggleRight className={`h-7 w-7 ${botStatus?.connected ? 'text-emerald-300' : 'text-white/25'}`} />
             </div>
             <input
-              value={settings.panel_name || ''}
-              onChange={(event) => setSettings((current) => ({ ...current, panel_name: event.target.value }))}
+              value={settings.brand_name || settings.panel_name || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, brand_name: event.target.value, panel_name: event.target.value }))}
               className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-              placeholder="Nama panel bot"
+              placeholder="Nama branding bot"
             />
             <input
-              value={settings.greeting_message}
-              onChange={(event) => setSettings((current) => ({ ...current, greeting_message: event.target.value }))}
+              value={settings.admin_whatsapp || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, admin_whatsapp: event.target.value }))}
               className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-              placeholder="Greeting message"
+              placeholder="Nomor admin/owner WhatsApp"
             />
             <input
-              value={settings.keyword_response || ''}
-              onChange={(event) => setSettings((current) => ({ ...current, keyword_response: event.target.value }))}
+              value={settings.operational_hours || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, operational_hours: event.target.value }))}
               className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-              placeholder="Balasan keyword greeting"
+              placeholder="Jam operasional"
             />
             <input
-              value={settings.footer_message || ''}
-              onChange={(event) => setSettings((current) => ({ ...current, footer_message: event.target.value }))}
+              value={settings.greeting_hooks || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, greeting_hooks: event.target.value }))}
               className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-              placeholder="Footer bot"
+              placeholder="Hooks: p,ping,halo,bro"
+            />
+            <p className="-mt-1 px-1 text-xs text-white/35">Pisahkan kata dengan koma. Contoh: p,ping,halo,bro</p>
+            <textarea
+              value={settings.welcome_message || settings.greeting_message || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, welcome_message: event.target.value, greeting_message: event.target.value }))}
+              className="min-h-24 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Kata pembuka"
+            />
+            <textarea
+              value={settings.closing_message || settings.footer_message || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, closing_message: event.target.value, footer_message: event.target.value }))}
+              className="min-h-20 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Kata penutup"
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select
+                value={settings.catalog_template || 'template_1'}
+                onChange={(event) => setSettings((current) => ({ ...current, catalog_template: event.target.value as BotSettingsRecord['catalog_template'] }))}
+                className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              >
+                <option value="template_1">Template Katalog 1</option>
+                <option value="template_2">Template Katalog 2</option>
+                <option value="template_3">Template Katalog 3</option>
+              </select>
+              <select
+                value={settings.order_template || 'template_1'}
+                onChange={(event) => setSettings((current) => ({ ...current, order_template: event.target.value as BotSettingsRecord['order_template'] }))}
+                className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              >
+                <option value="template_1">Template Order 1</option>
+                <option value="template_2">Template Order 2</option>
+                <option value="template_3">Template Order 3</option>
+              </select>
+            </div>
+            <textarea
+              value={settings.terms_text || ''}
+              onChange={(event) => setSettings((current) => ({ ...current, terms_text: event.target.value }))}
+              className="min-h-24 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
+              placeholder="Syarat & ketentuan yang dikirim setelah credential sukses"
             />
             <div className="rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-bold text-white">Auto Reply</span>
-                <button type="button" onClick={() => setSettings((current) => ({ ...current, auto_reply_enabled: !current.auto_reply_enabled }))} className="text-brand">
-                  <ToggleRight className={`h-7 w-7 ${settings.auto_reply_enabled ? 'text-brand' : 'rotate-180 text-white/25'}`} />
+                <span className="text-sm font-bold text-white">Bot Aktif</span>
+                <button type="button" onClick={() => setSettings((current) => ({ ...current, is_active: !current.is_active, enabled: !current.is_active, auto_reply_enabled: !current.is_active }))} className="text-brand">
+                  <ToggleRight className={`h-7 w-7 ${settings.is_active ? 'text-brand' : 'rotate-180 text-white/25'}`} />
                 </button>
               </div>
             </div>
@@ -353,33 +462,56 @@ export default function BotWA() {
           </div>
         </PageSection>
 
-        <PageSection title="Session WhatsApp" subtitle="QR login dan status realtime">
+        <PageSection title="Session WhatsApp" subtitle="Connect, scan QR, dan logout manual">
           <div className="space-y-3">
             <NeonCard>
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-black text-white">Status Bot</p>
-                  <p className="mt-1 text-xs text-white/45">{botStatus?.status || 'bot-engine belum tersambung'}</p>
-                  {botStatus?.connected_number ? <p className="mt-2 text-xs font-bold text-emerald-300">{botStatus.connected_number}</p> : null}
+                <div className="min-w-0">
+                  <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${sessionConnected ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : hasQr ? 'border-amber-500/20 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/55'}`}>
+                    {sessionConnected ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Wifi className="h-3.5 w-3.5" />}
+                    {sessionLabel}
+                  </span>
+                  <p className="mt-3 text-sm font-black text-white">Status Bot</p>
+                  <p className="mt-1 text-xs leading-5 text-white/50">{sessionDescription}</p>
+                  {botStatus?.connected_number ? <p className="mt-2 break-all text-xs font-bold text-emerald-300">Nomor: {botStatus.connected_number}</p> : null}
                   {botStatus?.last_active ? <p className="mt-1 text-xs text-white/35">Last active: {botStatus.last_active}</p> : null}
                 </div>
-                <Wifi className={`h-5 w-5 ${botStatus?.connected ? 'text-emerald-300' : 'text-white/30'}`} />
+                <Smartphone className={`h-6 w-6 shrink-0 ${sessionConnected ? 'text-emerald-300' : hasQr ? 'text-amber-200' : 'text-white/30'}`} />
               </div>
             </NeonCard>
-            {botStatus?.qr ? (
-              <div className="rounded-2xl border border-white/10 bg-white p-3">
-                <img src={botStatus.qr} alt="QR WhatsApp Bot" className="aspect-square w-full rounded-xl object-contain" />
+
+            {hasQr ? (
+              <div className="rounded-2xl border border-brand/20 bg-[#0b0f1a] p-3 shadow-lg shadow-brand/10">
+                <div className="rounded-xl border border-white/10 bg-white p-3">
+                  <img src={botStatus?.qr || ''} alt="QR WhatsApp Bot" className="mx-auto aspect-square w-full max-w-[320px] rounded-lg object-contain" />
+                </div>
+                <div className="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-3 text-xs leading-5 text-cyan-100">
+                  <p className="flex items-center gap-2 font-black text-white">
+                    <ScanLine className="h-4 w-4" />
+                    Scan barcode ini
+                  </p>
+                  <p className="mt-1 text-cyan-100/75">Buka WhatsApp, pilih Perangkat tertaut, lalu scan QR. Jangan logout kecuali ingin mengganti nomor.</p>
+                </div>
               </div>
             ) : null}
+
             <div className="grid gap-2 sm:grid-cols-2">
               <button onClick={connectBot} disabled={sessionLoading} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
-                {botStatus?.qr ? <RefreshCw className="h-4 w-4" /> : <QrCode className="h-4 w-4" />}
-                {sessionLoading ? 'Memproses...' : botStatus?.connected ? 'Refresh Status' : 'Connect Bot'}
+                {sessionLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
+                {sessionLoading ? 'Memproses...' : sessionConnected ? 'Refresh Status' : hasQr ? 'Generate Ulang QR' : 'Connect Bot'}
               </button>
-              <button onClick={logoutBot} disabled={sessionLoading} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200 disabled:opacity-60">
+              <button onClick={logoutBot} disabled={sessionLoading || (!sessionConnected && !hasQr)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200 disabled:opacity-50">
                 <LogOut className="h-4 w-4" />
-                Logout
+                Logout Session
               </button>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+              <p className="flex items-center gap-2 text-sm font-black text-white">
+                <ShieldCheck className="h-4 w-4 text-emerald-300" />
+                Validasi aman
+              </p>
+              <p className="mt-2 text-xs leading-5 text-white/50">Bot hanya mengirim request ke backend. Validasi saldo, QRIS, order, mutasi, dan profit tetap diproses web-core agar tidak ada mismatch.</p>
             </div>
           </div>
         </PageSection>
@@ -390,28 +522,66 @@ export default function BotWA() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Store className="h-5 w-5 text-brand" />
-                  <p className="mt-3 text-sm font-black text-white">Margin Naik</p>
+                  <p className="mt-3 text-sm font-black text-white">Margin Bot</p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-white">
-                  {marginDraft}%
+                  {marginType === 'fixed' ? formatCurrency(marginDraft) : `${marginDraft}%`}
                 </span>
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={marginDraft}
+              <div className="mt-4 grid gap-3 sm:grid-cols-[140px_1fr]">
+                <select
+                  value={marginType}
                   onChange={(event) => {
-                    const next = Math.max(0, Math.min(100, Number(event.target.value)));
+                    const nextType = event.target.value as BotSettingsRecord['reseller_margin_type'];
+                    setSettings((current) => ({ ...current, reseller_margin_type: nextType }));
+                    const next = nextType === 'fixed' ? 500 : Math.min(Number(marginDraft || 10), 100);
                     marginDesired.current = next;
                     setMarginDraft(next);
+                    setSettings((current) => ({ ...current, reseller_margin_type: nextType, reseller_margin_value: next }));
                   }}
-                  className="w-full accent-brand"
+                  className="rounded-xl border border-white/10 bg-[#0b0f1a] px-3 py-3 text-sm font-bold text-white outline-none focus:border-brand/50"
+                >
+                  <option value="percent">Percent</option>
+                  <option value="fixed">Fixed</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  max={marginType === 'fixed' ? 1000000 : 100}
+                  step={marginType === 'fixed' ? 100 : 1}
+                  value={marginDraft}
+                  onChange={(event) => {
+                    const max = marginType === 'fixed' ? 1000000 : 100;
+                    const next = Math.max(0, Math.min(max, Number(event.target.value)));
+                    marginDesired.current = next;
+                    setMarginDraft(next);
+                    setSettings((current) => ({ ...current, reseller_margin_value: next }));
+                  }}
+                  className="rounded-xl border border-white/10 bg-[#0b0f1a] px-3 py-3 text-sm font-bold text-white outline-none focus:border-brand/50"
                   aria-label="Margin bot"
                 />
               </div>
+            </NeonCard>
+            <NeonCard>
+              <CircleDollarSign className="h-5 w-5 text-emerald-300" />
+              <p className="mt-3 text-sm font-black text-white">Simulasi harga WA</p>
+              <div className="mt-3 grid gap-2 text-xs text-white/55 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="font-bold uppercase tracking-[0.14em] text-white/35">Modal reseller</p>
+                  <p className="mt-1 text-sm font-black text-white">{formatCurrency(previewModal)}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="font-bold uppercase tracking-[0.14em] text-white/35">Margin {marginType === 'fixed' ? 'fixed' : `${marginDraft}%`}</p>
+                  <p className="mt-1 text-sm font-black text-emerald-200">{formatCurrency(previewMarkup)}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                  <p className="font-bold uppercase tracking-[0.14em] text-white/35">Harga bot</p>
+                  <p className="mt-1 text-sm font-black text-brand">{formatCurrency(previewTotal)}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-white/45">
+                Saat buyer bayar via WhatsApp, QRIS memakai harga bot. Setelah sukses, transaksi menyimpan modal reseller, harga jual bot, dan profit margin; wallet reseller hanya dikredit profit agar saldo tidak dobel.
+              </p>
             </NeonCard>
             <button onClick={saveMargin} disabled={marginSaving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">
               <Save className="h-4 w-4" />
@@ -426,6 +596,24 @@ export default function BotWA() {
               <Bot className="h-5 w-5 text-brand" />
               <p className="mt-3 text-sm leading-6 text-white/55">Command aktif: greeting, stok/list, buy code, cancel invoice, dan cek invoice.</p>
             </NeonCard>
+          </div>
+        </PageSection>
+
+        <PageSection title="Analytics Bot" subtitle="Ringkasan transaksi WhatsApp">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ['Order bot', analytics?.total_order_bot || 0],
+              ['Pembayaran masuk', formatCurrency(analytics?.total_pembayaran_masuk || 0)],
+              ['Modal keluar', formatCurrency(analytics?.total_modal_keluar || 0)],
+              ['Profit', formatCurrency(analytics?.total_profit || 0)],
+              ['Transaksi sukses', analytics?.total_transaksi_sukses || 0],
+              ['Pending payment', analytics?.pending_payment || 0],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">{label}</p>
+                <p className="mt-2 text-lg font-black text-white">{value}</p>
+              </div>
+            ))}
           </div>
         </PageSection>
       </div>

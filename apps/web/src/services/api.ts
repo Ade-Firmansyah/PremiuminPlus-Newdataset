@@ -182,6 +182,20 @@ export interface AdminSummaryRecord {
 }
 
 export interface BotSettingsRecord {
+  id?: number;
+  user_id?: number;
+  brand_name?: string;
+  greeting_hooks?: string;
+  welcome_message?: string;
+  admin_whatsapp?: string;
+  operational_hours?: string;
+  closing_message?: string;
+  catalog_template?: 'template_1' | 'template_2' | 'template_3';
+  order_template?: 'template_1' | 'template_2' | 'template_3';
+  terms_text?: string;
+  reseller_margin_type?: 'percent' | 'fixed';
+  reseller_margin_value?: number;
+  is_active?: boolean;
   enabled: boolean;
   auto_reply_enabled: boolean;
   panel_name?: string;
@@ -205,6 +219,16 @@ export interface BotSessionRecord {
   connected_number?: string | null;
   last_active?: string | null;
   reconnect_attempt?: number;
+  db_status?: string;
+}
+
+export interface BotAnalyticsRecord {
+  total_order_bot: number;
+  total_pembayaran_masuk: number;
+  total_modal_keluar: number;
+  total_profit: number;
+  total_transaksi_sukses: number;
+  pending_payment: number;
 }
 
 export interface MaintenanceStatusRecord {
@@ -892,11 +916,11 @@ export const premiuminApi = {
       method: 'PATCH',
       apiKey,
     }),
-  adminRejectWithdraw: (id: number, notes: string, apiKey?: string) =>
+  adminRejectWithdraw: (id: number, notes: string, apiKey?: string, options?: { reason_code?: string; notify_user?: boolean; notification_message?: string }) =>
     apiRequest<{ status: boolean; data: WithdrawRecord }>(`/admin/withdraws/${id}/reject`, {
       method: 'PATCH',
       apiKey,
-      body: JSON.stringify({ notes }),
+      body: JSON.stringify({ notes, ...(options || {}) }),
     }),
   adminCreateUser: (payload: Record<string, unknown>, apiKey?: string) =>
     apiRequest<{ status: boolean; data: AdminUserRecord }>('/admin/create-user', {
@@ -1042,6 +1066,15 @@ export const premiuminApi = {
       apiKey,
       body: JSON.stringify(payload),
     }),
+  resellerBotSettings: (apiKey?: string) => apiRequest<{ status: boolean; data: BotSettingsRecord }>('/bot/settings', { apiKey }),
+  updateResellerBotSettings: (payload: Partial<BotSettingsRecord>, apiKey?: string) =>
+    apiRequest<{ status: boolean; data: BotSettingsRecord }>('/bot/settings', {
+      method: 'PATCH',
+      apiKey,
+      body: JSON.stringify(payload),
+    }),
+  botHistory: (apiKey?: string) => apiRequest<{ status: boolean; data: DirectPaymentRecord[] }>('/bot/history', { apiKey }),
+  botAnalytics: (apiKey?: string) => apiRequest<{ status: boolean; data: BotAnalyticsRecord }>('/bot/analytics', { apiKey }),
   botSessionConnect: (apiKey?: string) =>
     apiRequest<{ status: boolean; data: BotSessionRecord }>('/bot/session/connect', {
       method: 'POST',

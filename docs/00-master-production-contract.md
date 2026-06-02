@@ -648,3 +648,18 @@ Admin:
 - Frontend wajib menjalankan health check backend dan masuk maintenance mode otomatis setelah 3 kegagalan. Saat maintenance, semua aksi mutasi seperti order, withdraw, payment, edit user, dan edit setting harus diblokir.
 - Migrasi Railway/Vercel gratisan wajib melalui backup SQL, restore, schema migration, dan checksum saldo/transaksi sebelum maintenance mode dimatikan.
 
+## Latest Production Lock V3.2.2
+
+- Project sudah masuk tahap matang sekitar 96% dan tidak boleh banyak diubah tanpa alasan bug/stability.
+- Frontend aktif tetap `apps/web` dengan Vite React dan deploy Vercel.
+- Backend aktif tetap `apps/api/backend` dengan Railway MySQL/MariaDB.
+- Bot engine aktif tetap `apps/bot-engine` sebagai client web-core, bukan finance/database/provider writer.
+- Frontend memakai Vercel Speed Insights melalui package resmi `@vercel/speed-insights` dengan `injectSpeedInsights()` agar kompatibel dengan Vite React workspace.
+- Bot WhatsApp reseller memakai `reseller_bot_settings` sebagai source of truth brand, greeting hooks, template katalog/order, terms, dan margin bot.
+- Harga bot reseller wajib memakai `products.reseller_price` sebagai modal lalu ditambah margin bot. Margin mendukung `percent` dan `fixed`.
+- Untuk contoh modal Rp12.000 dan profit Rp500, reseller wajib memilih margin `fixed = 500`; jika memilih `percent = 10`, profit adalah Rp1.200.
+- QRIS buyer bot memakai harga jual bot. Saat sukses, backend mencatat `bot_payment_in`, `bot_order_cost`, dan `reseller_profit` secara idempotent.
+- Provider/manual/hybrid baru diproses setelah QRIS buyer sukses dan ledger saldo reseller berhasil.
+- Bot session mirror wajib disimpan di `users.bot_session_id`, `users.bot_session_status`, `users.bot_connected_number`, dan `users.bot_last_active_at`.
+- Admin maintenance backup/restore tetap harus preview/confirm dahulu; restore tidak boleh berjalan hanya karena file diupload.
+

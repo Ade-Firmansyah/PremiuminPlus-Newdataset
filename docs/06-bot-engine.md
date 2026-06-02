@@ -161,6 +161,24 @@ When a bot QRIS order succeeds:
 - `saldo_mutations` gets an adjustment entry for profit.
 - dashboard Mutasi Saldo can show bot margin profit for member/reseller.
 
+Implementation lock:
+
+- `GET /api/bot/catalog` and `POST /api/bot/payments` must use the same pricing function.
+- If `products.reseller_price` already exists, it becomes `modalPrice` for Bot WhatsApp.
+- `users.reseller_margin_percent` is applied only when `include_personal_markup = true`.
+- `payments.amount` and `payments.sell_price` store the buyer QRIS amount.
+- `payments.modal_price` stores the reseller modal before personal margin.
+- Wallet credit on success is limited to `reseller_profit` so reseller saldo is not credited twice.
+
+Phase 1 reseller settings lock:
+
+- `reseller_bot_settings` is the per-reseller source of truth for brand, greeting hooks, templates, terms, and bot margin.
+- `GET /api/bot/settings` and `PATCH /api/bot/settings` read/write that table.
+- `GET /api/bot/catalog` and `POST /api/bot/order/init` use `products.reseller_price` as bot modal, then add `reseller_bot_settings.reseller_margin_value`.
+- Margin type supports `percent` and `fixed`; fixed is the correct mode for examples like modal Rp12.000 with profit Rp500.
+- Bot session state is mirrored to `users.bot_session_id`, `users.bot_session_status`, `users.bot_connected_number`, and `users.bot_last_active_at`.
+- Bot engine supports greeting hooks, `stok`, `list`, `.menu`, `produk`, `buy22`, `buy 22`, `cancel INVOICE`, `cek INVOICE`, `admin`, and `.owner`.
+
 ## Margin Slider Sync
 
 Bot Wa Setting uses realtime slider text and debounced persistence:

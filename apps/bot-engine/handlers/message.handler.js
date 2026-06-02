@@ -1,48 +1,195 @@
-const GREETING_KEYWORDS = new Set(['p', 'ping', 'kak', 'gan', 'bro', 'bang', 'assalamualaikum']);
+const DEFAULT_GREETING_KEYWORDS = new Set(['p', 'ping', 'halo', 'haloo', 'bro']);
 const MAINTENANCE_REPLY = 'Web sedang maintenance. Transaksi sementara tidak tersedia.';
 
 function normalizeText(message = '') {
   return String(message).trim().toLowerCase();
 }
 
-function formatCatalog(products) {
+function formatRupiah(value) {
+  return Number(value || 0).toLocaleString('id-ID');
+}
+
+function normalizeHooks(settings = {}) {
+  const hooks = String(settings.greeting_hooks || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return hooks.length ? new Set(hooks) : DEFAULT_GREETING_KEYWORDS;
+}
+
+function productCode(product) {
+  return String(product.product_code || product.buy_code || product.code || '').replace(/^buy/i, '').trim();
+}
+
+function splitProducts(products) {
+  return {
+    ready: products.filter((product) => Number(product.stock || 0) > 0),
+    empty: products.filter((product) => Number(product.stock || 0) <= 0),
+  };
+}
+
+function renderOutOfStock(empty) {
+  return empty.length ? empty.map((product) => `• ${product.name}`).join('\n') : '• -';
+}
+
+function renderCatalogTemplate1(products, settings = {}) {
+  const { ready, empty } = splitProducts(products);
+  const brand = settings.brand_name || settings.panel_name || 'PREMIUMIN PLUS BOT';
+  const readyLines = ready.map((product) => [
+    `📦 ${product.name}`,
+    `┣ 💰 Harga : Rp${formatRupiah(product.sell_price || product.price)}`,
+    `┣ 📊 Stok  : ${Number(product.stock || 0)} Akun`,
+    `┗ 🔑 Order : buy ${productCode(product)}`,
+  ].join('\n')).join('\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n');
+
+  return [
+    `╭─────────────〔 ${brand} 〕─────────────╮`,
+    '',
+    readyLines || 'Belum ada produk tersedia.',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '❌ STOK HABIS',
+    '',
+    renderOutOfStock(empty),
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '📖 Cara Order',
+    '➊ Pilih produk',
+    '➋ Ketik buy kode',
+    '➌ Bayar invoice',
+    '➍ Produk dikirim otomatis',
+    '',
+    '💳 Pembayaran : QRIS',
+    '⚡ Pengiriman : Instant',
+    '🛡️ Garansi : Sesuai Produk',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    `🤖 ${brand}`,
+    '━━━━━━━━━━━━━━━━━━━━━━',
+  ].join('\n');
+}
+
+function renderCatalogTemplate2(products, settings = {}) {
+  const { ready, empty } = splitProducts(products);
+  const brand = settings.brand_name || settings.panel_name || 'PREMIUMIN PLUS BOT';
+  const first = ready[0] ? productCode(ready[0]) : '1';
+  return [
+    '╭─────────────────────────────╮',
+    brand,
+    'Premium Account Marketplace',
+    '╰─────────────────────────────╯',
+    '',
+    'INFORMASI',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    'Status      : Online',
+    'Pembayaran  : QRIS Otomatis',
+    'Pengiriman  : Instan Setelah Bayar',
+    'Garansi     : Sesuai Ketentuan Produk',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    'KATALOG PRODUK',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    ready.map((product) => [
+      `[${productCode(product)}] ${product.name}`,
+      `Harga : Rp${formatRupiah(product.sell_price || product.price)}`,
+      `Stok  : ${Number(product.stock || 0)} Akun`,
+      `Order : buy ${productCode(product)}`,
+    ].join('\n')).join('\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n') || 'Belum ada produk tersedia.',
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    'PRODUK TIDAK TERSEDIA',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    renderOutOfStock(empty),
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    'CARA PEMBELIAN',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+    '1. Pilih produk',
+    '2. Ketik perintah sesuai kode',
+    '3. Lakukan pembayaran',
+    '4. Produk dikirim otomatis',
+    '',
+    'Contoh:',
+    `buy ${first}`,
+    '',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    `${brand} © 2026`,
+    'Fast • Secure • Automatic',
+    '━━━━━━━━━━━━━━━━━━━━━━',
+  ].join('\n');
+}
+
+function renderCatalogTemplate3(products, settings = {}) {
+  const { ready, empty } = splitProducts(products);
+  const brand = settings.brand_name || settings.panel_name || 'PREMIUMIN PLUS BOT';
+  return [
+    `╭━━━〔 🛒 ${brand} 〕━━━⬣`,
+    '┃ 📅 Update Stok : Real Time',
+    '┃ 🛡️ Transaksi Aman & Otomatis',
+    '┃ 💳 Pembayaran QRIS 24 Jam',
+    '╰━━━━━━━━━━━━━━━━━━━━⬣',
+    '',
+    '📦 *DAFTAR PRODUK TERSEDIA*',
+    '',
+    ready.map((product) => [
+      `┌─〔 ${productCode(product)} 〕${product.name}`,
+      `├ 💰 Rp${formatRupiah(product.sell_price || product.price)}`,
+      `├ 📦 Stok : ${Number(product.stock || 0)} Akun`,
+      `└ 🔑 Ketik : *buy ${productCode(product)}*`,
+    ].join('\n')).join('\n\n') || 'Belum ada produk tersedia.',
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    '❌ *STOK HABIS*',
+    '━━━━━━━━━━━━━━━━━━',
+    renderOutOfStock(empty),
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    '📌 *CARA ORDER*',
+    '━━━━━━━━━━━━━━━━━━',
+    '1️⃣ Pilih produk',
+    '2️⃣ Ketik *buy kode*',
+    '3️⃣ Lakukan pembayaran',
+    '4️⃣ Akun dikirim otomatis',
+    '',
+    '💎 Reseller? Ketik *.reseller*',
+    '📞 Bantuan? Ketik *.owner*',
+    '🛒 Topup Saldo? Ketik *.deposit*',
+    '',
+    '╭━━━━━━━━━━━━━━━━━━⬣',
+    '┃ Terima kasih telah berbelanja 🙏',
+    '╰━━━━━━━━━━━━━━━━━━⬣',
+  ].join('\n');
+}
+
+function renderCatalog(products, settings = {}) {
   if (!products.length) {
     return 'Belum ada produk yang tersedia di catalog.';
   }
-
-  const ready = products.filter((product) => product.stock > 0);
-  const empty = products.filter((product) => product.stock <= 0);
-  const lines = [
-    '━━━━━━━━━━━━━━━━━━',
-    '📦 KATALOG PRODUK',
-    '━━━━━━━━━━━━━━━━━━',
-    '',
-    ...ready.map((product) => [
-      `📦 ${product.name} || STOK : ${product.stock} AKUN`,
-      `💰 PRICE : Rp ${Number(product.price || 0).toLocaleString('id-ID')} || 🔑 CODE : ${String(product.buy_code || '').replace('buy', 'buy ')}`,
-    ].join('\n')),
-  ];
-
-  if (empty.length) {
-    lines.push('', '━━━━━━━━━━━━━━━━━━', '❌ STOK HABIS', '', ...empty.map((product) => `* ${product.name}`), '━━━━━━━━━━━━━━━━━━');
-  } else {
-    lines.push('', '━━━━━━━━━━━━━━━━━━');
-  }
-
-  return lines.join('\n');
+  if (settings.catalog_template === 'template_2') return renderCatalogTemplate2(products, settings);
+  if (settings.catalog_template === 'template_3') return renderCatalogTemplate3(products, settings);
+  return renderCatalogTemplate1(products, settings);
 }
 
 function formatPaymentCaption(payment, productName = 'Produk digital') {
+  const amount = Number(payment.amount || 0);
+  const total = Number(payment.total_bayar || amount);
+  const unique = Math.max(total - amount, 0);
   return [
     '━━━━━━━━━━━━━━━━━━',
-    '🛒 PEMBELIAN PRODUK',
+    '🛒 *PEMBELIAN PRODUK*',
+    '━━━━━━━━━━━━━━━━━━',
+    `📦 Produk: ${productName}`,
+    `💰 Harga: Rp${formatRupiah(amount)}`,
+    `🔢 Kode Unik: Rp${formatRupiah(unique)}`,
     '',
-    productName,
-    '',
-    `💵 Total Bayar : Rp ${Number(payment.total_bayar || payment.amount || 0).toLocaleString('id-ID')}`,
-    '📄 Invoice:',
-    payment.invoice,
-    '',
+    `💵 Total Bayar: Rp${formatRupiah(total)}`,
+    `📄 Invoice: ${payment.invoice}`,
     '━━━━━━━━━━━━━━━━━━',
     '📱 Scan QR di atas untuk bayar',
     '⏳ Berlaku: 5 menit',
@@ -63,42 +210,19 @@ function formatPaymentCaption(payment, productName = 'Produk digital') {
   ].join('\n');
 }
 
-export function formatSuccess(order) {
-  return [
-    "╭·· ─ ׄ᯽. *𝗆𝗂𝗇𝗂 note's* ⚘ ⁺ִ 𖹭",
+export function formatSuccess(order, settings = {}) {
+  const lines = [
+    `*Produk:* ${order.product_name || '-'}`,
     '',
-    '✅ *PEMBAYARAN BERHASIL*',
-    '',
-    '━━━━━━━━━━━━━━━━',
-    '',
-    '📦 Produk:',
-    order.product_name || '-',
-    '',
-    '💰 Total:',
-    `Rp ${Number(order.total_price || 0).toLocaleString('id-ID')}`,
-    '',
-    '━━━━━━━━━━━━━━━━',
-    '',
-    '🔐 *DATA AKUN*',
-    '',
-    `email : ${order.email_account || '-'}`,
-    `pass : ${order.password_account || '-'}`,
-    '',
-    '━━━━━━━━━━━━━━━━',
-    '',
-    '📄 Invoice:',
-    order.invoice,
-    '',
-    '🙏 Terima kasih sudah order!',
-    '',
-    '╰╍ ⁺ִ 🎀 𝗍𝗁𝖺𝗇𝗄 𝗎 𝗎𝗋 𝗉𝗎𝗋𝖼𝗁𝖺𝗌𝖾 ┄ ⊹',
-    '',
-    '⚠️ Simpan pesan transaksi ini, jika hilang tidak dapat klaim garansi.',
-    '⚠️ 1 akun hanya digunakan untuk 1 device.',
-    '⚠️ Dilarang mengganti password/PIN.',
-    '⚠️ Jangan sering login-logout agar akun stabil.',
-    '⚠️ Masa garansi mengikuti masa aktif pembelian.',
-  ].join('\n');
+  ];
+  if (order.email_account) lines.push(`*📧 Email:* ${order.email_account}`);
+  if (order.password_account) lines.push(`*🔐 Password:* ${order.password_account}`);
+  const raw = order.raw_response || {};
+  const accessUrl = raw.email_access_url || raw.access_url || raw.tutorial_url || '';
+  if (accessUrl) lines.push(`*📩 Akses Email:* ${accessUrl}`);
+  if (raw.tutorial_url) lines.push(`*📖 Tutorial:* ${raw.tutorial_url}`);
+  lines.push('', '*─「 📜 SYARAT & KETENTUAN 」─*', '', settings.terms_text || 'Simpan data akun baik-baik. Garansi mengikuti ketentuan produk.');
+  return lines.join('\n');
 }
 
 export function createMessageHandler({ client, queue, logger }) {
@@ -108,21 +232,43 @@ export function createMessageHandler({ client, queue, logger }) {
 
     return queue.add(`message:${context.messageId || Date.now()}`, async () => {
       try {
-      if (GREETING_KEYWORDS.has(text)) {
-        const profile = await client.profile();
-        const settings = profile.data.settings || {};
-        return `${settings.panel_name || 'Premiumin Plus'}\n\n${settings.greeting_message || 'Selamat datang di Premiumin Plus'}\n\n${settings.keyword_response || 'Untuk melihat stok ketik:\nstok / list'}\n\n${settings.footer_message || ''}`.trim();
+      const profile = await client.profile();
+      const settings = profile.data.settings || {};
+      const hooks = normalizeHooks(settings);
+
+      if (hooks.has(text)) {
+        const buyerName = context.pushName || 'Kak';
+        return [
+          `✨ *${settings.brand_name || settings.panel_name || 'PREMIUMIN PLUS BOT'}*`,
+          '📩 Dari: Private',
+          '',
+          `Halo Kak ${buyerName} 👋`,
+          '',
+          settings.welcome_message || settings.greeting_message || 'Selamat datang, silakan berbelanja.',
+          '',
+          '🚀 Jasa layanan aplikasi premium cepat, murah, dan terpercaya.',
+          '',
+          '📦 Ketik *stok* atau *list* untuk melihat katalog',
+          '☎️ Ketik *admin* untuk hubungi admin',
+          '',
+          '🕘 Jam Operasional:',
+          settings.operational_hours || '08.00 - 21.00 WIB',
+          '',
+          settings.closing_message || settings.footer_message || '',
+        ].join('\n').trim();
       }
 
-      if (['stok', 'list'].includes(text)) {
+      if (['stok', 'list', '.menu', 'produk'].includes(text)) {
         const catalog = await client.catalog();
-        return formatCatalog(catalog.data || []);
+        return renderCatalog(catalog.data || [], settings);
       }
 
-      if (/^buy\d+$/.test(text)) {
+      const buyMatch = text.match(/^buy\s*(\d+)$/i);
+      if (buyMatch) {
+        const code = buyMatch[1];
         const catalog = await client.catalog();
-        const product = (catalog.data || []).find((item) => String(item.buy_code || '').replace(/\s+/g, '') === text);
-        const payment = await client.payment({ buy_code: text, qty: 1, buyer_whatsapp: context.jid?.split('@')[0] });
+        const product = (catalog.data || []).find((item) => productCode(item) === code);
+        const payment = await client.payment({ product_code: code, qty: 1, buyer_whatsapp: context.jid?.split('@')[0], buyer_name: context.pushName || '' });
         logger.info(`Payment created ${payment.data.invoice}`);
         return {
           image: payment.data.qr_image || payment.data.qr_raw,
@@ -140,10 +286,14 @@ export function createMessageHandler({ client, queue, logger }) {
       if (text.startsWith('cek ')) {
         const invoice = text.replace('cek ', '').trim();
         const status = await client.paymentStatus(invoice);
-        if (status.data?.status === 'success' && status.data.order) {
-          return formatSuccess(status.data.order);
+        if (['success', 'payment_success'].includes(String(status.data?.status || '').toLowerCase()) && status.data.order) {
+          return formatSuccess(status.data.order, settings);
         }
         return `Status invoice ${invoice}: ${status.data?.status || 'pending'}`;
+      }
+
+      if (['admin', '.owner', 'owner'].includes(text)) {
+        return `Admin/Owner: ${settings.admin_whatsapp || profile.data?.account?.phone || '-'}`;
       }
 
       return null;

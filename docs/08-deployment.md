@@ -163,3 +163,22 @@ ADMIN_MONITORING_LID=64957102211197@lid
 
 Bot Engine must not access database directly.
 
+## Vercel Observability
+
+Frontend production includes Vercel Speed Insights:
+
+```tsx
+import { injectSpeedInsights } from '@vercel/speed-insights';
+```
+
+The injector is called in `apps/web/src/main.tsx`. It must stay frontend-only and must not add backend polling or expose provider keys.
+
+## Final Deploy Rule
+
+- Push to `main` triggers Vercel/Railway auto deploy when the GitHub integrations are connected.
+- Run `npm run build` before push.
+- Backend and bot services must keep separate Railway roots:
+  - `apps/api/backend`
+  - `apps/bot-engine`
+- Admin maintenance backup/restore must remain preview-and-confirm based; uploaded backup files are not restored until confirm is clicked.
+

@@ -77,14 +77,18 @@ import {
 import { myNotifications } from '../modules/notification/notification.controller.js';
 import {
   botCatalog,
+  botAnalytics,
   botCreateOrder,
   botCreatePayment,
+  botHistory,
   botPaymentCancel,
   botPaymentStatus,
   botProfile,
+  botSettings as resellerBotSettings,
   botSessionConnect,
   botSessionLogout,
   botSessionStatus,
+  updateBotSettings as updateResellerBotSettings,
 } from '../modules/bot/bot.controller.js';
 import { auth, resellerOnly } from '../middlewares/auth.middleware.js';
 import { adminOnly } from '../middlewares/admin.middleware.js';
@@ -171,11 +175,17 @@ router.get('/community/settings', auth, communitySettings);
 router.get('/bot-settings', auth, resellerOnly, myBotSettings);
 router.patch('/bot-settings', auth, resellerOnly, updateMyBotSettings);
 router.get('/bot/profile', auth, resellerOnly, botProfile);
+router.get('/bot/settings', auth, resellerOnly, resellerBotSettings);
+router.patch('/bot/settings', auth, resellerOnly, updateResellerBotSettings);
 router.get('/bot/catalog', auth, resellerOnly, botCatalog);
 router.post('/bot/order', auth, resellerOnly, botCreateOrder);
+router.post('/bot/order/init', auth, resellerOnly, botCreatePayment);
+router.get('/bot/order/:invoice/status', auth, resellerOnly, botPaymentStatus);
 router.post('/bot/payments', auth, resellerOnly, botCreatePayment);
 router.get('/bot/payments/:invoice/status', auth, resellerOnly, botPaymentStatus);
 router.post('/bot/payments/:invoice/cancel', auth, resellerOnly, botPaymentCancel);
+router.get('/bot/history', auth, resellerOnly, botHistory);
+router.get('/bot/analytics', auth, resellerOnly, botAnalytics);
 router.post('/bot/session/connect', auth, resellerOnly, botSessionConnect);
 router.get('/bot/session/status', auth, resellerOnly, botSessionStatus);
 router.post('/bot/session/logout', auth, resellerOnly, botSessionLogout);
@@ -283,11 +293,17 @@ router.get('/docs', (_req, res) => {
       'POST /api/reseller/request',
       'GET /api/community/settings',
       'GET /api/bot/profile',
+      'GET /api/bot/settings',
+      'PATCH /api/bot/settings',
       'GET /api/bot/catalog',
       'POST /api/bot/order',
+      'POST /api/bot/order/init',
+      'GET /api/bot/order/:invoice/status',
       'POST /api/bot/payments',
       'GET /api/bot/payments/:invoice/status',
       'POST /api/bot/payments/:invoice/cancel',
+      'GET /api/bot/history',
+      'GET /api/bot/analytics',
       'POST /api/bot/session/connect',
       'GET /api/bot/session/status',
       'POST /api/bot/session/logout',

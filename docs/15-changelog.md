@@ -517,3 +517,16 @@ Next backend validations:
 - Bot engine API contract.
 - Performance cache and polling cleanup.
 - Railway deployment validation.
+
+## V3.2.2 Final Pre-Deploy Lock
+
+- Added Vercel Speed Insights for the Vite React frontend via `@vercel/speed-insights` and `injectSpeedInsights()`.
+- Added canonical `reseller_bot_settings` table and repository for reseller Bot WhatsApp settings.
+- Added `/api/bot/settings`, `/api/bot/order/init`, `/api/bot/history`, and `/api/bot/analytics`.
+- Bot catalog, bot QRIS init, greeting, catalog templates, and buy commands now use one reseller bot settings source.
+- Bot catalog templates `template_1`, `template_2`, and `template_3` are supported in the bot engine.
+- Bot buy commands support `buy22`, `buy 22`, and case-insensitive variants.
+- Bot payment success ledger is locked to buyer payment in, reseller modal out, and profit audit without double-credit.
+- Bot session connect/status/logout mirrors status into `users.bot_session_*` columns.
+- Frontend Bot WhatsApp panel now supports branding, hooks, template selection, percent/fixed margin preview, terms text, session connect/logout, and lightweight analytics.
+- Current production goal: keep ecosystem stable, avoid large rewrites, validate build before push/deploy, and use admin maintenance backup/restore only with preview/confirm.

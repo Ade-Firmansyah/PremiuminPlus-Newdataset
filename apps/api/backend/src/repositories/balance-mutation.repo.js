@@ -12,6 +12,9 @@ const ALLOWED_TYPES = new Set([
   'adjustment',
   'bonus',
   'reseller_commission',
+  'bot_payment_in',
+  'bot_order_cost',
+  'reseller_profit',
   'commission',
   'locked_balance',
 ]);

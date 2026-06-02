@@ -594,10 +594,16 @@ export async function rejectWithdraw(req, res) {
       return res.status(400).json({ status: false, message: 'Withdraw sudah diproses' });
     }
 
+    const notifyUser = req.body?.notify_user !== false;
+    const reason = String(req.body?.notes || req.body?.reason || '').trim() || 'Withdraw dibatalkan admin.';
+    const reasonCode = String(req.body?.reason_code || '').trim();
+    const notificationMessage = String(req.body?.notification_message || '').trim()
+      || `Withdraw ${data.invoice || `#${data.id}`} dibatalkan. Alasan: ${reason}`;
+
     const updated = await updateWithdraw(data.id, {
       status: 'rejected',
-      notes: req.body?.notes || data.notes || 'Rejected by admin',
-      admin_note: req.body?.notes || 'Rejected by admin',
+      notes: data.notes || '',
+      admin_note: reasonCode ? `${reasonCode}: ${reason}` : reason,
     });
 
     if (!updated) {
@@ -609,18 +615,20 @@ export async function rejectWithdraw(req, res) {
       target_type: 'withdraw',
       target_id: data.id,
       ip_address: req.ip,
-      metadata: { user_id: data.user_id, amount: data.amount },
+      metadata: { user_id: data.user_id, amount: data.amount, reason_code: reasonCode, reason },
     });
     deleteCachePrefix('admin:');
     deleteCachePrefix(`dashboard:user:${data.user_id}`);
-    await createNotification({
-      user_id: data.user_id,
-      title: 'Withdraw gagal',
-      message: 'Withdraw gagal. Silakan coba beberapa waktu lagi.',
-      type: 'withdraw',
-      target_role: null,
-      is_active: true,
-    });
+    if (notifyUser) {
+      await createNotification({
+        user_id: data.user_id,
+        title: 'Withdraw dibatalkan',
+        message: notificationMessage,
+        type: 'withdraw',
+        target_role: null,
+        is_active: true,
+      });
+    }
 
     res.json({ status: true, data: updated });
   } catch (error) {

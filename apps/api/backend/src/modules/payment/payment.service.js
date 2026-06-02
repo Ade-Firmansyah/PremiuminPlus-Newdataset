@@ -13,6 +13,8 @@ import { deleteCachePrefix, getCache, setCache } from '../../services/cache.serv
 import { applyWalletMutationInTransaction } from '../../services/wallet.service.js';
 import { getMarkupSetting } from '../../repositories/settings.repo.js';
 import { calculateProductPrices } from '../../services/product-pricing.service.js';
+import { calculateRoleSellPrice } from '../../services/pricing.service.js';
+import { getResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
 
 function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -102,6 +104,10 @@ function resolvePremkuInvoice(payment, fallback) {
   return String(payment?.invoice ?? payment?.data?.invoice ?? payment?.ref_id ?? payment?.data?.ref_id ?? fallback);
 }
 
+function asPlainObject(payload) {
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : { value: payload ?? null };
+}
+
 function resolveExpiredAt(payment, ttlMinutes = env.PAYMENT_QR_TTL_MINUTES) {
   const raw = payment?.expired_at ?? payment?.expires_at ?? payment?.data?.expired_at ?? payment?.data?.expires_at ?? null;
   const localExpiry = new Date(Date.now() + Math.max(1, Number(ttlMinutes || 5)) * 60 * 1000);
@@ -184,6 +190,51 @@ async function getRoleProductPricing(productId, qty = 1, user = { role: 'member'
   return { product, pricing, qty: numericQty, total: pricing.sellPrice * numericQty };
 }
 
+async function getBotProductPricing(productId, qty = 1, user = { role: 'reseller' }) {
+  const product = await findProductById(productId);
+  if (!product || product.status !== 'active') {
+    const error = new Error('Produk tidak ditemukan atau tidak aktif');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (Number(product.stock || 0) <= 0) {
+    const error = new Error('Stok produk habis');
+    error.statusCode = 400;
+    throw error;
+  }
+  const numericQty = Number(qty || 1);
+  if (!Number.isInteger(numericQty) || numericQty < 1) {
+    const error = new Error('Qty tidak valid');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const markupSetting = await getMarkupSetting();
+  const settings = await getResellerBotSettings(user);
+  const modalPricing = calculateRoleSellPrice(product, markupSetting, { ...user, role: 'reseller' });
+  const modalPrice = Number(product.reseller_price || modalPricing.modalPrice || modalPricing.sellPrice || 0);
+  const marginValue = Number(settings.reseller_margin_value || 0);
+  const marginAmount = settings.reseller_margin_type === 'fixed'
+    ? Math.round(marginValue)
+    : Math.round((modalPrice * marginValue) / 100);
+  const pricing = {
+    ...modalPricing,
+    modalPrice,
+    resellerMarkup: marginAmount,
+    reseller_markup_percent: settings.reseller_margin_type === 'percent' ? marginValue : 0,
+    reseller_margin_type: settings.reseller_margin_type,
+    reseller_margin_value: marginValue,
+    sellPrice: modalPrice + marginAmount,
+  };
+  return {
+    product,
+    pricing,
+    qty: numericQty,
+    total: pricing.sellPrice * numericQty,
+    modalTotal: Number(pricing.modalPrice || pricing.sellPrice) * numericQty,
+  };
+}
+
 export async function createDirectOrderPayment(user, payload) {
   if (!['member', 'reseller'].includes(user.role)) {
     const error = new Error('QRIS langsung hanya tersedia untuk member dan reseller');
@@ -238,7 +289,7 @@ export async function createBotOrderPayment(user, payload) {
     throw error;
   }
 
-  const { product, pricing, qty, total } = await getRoleProductPricing(payload.product_id, payload.qty, { ...user, include_personal_markup: true });
+  const { product, pricing, qty, total, modalTotal } = await getBotProductPricing(payload.product_id, payload.qty, user);
   const buyerWhatsapp = validateWhatsapp(payload.buyer_whatsapp || '');
   if (payload.buyer_whatsapp && !buyerWhatsapp) {
     const error = new Error('Nomor WhatsApp pembeli tidak valid');
@@ -246,7 +297,7 @@ export async function createBotOrderPayment(user, payload) {
     throw error;
   }
 
-  const modal = pricing.sellPrice * qty;
+  const modal = modalTotal;
   const resellerProfit = Math.max(total - modal, 0);
   const payment = await premkuPay({ amount: total });
   const invoice = createInvoice('PAY');
@@ -289,6 +340,98 @@ export async function createBotOrderPayment(user, payload) {
     reseller_profit: resellerProfit,
     expired_at: resolveExpiredAt(payment),
   });
+}
+
+async function applyBotPaymentLedger(connection, { payment, product, orderInvoice, total, modalTotal, resellerProfit, processedAt }) {
+  if (payment.payment_type !== 'bot_order') return null;
+
+  await applyWalletMutationInTransaction(connection, payment.user_id, {
+    mutation_type: 'bot_payment_in',
+    direction: 'in',
+    amount: total,
+    source_type: 'bot_payment',
+    source_ref: `${payment.invoice}-in`,
+    notes: `bot payment buyer ${product.name}`,
+  });
+
+  if (modalTotal > 0) {
+    await applyWalletMutationInTransaction(connection, payment.user_id, {
+      mutation_type: 'bot_order_cost',
+      direction: 'out',
+      amount: modalTotal,
+      source_type: 'bot_order',
+      source_ref: `${orderInvoice}-cost`,
+      notes: `modal bot ${product.name}`,
+    });
+  }
+
+  await connection.query(
+    `INSERT INTO transactions
+      (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'success', 'bot-qris', 'Pembayaran buyer via Bot WhatsApp', 'bot_payment_in', ?, ?)
+     ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
+    [
+      `${payment.invoice}-in`,
+      payment.invoice,
+      payment.user_id,
+      product.id,
+      product.name,
+      Number(payment.qty || 1),
+      modalTotal,
+      total,
+      total,
+      total,
+      processedAt,
+    ],
+  );
+
+  if (modalTotal > 0) {
+    await connection.query(
+      `INSERT INTO transactions
+        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'success', 'bot-qris', 'Modal reseller untuk order bot', 'bot_order_cost', ?, ?)
+       ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
+      [
+        `${orderInvoice}-cost`,
+        orderInvoice,
+        payment.user_id,
+        product.id,
+        product.name,
+        Number(payment.qty || 1),
+        modalTotal,
+        total,
+        modalTotal,
+        modalTotal,
+        processedAt,
+      ],
+    );
+  }
+
+  if (resellerProfit > 0) {
+    await connection.query(
+      `INSERT INTO transactions
+        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', 'bot-qris', 'Profit reseller Bot WhatsApp', 'reseller_profit', ?, ?)
+       ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
+      [
+        `${orderInvoice}-profit`,
+        orderInvoice,
+        payment.user_id,
+        product.id,
+        product.name,
+        Number(payment.qty || 1),
+        modalTotal,
+        total,
+        resellerProfit,
+        resellerProfit,
+        resellerProfit,
+        resellerProfit,
+        processedAt,
+      ],
+    );
+  }
+
+  return { credited: total, debited: modalTotal, profit: resellerProfit };
 }
 
 async function processSuccessfulPayment(invoice, statusResponse) {
@@ -372,6 +515,15 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           password: stockItem.password_account,
           description: stockItem.description,
         }));
+        const botLedger = await applyBotPaymentLedger(connection, {
+          payment,
+          product,
+          orderInvoice,
+          total,
+          modalTotal,
+          resellerProfit,
+          processedAt,
+        });
 
       await connection.query(
         `UPDATE payments
@@ -432,21 +584,11 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           manualSource,
           targetWhatsapp || null,
           total,
-          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts }),
+          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts, bot_ledger: botLedger }),
           processedAt,
           processedAt,
         ],
       );
-      if (isBotOrder && resellerProfit > 0) {
-        await applyWalletMutationInTransaction(connection, payment.user_id, {
-          mutation_type: 'reseller_commission',
-          direction: 'in',
-          amount: resellerProfit,
-          source_type: 'order_profit',
-          source_ref: `${orderInvoice}-profit`,
-          notes: `profit bot ${product.name}`,
-        });
-      }
 
       const [updatedPaymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
       const [orderRows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [orderInvoice]);
@@ -458,6 +600,16 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     }
 
     let external;
+    const providerProcessedAt = toMysqlDate();
+    const botLedger = await applyBotPaymentLedger(connection, {
+      payment,
+      product,
+      orderInvoice,
+      total,
+      modalTotal,
+      resellerProfit,
+      processedAt: providerProcessedAt,
+    });
     try {
       external = await premkuOrder({
         product_id: product.premku_id || product.id,
@@ -465,7 +617,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         ref_id: orderInvoice,
       });
     } catch (error) {
-      const processedAt = toMysqlDate();
+      const processedAt = providerProcessedAt;
       const fallbackResponse = { message: error instanceof Error ? error.message : 'Premku order request failed after paid QRIS' };
       await connection.query(
         `UPDATE payments
@@ -498,7 +650,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           Math.max(total - modalTotal, 0),
           resellerProfit,
           JSON.stringify(null),
-          JSON.stringify(fallbackResponse),
+          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
           product.image || product.image_url || null,
           product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
@@ -520,7 +672,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           orderInvoice,
           targetWhatsapp || null,
           total,
-          JSON.stringify(fallbackResponse),
+          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger }),
           processedAt,
         ],
       );
@@ -537,7 +689,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     const orderStatus = normalizeOrderStatus(external);
     const accounts = orderStatus === 'success' ? extractAccounts(external) : [];
     const firstAccount = accounts[0] || {};
-    const processedAt = toMysqlDate();
+    const processedAt = providerProcessedAt;
     const providerInvoice = resolvePremkuInvoice(external, orderInvoice);
 
     await connection.query(
@@ -576,7 +728,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         resellerProfit,
         orderStatus,
         JSON.stringify(accounts.length ? accounts : null),
-        JSON.stringify(external ?? null),
+        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger }),
         isBotOrder ? 'bot-qris' : 'qris-direct',
         product.image || product.image_url || null,
         product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
@@ -615,21 +767,11 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         targetWhatsapp || null,
         orderStatus === 'success' ? (accounts.length ? 'pending' : 'manual_pending') : 'pending',
         total,
-        JSON.stringify(external ?? null),
+        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger }),
         processedAt,
         orderStatus === 'success' ? processedAt : null,
       ],
     );
-    if (isBotOrder && orderStatus === 'success' && resellerProfit > 0) {
-      await applyWalletMutationInTransaction(connection, payment.user_id, {
-        mutation_type: 'reseller_commission',
-        direction: 'in',
-        amount: resellerProfit,
-        source_type: 'order_profit',
-        source_ref: `${orderInvoice}-profit`,
-        notes: `profit bot ${product.name}`,
-      });
-    }
     await connection.query(
       `INSERT INTO activity_logs (actor_id, user_id, scope, message, activity, metadata)
        VALUES (?, ?, 'ORDER', 'Direct QRIS order processed', 'Direct QRIS order processed', CAST(? AS JSON))`,

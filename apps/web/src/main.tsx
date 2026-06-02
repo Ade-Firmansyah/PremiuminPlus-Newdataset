@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { injectSpeedInsights } from '@vercel/speed-insights';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/app.css';
@@ -14,6 +15,7 @@ document.querySelector('meta[property="og:site_name"]')?.setAttribute('content',
 document.querySelector('meta[property="og:title"]')?.setAttribute('content', appTitle);
 document.querySelector('meta[property="og:description"]')?.setAttribute('content', appDescription);
 document.querySelector('meta[name="twitter:title"]')?.setAttribute('content', 'Premiumin Plus');
+injectSpeedInsights();
 
 // Entry point ini hanya menyalakan React dan stylesheet utama.
 createRoot(document.getElementById('root')!).render(

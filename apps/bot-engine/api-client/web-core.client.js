@@ -58,7 +58,7 @@ export function createWebCoreClient(config) {
         body: JSON.stringify(payload),
       }),
     payment: (payload) =>
-      request(config, '/bot/payments', {
+      request(config, '/bot/order/init', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),

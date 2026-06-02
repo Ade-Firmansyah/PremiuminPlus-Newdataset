@@ -235,6 +235,7 @@ export class BotSessionManager {
         text,
         jid: remoteJid,
         messageId: message.key?.id,
+        pushName: message.pushName || '',
       });
 
       if (response && session.socket) {
@@ -280,7 +281,7 @@ export class BotSessionManager {
         const paymentStatus = String(status.data?.status || '').toLowerCase();
         const orderStatus = String(status.data?.order?.order_status || '').toLowerCase();
 
-        if (paymentStatus === 'success' && orderStatus === 'success' && status.data.order && session.socket) {
+        if (['success', 'payment_success'].includes(paymentStatus) && orderStatus === 'success' && status.data.order && session.socket) {
           await session.socket.sendMessage(remoteJid, { text: formatSuccess(status.data.order) });
           finish();
         } else if (['failed', 'expired', 'canceled'].includes(orderStatus || paymentStatus)) {
@@ -306,7 +307,7 @@ export class BotSessionManager {
     const reminderTimer = setTimeout(async () => {
       try {
         const status = await client.paymentStatus(invoice);
-        if (status.data?.status === 'pending' && session.socket) {
+        if (['pending', 'pending_payment'].includes(String(status.data?.status || '').toLowerCase()) && session.socket) {
           await session.socket.sendMessage(remoteJid, {
             text: [
               '⚠️ PENGINGAT PEMBAYARAN',
@@ -330,7 +331,7 @@ export class BotSessionManager {
     const cancelTimer = setTimeout(async () => {
       try {
         const status = await client.paymentStatus(invoice);
-        if (status.data?.status === 'pending') {
+        if (['pending', 'pending_payment'].includes(String(status.data?.status || '').toLowerCase())) {
           await client.paymentCancel(invoice);
           if (session.socket) {
             await session.socket.sendMessage(remoteJid, {

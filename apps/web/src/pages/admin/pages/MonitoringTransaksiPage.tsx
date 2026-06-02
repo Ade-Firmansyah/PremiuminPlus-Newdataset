@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Banknote, CheckCircle2, ListFilter, ReceiptText, RefreshCcw, XCircle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Banknote, Bell, CheckCircle2, ListFilter, ReceiptText, RefreshCcw, XCircle } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from '../../dashboardPageKit';
 import { formatCurrency } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
 import { premiuminApi, type DepositRecord, type OrderRecord, type ResellerRequestRecord, type WithdrawRecord } from '../../../services/api';
 
 type TabKey = 'topup' | 'order' | 'withdraw' | 'reseller';
+
+const WITHDRAW_REJECT_REASONS = [
+  { code: 'account_name_mismatch', label: 'Nama tidak sesuai', message: 'Nama penerima tidak sesuai dengan rekening/e-wallet tujuan.' },
+  { code: 'account_number_invalid', label: 'Nomor rekening salah', message: 'Nomor rekening atau akun e-wallet tidak valid.' },
+  { code: 'account_inactive', label: 'Akun tidak aktif', message: 'Rekening/e-wallet tujuan tidak aktif atau tidak bisa menerima dana.' },
+  { code: 'duplicate_request', label: 'Request duplikat', message: 'Pengajuan withdraw terdeteksi duplikat dan dibatalkan.' },
+  { code: 'other', label: 'Lainnya', message: 'Withdraw belum dapat diproses. Silakan cek kembali data tujuan.' },
+];
 
 export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: string } = {}) {
   const [tab, setTab] = useState<TabKey>('topup');
@@ -15,6 +23,7 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
   const [resellerRequests, setResellerRequests] = useState<ResellerRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
+  const [rejectDraft, setRejectDraft] = useState<{ row: WithdrawRecord; reasonCode: string; notes: string; notifyUser: boolean } | null>(null);
   const [error, setError] = useState('');
   const apiKey = sessionApiKey || getApiKey();
 
@@ -56,18 +65,24 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
     [withdraws],
   );
 
-  const handleWithdrawAction = async (id: number, action: 'approve' | 'reject') => {
+  const handleWithdrawAction = async (id: number, action: 'approve' | 'reject', payload?: { reasonCode?: string; notes?: string; notifyUser?: boolean }) => {
     setActionLoadingId(id);
     setError('');
     try {
       if (action === 'approve') {
         await premiuminApi.adminApproveWithdraw(id, apiKey || undefined);
       } else {
-        const notes = window.prompt('Catatan penolakan (opsional)?') || '';
-        await premiuminApi.adminRejectWithdraw(id, notes, apiKey || undefined);
+        const preset = WITHDRAW_REJECT_REASONS.find((item) => item.code === payload?.reasonCode) || WITHDRAW_REJECT_REASONS[WITHDRAW_REJECT_REASONS.length - 1];
+        const notes = payload?.notes?.trim() || preset.message;
+        await premiuminApi.adminRejectWithdraw(id, notes, apiKey || undefined, {
+          reason_code: preset.code,
+          notify_user: payload?.notifyUser !== false,
+          notification_message: `Withdraw dibatalkan: ${notes}`,
+        });
       }
 
       await load();
+      setRejectDraft(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal memproses withdraw.');
     } finally {
@@ -157,7 +172,7 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
             : tab === 'order'
               ? 'Menampilkan order dari backend.'
               : tab === 'withdraw'
-                ? 'Menampilkan withdraw pending dari backend.'
+                ? 'Kelola withdraw: selesaikan jika dana sudah dikirim, batalkan jika data tidak valid.'
                 : 'Menampilkan request upgrade reseller dari backend.'}
         </div>
 
@@ -265,16 +280,16 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
                             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            Approve
+                            Selesaikan
                           </button>
                           <button
                             type="button"
-                            onClick={() => void handleWithdrawAction(row.id, 'reject')}
+                            onClick={() => setRejectDraft({ row, reasonCode: 'account_name_mismatch', notes: WITHDRAW_REJECT_REASONS[0].message, notifyUser: true })}
                             disabled={actionLoadingId === row.id || row.status !== 'pending'}
                             className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-200 disabled:opacity-50"
                           >
                             <XCircle className="h-3.5 w-3.5" />
-                            Reject
+                            Batalkan
                           </button>
                         </div>
                       </td>
@@ -360,6 +375,72 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
           </NeonCard>
         </div>
       </PageSection>
+
+      {rejectDraft ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0b0a14] p-5 shadow-2xl shadow-brand/20">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black text-white">Batalkan Withdraw</p>
+                <p className="mt-1 text-xs text-white/45">{rejectDraft.row.invoice || `Withdraw #${rejectDraft.row.id}`} • {formatCurrency(rejectDraft.row.amount || 0)}</p>
+              </div>
+              <button type="button" onClick={() => setRejectDraft(null)} className="rounded-xl border border-white/10 p-2 text-white/55">
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {WITHDRAW_REJECT_REASONS.map((reason) => (
+                <button
+                  key={reason.code}
+                  type="button"
+                  onClick={() => setRejectDraft((current) => current ? { ...current, reasonCode: reason.code, notes: reason.message } : current)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${
+                    rejectDraft.reasonCode === reason.code ? 'border-brand/45 bg-brand/15 text-white' : 'border-white/10 bg-white/5 text-white/65 hover:bg-white/10'
+                  }`}
+                >
+                  {reason.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="mt-4 block">
+              <span className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Catatan untuk user</span>
+              <textarea
+                value={rejectDraft.notes}
+                onChange={(event) => setRejectDraft((current) => current ? { ...current, notes: event.target.value } : current)}
+                className="mt-2 min-h-[96px] w-full rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none focus:border-brand/50"
+                placeholder="Contoh: Nama rekening tidak sesuai dengan nama penerima."
+              />
+            </label>
+
+            <label className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
+              <input
+                type="checkbox"
+                checked={rejectDraft.notifyUser}
+                onChange={(event) => setRejectDraft((current) => current ? { ...current, notifyUser: event.target.checked } : current)}
+                className="accent-brand"
+              />
+              Kirim notifikasi ke user
+            </label>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={() => setRejectDraft(null)} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/70">
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleWithdrawAction(rejectDraft.row.id, 'reject', { reasonCode: rejectDraft.reasonCode, notes: rejectDraft.notes, notifyUser: rejectDraft.notifyUser })}
+                disabled={actionLoadingId === rejectDraft.row.id}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/15 px-4 py-3 text-sm font-black text-rose-100 disabled:opacity-60"
+              >
+                <Bell className="h-4 w-4" />
+                Konfirmasi Batalkan
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

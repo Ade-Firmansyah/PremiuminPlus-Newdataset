@@ -137,6 +137,33 @@ const TABLES = {
       'CONSTRAINT fk_product_stock_items_product_id FOREIGN KEY (product_id) REFERENCES products(id)'
     ]
   },
+  reseller_bot_settings: {
+    columns: {
+      id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
+      user_id: 'BIGINT UNSIGNED NOT NULL',
+      brand_name: "VARCHAR(120) NOT NULL DEFAULT 'PREMIUMIN PLUS BOT'",
+      greeting_hooks: "VARCHAR(255) NOT NULL DEFAULT 'p,ping,halo,haloo,bro'",
+      welcome_message: "TEXT NULL",
+      admin_whatsapp: 'VARCHAR(40) NULL',
+      operational_hours: "VARCHAR(120) NOT NULL DEFAULT '08.00 - 21.00 WIB'",
+      closing_message: "TEXT NULL",
+      catalog_template: "VARCHAR(32) NOT NULL DEFAULT 'template_1'",
+      order_template: "VARCHAR(32) NOT NULL DEFAULT 'template_1'",
+      terms_text: 'TEXT NULL',
+      reseller_margin_type: "VARCHAR(16) NOT NULL DEFAULT 'percent'",
+      reseller_margin_value: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 10.00',
+      is_active: 'TINYINT(1) NOT NULL DEFAULT 1',
+      created_at: 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+      updated_at: 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+    },
+    indexes: [
+      { name: 'uq_reseller_bot_settings_user_id', unique: true, columns: ['user_id'] },
+      { name: 'idx_reseller_bot_settings_is_active', columns: ['is_active'] }
+    ],
+    constraints: [
+      'CONSTRAINT fk_reseller_bot_settings_user_id FOREIGN KEY (user_id) REFERENCES users(id)'
+    ]
+  },
   transactions: {
     columns: {
       id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
