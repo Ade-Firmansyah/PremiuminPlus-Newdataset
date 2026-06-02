@@ -7,7 +7,14 @@ function normalizeProductSource(value, isManual = false) {
   return isManual ? 'manual' : 'provider';
 }
 
+function toValidId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 async function refreshManualStockCountByProductId(productId) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return;
   await execute(
     `UPDATE products p
      SET manual_stock_count = (
@@ -24,7 +31,7 @@ async function refreshManualStockCountByProductId(productId) {
        ELSE p.stock
      END
      WHERE p.id = ?`,
-    [Number(productId)],
+    [safeProductId],
   );
 }
 
@@ -79,6 +86,8 @@ export async function listProducts() {
 }
 
 export async function findProductById(id) {
+  const safeId = toValidId(id);
+  if (!safeId) return null;
   const rows = await query(
     `SELECT p.*,
       COALESCE(stock.available_stock, 0) AS available_stock
@@ -91,7 +100,7 @@ export async function findProductById(id) {
      ) stock ON stock.product_id = p.id
      WHERE p.id = ?
      LIMIT 1`,
-    [Number(id)],
+    [safeId],
   );
   return toProduct(rows[0] || null);
 }
@@ -179,7 +188,9 @@ export async function createProduct(payload) {
 }
 
 export async function updateProduct(id, payload) {
-  const current = await findProductById(id);
+  const safeId = toValidId(id);
+  if (!safeId) return null;
+  const current = await findProductById(safeId);
   if (!current) return null;
 
   await execute(
@@ -207,21 +218,23 @@ export async function updateProduct(id, payload) {
       payload.provider_stock_count !== undefined ? Number(payload.provider_stock_count || 0) : current.provider_stock_count,
       payload.discount_label_percent !== undefined ? Number(payload.discount_label_percent || 0) : current.discount_label_percent,
       payload.status !== undefined ? (payload.status === 'inactive' ? 'inactive' : 'active') : current.status,
-      Number(id),
+      safeId,
     ],
   );
-  return findProductById(id);
+  return findProductById(safeId);
 }
 
 export async function deleteProduct(id) {
-  const current = await findProductById(id);
+  const safeId = toValidId(id);
+  if (!safeId) return null;
+  const current = await findProductById(safeId);
   if (!current) return null;
 
   try {
-    await execute('DELETE FROM products WHERE id = ?', [Number(id)]);
+    await execute('DELETE FROM products WHERE id = ?', [safeId]);
   } catch (error) {
     if (error?.code === 'ER_ROW_IS_REFERENCED_2') {
-      await execute('UPDATE products SET status = "inactive", stock = 0 WHERE id = ?', [Number(id)]);
+      await execute('UPDATE products SET status = "inactive", stock = 0 WHERE id = ?', [safeId]);
       return { ...current, status: 'inactive', stock: 0 };
     }
     throw error;
@@ -231,6 +244,8 @@ export async function deleteProduct(id) {
 }
 
 export async function reserveManualStockItem(connection, productId, invoice) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return null;
   const [rows] = await connection.query(
     `SELECT *
      FROM product_stock_items
@@ -239,7 +254,7 @@ export async function reserveManualStockItem(connection, productId, invoice) {
      ORDER BY id ASC
      LIMIT 1
      FOR UPDATE`,
-    [Number(productId)],
+    [safeProductId],
   );
   const item = rows[0];
   if (!item) return null;
@@ -264,6 +279,8 @@ export async function reserveManualStockItem(connection, productId, invoice) {
 }
 
 export async function reserveManualStockItems(connection, productId, invoice, qty = 1) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return [];
   const limit = Math.max(1, Number(qty || 1));
   const [rows] = await connection.query(
     `SELECT *
@@ -273,7 +290,7 @@ export async function reserveManualStockItems(connection, productId, invoice, qt
      ORDER BY id ASC
      LIMIT ?
      FOR UPDATE`,
-    [Number(productId), limit],
+    [safeProductId, limit],
   );
   if (rows.length < limit) return [];
 
@@ -298,6 +315,8 @@ export async function reserveManualStockItems(connection, productId, invoice, qt
 }
 
 export async function markManualStockUsed(connection, itemId, invoice) {
+  const safeItemId = toValidId(itemId);
+  if (!safeItemId) return;
   await connection.query(
     `UPDATE product_stock_items
      SET status = 'used',
@@ -305,7 +324,7 @@ export async function markManualStockUsed(connection, itemId, invoice) {
          used_at = NOW(),
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ? AND status IN ('available','reserved')`,
-    [invoice, Number(itemId)],
+    [invoice, safeItemId],
   );
 }
 
@@ -324,6 +343,8 @@ export async function markManualStockItemsUsed(connection, itemIds, invoice) {
 }
 
 export async function refreshManualStockCount(connection, productId) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return;
   await connection.query(
     `UPDATE products p
      SET manual_stock_count = (
@@ -340,17 +361,19 @@ export async function refreshManualStockCount(connection, productId) {
        ELSE p.stock
      END
      WHERE p.id = ?`,
-    [Number(productId)],
+    [safeProductId],
   );
 }
 
 export async function listProductStockItems(productId) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return [];
   const rows = await query(
     `SELECT id, product_id, email_account, password_account, description, status, reserved_by_order_invoice, used_by_order_invoice, created_at, reserved_at, used_at
      FROM product_stock_items
      WHERE product_id = ?
      ORDER BY id DESC`,
-    [Number(productId)],
+    [safeProductId],
   );
 
   return rows.map((row) => ({
@@ -361,30 +384,35 @@ export async function listProductStockItems(productId) {
 }
 
 export async function addManualStockItem(productId, payload) {
+  const safeProductId = toValidId(productId);
+  if (!safeProductId) return null;
   await execute(
     `INSERT INTO product_stock_items
       (product_id, email_account, password_account, description, status)
      VALUES (?, ?, ?, ?, 'available')`,
     [
-      Number(productId),
+      safeProductId,
       String(payload.email_account || payload.email || '').trim(),
       encryptString(payload.password_account || payload.password || ''),
       payload.description || payload.note || '',
     ],
   );
 
-  await refreshManualStockCountByProductId(productId);
+  await refreshManualStockCountByProductId(safeProductId);
 
-  return findProductById(productId);
+  return findProductById(safeProductId);
 }
 
 export async function updateManualStockItem(productId, itemId, payload) {
+  const safeProductId = toValidId(productId);
+  const safeItemId = toValidId(itemId);
+  if (!safeProductId || !safeItemId) return null;
   const rows = await query(
     `SELECT id, product_id, password_account, status
      FROM product_stock_items
      WHERE id = ? AND product_id = ?
      LIMIT 1`,
-    [Number(itemId), Number(productId)],
+    [safeItemId, safeProductId],
   );
   const current = rows[0];
   if (!current) return null;
@@ -413,34 +441,39 @@ export async function updateManualStockItem(productId, itemId, payload) {
       nextPassword,
       payload.description || payload.note || '',
       nextStatus,
-      Number(itemId),
-      Number(productId),
+      safeItemId,
+      safeProductId,
     ],
   );
-  await refreshManualStockCountByProductId(productId);
-  return findProductById(productId);
+  await refreshManualStockCountByProductId(safeProductId);
+  return findProductById(safeProductId);
 }
 
 export async function updateManualStockItemById(itemId, payload) {
+  const safeItemId = toValidId(itemId);
+  if (!safeItemId) return null;
   const rows = await query(
     `SELECT id, product_id
      FROM product_stock_items
      WHERE id = ?
      LIMIT 1`,
-    [Number(itemId)],
+    [safeItemId],
   );
   const current = rows[0];
   if (!current) return null;
-  return updateManualStockItem(current.product_id, itemId, payload);
+  return updateManualStockItem(current.product_id, safeItemId, payload);
 }
 
 export async function deleteManualStockItem(productId, itemId) {
+  const safeProductId = toValidId(productId);
+  const safeItemId = toValidId(itemId);
+  if (!safeProductId || !safeItemId) return null;
   const rows = await query(
     `SELECT id, product_id, status
      FROM product_stock_items
      WHERE id = ? AND product_id = ?
      LIMIT 1`,
-    [Number(itemId), Number(productId)],
+    [safeItemId, safeProductId],
   );
   const current = rows[0];
   if (!current) return null;
@@ -450,31 +483,35 @@ export async function deleteManualStockItem(productId, itemId) {
     throw error;
   }
 
-  await execute('DELETE FROM product_stock_items WHERE id = ? AND product_id = ?', [Number(itemId), Number(productId)]);
-  await refreshManualStockCountByProductId(productId);
-  return findProductById(productId);
+  await execute('DELETE FROM product_stock_items WHERE id = ? AND product_id = ?', [safeItemId, safeProductId]);
+  await refreshManualStockCountByProductId(safeProductId);
+  return findProductById(safeProductId);
 }
 
 export async function deleteManualStockItemById(itemId) {
+  const safeItemId = toValidId(itemId);
+  if (!safeItemId) return null;
   const rows = await query(
     `SELECT id, product_id
      FROM product_stock_items
      WHERE id = ?
      LIMIT 1`,
-    [Number(itemId)],
+    [safeItemId],
   );
   const current = rows[0];
   if (!current) return null;
-  return deleteManualStockItem(current.product_id, itemId);
+  return deleteManualStockItem(current.product_id, safeItemId);
 }
 
 export async function disableManualStockItem(itemId) {
+  const safeItemId = toValidId(itemId);
+  if (!safeItemId) return null;
   const rows = await query(
     `SELECT id, product_id, status
      FROM product_stock_items
      WHERE id = ?
      LIMIT 1`,
-    [Number(itemId)],
+    [safeItemId],
   );
   const current = rows[0];
   if (!current) return null;
@@ -489,7 +526,7 @@ export async function disableManualStockItem(itemId) {
      SET status = 'disabled',
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ? AND status = 'available'`,
-    [Number(itemId)],
+    [safeItemId],
   );
   await refreshManualStockCountByProductId(current.product_id);
   return findProductById(current.product_id);

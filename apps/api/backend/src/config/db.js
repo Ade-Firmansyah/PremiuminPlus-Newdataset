@@ -1044,7 +1044,8 @@ async function query(sql, params = []) {
 
 async function execute(sql, params = []) {
   if (!pool) throw new Error('Database pool not initialized');
-  return pool.execute(sql, params);
+  const [result] = await pool.execute(sql, params);
+  return result;
 }
 
 async function transaction(callback) {
