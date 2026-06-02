@@ -192,7 +192,7 @@ delivery_status = manual_pending
 
 ## Direct Payment Order
 
-Direct payment order is allowed when saldo is insufficient.
+Direct payment order is allowed when saldo is insufficient for `member` and `reseller`.
 
 Lifecycle:
 
@@ -205,6 +205,13 @@ credential_delivery
 ```
 
 Payment worker must be idempotent and use row locks.
+
+QRIS direct payment:
+
+- QRIS berlaku 60 menit dari `payments.expired_at`.
+- Frontend countdown wajib memakai normalized status `pending_payment -> pending`.
+- Riwayat QRIS pembayaran langsung boleh disimpan lokal di browser agar invoice pending bisa dibuka ulang tanpa membuat QR baru.
+- Order ke provider/manual/hybrid hanya boleh berjalan setelah Premku payment status valid `success`.
 
 ## Credential Safety
 

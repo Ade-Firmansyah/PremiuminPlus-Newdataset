@@ -385,6 +385,7 @@ export interface DirectPaymentRecord {
   processed_at?: string | null;
   expired_at?: string | null;
   canceled_at?: string | null;
+  created_at?: string | null;
   order?: {
     invoice: string;
     product_name?: string;
@@ -401,7 +402,6 @@ export interface DirectPaymentRecord {
     success_at?: string | null;
     created_at?: string;
   } | null;
-  created_at?: string;
 }
 
 export interface PremkuProfileRecord {

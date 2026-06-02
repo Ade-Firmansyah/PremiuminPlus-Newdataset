@@ -8,6 +8,18 @@ import { premiuminApi, type AppRole, type DirectPaymentRecord, type ProductRecor
 import { useStablePolling } from '../hooks/useStablePolling';
 
 const directPaymentStorageKey = 'premiuminplus:direct-payment-invoice';
+const directPaymentHistoryStorageKey = 'premiuminplus:direct-payment-history';
+
+interface DirectPaymentHistoryItem {
+  invoice: string;
+  product_id?: number | null;
+  product_name: string;
+  total_bayar: number;
+  amount: number;
+  status: string;
+  expired_at?: string | null;
+  created_at?: string | null;
+}
 
 function renderQrSource(value?: string | null) {
   if (!value) return '';
@@ -43,6 +55,25 @@ function paymentStatusTone(status: string) {
   return 'border-rose-500/20 bg-rose-500/10 text-rose-200';
 }
 
+function formatPaymentCountdown(seconds: number) {
+  const safeSeconds = Math.max(0, Number(seconds || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const rest = safeSeconds % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function readDirectPaymentHistory() {
+  try {
+    const raw = localStorage.getItem(directPaymentHistoryStorageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.invoice).slice(0, 8) as DirectPaymentHistoryItem[] : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function Order() {
   const [catalog, setCatalog] = useState<ProductRecord[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number>(0);
@@ -57,6 +88,7 @@ export default function Order() {
   const [adminWhatsapp, setAdminWhatsapp] = useState('');
   const [showDirectConfirm, setShowDirectConfirm] = useState(false);
   const [directPayment, setDirectPayment] = useState<DirectPaymentRecord | null>(null);
+  const [directPaymentHistory, setDirectPaymentHistory] = useState<DirectPaymentHistoryItem[]>(() => readDirectPaymentHistory());
   const [directLoading, setDirectLoading] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [paymentSecondsLeft, setPaymentSecondsLeft] = useState(0);
@@ -77,6 +109,25 @@ export default function Order() {
   const canShowDirectQr = Boolean(directPaymentPending && paymentSecondsLeft > 0 && directQrSource);
   const canCheckDirectPayment = Boolean(directPaymentPending && !checkingPayment);
   const canCancelDirectPayment = Boolean(directPaymentPending && !directLoading);
+
+  const rememberDirectPayment = (payment: DirectPaymentRecord) => {
+    const product = catalog.find((item) => Number(item.id) === Number(payment.product_id || 0));
+    const item: DirectPaymentHistoryItem = {
+      invoice: payment.invoice,
+      product_id: payment.product_id || product?.id || null,
+      product_name: payment.order?.product_name || product?.name || 'QRIS Pembayaran',
+      total_bayar: Number(payment.total_bayar || payment.amount || 0),
+      amount: Number(payment.amount || 0),
+      status: normalizeDirectPaymentStatus(payment.status),
+      expired_at: payment.expired_at || null,
+      created_at: payment.created_at || new Date().toISOString(),
+    };
+    setDirectPaymentHistory((current) => {
+      const next = [item, ...current.filter((history) => history.invoice !== item.invoice)].slice(0, 8);
+      localStorage.setItem(directPaymentHistoryStorageKey, JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -139,8 +190,10 @@ export default function Order() {
         if (!active || !mountedRef.current) return;
         if (!isProviderFailed(response.data)) {
           setDirectPayment(response.data);
+          rememberDirectPayment(response.data);
         } else {
           sessionStorage.removeItem(directPaymentStorageKey);
+          rememberDirectPayment(response.data);
         }
       })
       .catch(() => {
@@ -163,6 +216,7 @@ export default function Order() {
   const applyDirectPaymentResult = async (payment: DirectPaymentRecord) => {
     if (!mountedRef.current) return;
     setDirectPayment(payment);
+    rememberDirectPayment(payment);
     window.dispatchEvent(new Event('premiuminplus:orders-updated'));
     if (isProviderFailed(payment)) {
       sessionStorage.removeItem(directPaymentStorageKey);
@@ -221,7 +275,7 @@ export default function Order() {
   );
 
   useEffect(() => {
-    if (!directPayment?.expired_at || directPayment.status !== 'pending') {
+    if (!directPayment?.expired_at || normalizeDirectPaymentStatus(directPayment.status) !== 'pending') {
       setPaymentSecondsLeft(0);
       expiryCheckRef.current = '';
       return;
@@ -236,7 +290,7 @@ export default function Order() {
   }, [directPayment?.expired_at, directPayment?.status]);
 
   useEffect(() => {
-    if (!directPayment?.invoice || directPayment.status !== 'pending' || paymentSecondsLeft > 0) return;
+    if (!directPayment?.invoice || normalizeDirectPaymentStatus(directPayment.status) !== 'pending' || paymentSecondsLeft > 0) return;
     const expiry = new Date(directPayment.expired_at || '').getTime();
     if (!Number.isFinite(expiry) || expiry > Date.now()) return;
     if (expiryCheckRef.current === directPayment.invoice) return;
@@ -258,6 +312,7 @@ export default function Order() {
       if (mountedRef.current) {
         sessionStorage.setItem(directPaymentStorageKey, response.data.invoice);
         setDirectPayment(response.data);
+        rememberDirectPayment(response.data);
       }
     } catch (caught) {
       if (mountedRef.current) setError(caught instanceof Error ? caught.message : 'Gagal membuat QRIS pembayaran.');
@@ -283,10 +338,29 @@ export default function Order() {
       const response = await premiuminApi.directPaymentCancel(directPayment.invoice, apiKey || undefined);
       if (mountedRef.current) {
         sessionStorage.removeItem(directPaymentStorageKey);
+        rememberDirectPayment(response.data);
         setDirectPayment(null);
       }
     } catch (caught) {
       if (mountedRef.current) setError(caught instanceof Error ? caught.message : 'Gagal membatalkan pembayaran.');
+    } finally {
+      if (mountedRef.current) setDirectLoading(false);
+    }
+  };
+
+  const openDirectPaymentHistory = async (invoice: string) => {
+    setDirectLoading(true);
+    setError('');
+    try {
+      const response = await premiuminApi.directPaymentStatus(invoice, apiKey || undefined);
+      if (!mountedRef.current) return;
+      setDirectPayment(response.data);
+      rememberDirectPayment(response.data);
+      if (!isProviderFailed(response.data)) {
+        sessionStorage.setItem(directPaymentStorageKey, response.data.invoice);
+      }
+    } catch (caught) {
+      if (mountedRef.current) setError(caught instanceof Error ? caught.message : 'Gagal membuka ulang QRIS pembayaran.');
     } finally {
       if (mountedRef.current) setDirectLoading(false);
     }
@@ -308,11 +382,11 @@ export default function Order() {
     setLastOrder(null);
 
     if (saldo < total) {
-      if (role === 'member') {
+      if (role === 'member' || role === 'reseller') {
         setError('Saldo tidak cukup. Silakan deposit saldo terlebih dahulu atau bayar QRIS langsung.');
         setShowDirectConfirm(true);
       } else {
-        setError('Saldo reseller tidak cukup. Silakan deposit saldo terlebih dahulu.');
+        setError('Saldo tidak cukup. Silakan deposit saldo terlebih dahulu.');
       }
       setOrdering(false);
       return;
@@ -498,6 +572,51 @@ export default function Order() {
         </NeonCard>
       </div>
 
+      <section className="rounded-[1.25rem] border border-white/10 bg-white/[0.04] p-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Riwayat QRIS</p>
+            <h3 className="text-lg font-extrabold text-white">Pembayaran langsung</h3>
+          </div>
+          <p className="text-xs text-white/45">Klik invoice pending untuk membuka ulang kode pembayaran.</p>
+        </div>
+        {directPaymentHistory.length ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {directPaymentHistory.map((item) => {
+              const status = normalizeDirectPaymentStatus(item.status);
+              const pending = status === 'pending' && !isExpiredTimestamp(item.expired_at);
+              return (
+                <button
+                  key={item.invoice}
+                  type="button"
+                  onClick={() => void openDirectPaymentHistory(item.invoice)}
+                  disabled={directLoading}
+                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:border-brand/35 hover:bg-brand/10 disabled:opacity-60"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-white">{item.product_name}</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-white/40">{item.invoice}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${paymentStatusTone(pending ? 'pending' : status)}`}>
+                      {pending ? 'pending' : status}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-black text-white">{formatCurrency(item.total_bayar || item.amount)}</span>
+                    <span className="text-white/45">{pending ? 'Buka QR' : 'Lihat status'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-black/15 px-4 py-5 text-sm text-white/45">
+            Belum ada QRIS pembayaran langsung di browser ini.
+          </div>
+        )}
+      </section>
+
       <section className="rounded-[1.25rem] border border-emerald-500/20 bg-[linear-gradient(145deg,rgba(16,185,129,0.12),rgba(14,165,233,0.08))] p-4">
         <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
           <div className="flex items-center gap-4">
@@ -589,7 +708,7 @@ export default function Order() {
                   ) : null}
                   {directPaymentPending && directPayment.expired_at ? (
                     <p className="mt-2 text-xs font-bold text-amber-200">
-                      Berlaku {Math.floor(paymentSecondsLeft / 60)}:{String(paymentSecondsLeft % 60).padStart(2, '0')}
+                      Berlaku {formatPaymentCountdown(paymentSecondsLeft)}
                     </p>
                   ) : null}
                 </div>

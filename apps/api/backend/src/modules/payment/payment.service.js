@@ -181,13 +181,13 @@ async function getRoleProductPricing(productId, qty = 1, user = { role: 'member'
 }
 
 export async function createDirectOrderPayment(user, payload) {
-  if (user.role !== 'member') {
-    const error = new Error('QRIS langsung hanya tersedia untuk member');
+  if (!['member', 'reseller'].includes(user.role)) {
+    const error = new Error('QRIS langsung hanya tersedia untuk member dan reseller');
     error.statusCode = 403;
     throw error;
   }
 
-  const { product, qty, total } = await getMemberProductPricing(payload.product_id, payload.qty);
+  const { product, qty, total } = await getRoleProductPricing(payload.product_id, payload.qty, user);
   const targetWhatsapp = validateWhatsapp(user.phone || '');
   const payment = await premkuPay({ amount: total });
   const invoice = createInvoice('PAY');
@@ -345,7 +345,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     const resellerProfit = Number(payment.reseller_profit || 0);
     const [paymentUserRows] = await connection.query('SELECT id, role, saldo FROM users WHERE id = ? LIMIT 1', [payment.user_id]);
     const paymentUser = paymentUserRows[0] || {};
-    const role = isBotOrder ? String(paymentUser.role || 'member').toLowerCase() : 'member';
+    const role = String(paymentUser.role || 'member').toLowerCase();
     const targetWhatsapp = validateWhatsapp(payment.target_whatsapp || '');
 
     if (product.product_source === 'manual' || product.product_source === 'hybrid') {
