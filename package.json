@@ -3,7 +3,13 @@
   "version": "3.2.2",
   "description": "Premiumin Plus V3.2 monorepo",
   "main": "apps/api/backend/server.js",
+  "private": true,
   "type": "commonjs",
+  "workspaces": [
+    "apps/web",
+    "apps/api/backend",
+    "apps/bot-engine"
+  ],
   "scripts": {
     "dev": "node scripts/dev-local.mjs",
     "build": "npm --prefix apps/web run build",

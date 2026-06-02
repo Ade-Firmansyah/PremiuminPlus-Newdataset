@@ -17,8 +17,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: '0.0.0.0',
       port: 3000,
       strictPort: true,
+      allowedHosts: [
+        'localhost',
+        '127.0.0.1',
+        'premiuminplus.store',
+        'www.premiuminplus.store',
+        'api.premiuminplus.store',
+      ],
       proxy: {
         '/api': {
           target: env.VITE_API_PROXY_TARGET || 'http://localhost:4000',
@@ -29,7 +37,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
+      // HMR is disabled in Premiumin Plus via DISABLE_HMR env var.
       // Do not modify - file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },

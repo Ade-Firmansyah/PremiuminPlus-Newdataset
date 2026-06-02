@@ -28,7 +28,7 @@ Status implementasi saat ini:
 Environment:
 
 ```env
-BOT_API_BASE_URL=http://localhost:4000/api
+BOT_API_BASE_URL=https://api.premiuminplus.store/api
 BOT_ENGINE_PORT=4100
 BOT_ENGINE_TOKEN=
 BOT_RESELLER_API_KEY=
@@ -45,7 +45,7 @@ node bot-engine/index.js
 Web-core should set:
 
 ```env
-BOT_ENGINE_URL=http://localhost:4100
+BOT_ENGINE_URL=https://bot.premiuminplus.store
 BOT_ENGINE_TOKEN=
 ```
 

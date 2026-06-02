@@ -13,8 +13,8 @@ if (!skipDbInit) {
   logger('BACKEND', { event: 'database-init-skipped', reason: 'SKIP_DB_INIT=true' });
 }
 
-const server = app.listen(env.PORT, () => {
-  logger('BACKEND', { event: 'server-started', port: env.PORT, dbInitialized: !skipDbInit });
+const server = app.listen(env.PORT, env.HOST, () => {
+  logger('BACKEND', { event: 'server-started', host: env.HOST, port: env.PORT, dbInitialized: !skipDbInit });
 });
 
 function shutdown(signal) {

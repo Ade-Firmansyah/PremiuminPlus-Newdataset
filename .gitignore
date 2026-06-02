@@ -8,6 +8,7 @@ coverage/
 .vscode/
 .env*
 !.env.example
+deploy/*.raw.env
 
 # Bot runtime state. Keep placeholders only; sessions contain WhatsApp credentials.
 bot-engine/sessions/*
