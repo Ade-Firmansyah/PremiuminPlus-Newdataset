@@ -70,6 +70,23 @@ Member can:
 
 Member has no managed bot locked balance behavior.
 
+## Deposit QRIS Lifecycle
+
+Deposit saldo memakai QRIS Premku melalui backend.
+
+Rules:
+
+- `POST /api/deposit` membuat invoice lokal `DEP-*` dan menyimpan `provider_invoice` Premku.
+- QRIS deposit berlaku 60 menit mengikuti `PAYMENT_QR_TTL_MINUTES`.
+- Frontend menormalkan `pending_payment` menjadi `pending` untuk countdown dan polling.
+- Polling status hanya berjalan saat deposit masih pending, interval ringan 15 detik dan pause saat tab hidden.
+- `GET /api/deposit/:invoice` wajib cek status Premku sebelum mengubah saldo.
+- Saldo hanya bertambah setelah Premku status valid `success`, invoice cocok, dan total bayar cocok.
+- Success bersifat idempotent memakai row lock, `processed_at`, wallet service, dan `source_ref = invoice`.
+- Setelah success, expired, canceled, failed, mismatch, atau manual required, backend menghapus `qr_data`, `qr_image`, dan `qr_raw` agar QR tidak bisa dipakai ulang dari UI.
+- Cancel deposit pending melakukan best-effort cancel ke Premku lalu menutup invoice lokal.
+- Riwayat QRIS deposit boleh disimpan lokal di browser untuk membuka ulang invoice pending tanpa membuat QR baru.
+
 ## Wallet Read Endpoints
 
 ```text

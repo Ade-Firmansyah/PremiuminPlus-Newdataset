@@ -204,10 +204,30 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
     }
 
     if (deposit.status === 'success' || deposit.processed_at) {
+      if (deposit.qr_data || deposit.qr_image || deposit.qr_raw) {
+        await connection.query(
+          `UPDATE deposits
+           SET qr_data = NULL, qr_image = NULL, qr_raw = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE invoice = ?`,
+          [invoice],
+        );
+        const [updatedRows] = await connection.query('SELECT * FROM deposits WHERE invoice = ? LIMIT 1', [invoice]);
+        return mapDepositRow(updatedRows[0] || deposit);
+      }
       return mapDepositRow(deposit);
     }
 
     if (['canceled', 'expired', 'failed'].includes(deposit.status)) {
+      if (deposit.qr_data || deposit.qr_image || deposit.qr_raw) {
+        await connection.query(
+          `UPDATE deposits
+           SET qr_data = NULL, qr_image = NULL, qr_raw = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE invoice = ?`,
+          [invoice],
+        );
+        const [updatedRows] = await connection.query('SELECT * FROM deposits WHERE invoice = ? LIMIT 1', [invoice]);
+        return mapDepositRow(updatedRows[0] || deposit);
+      }
       return mapDepositRow(deposit);
     }
 
@@ -215,7 +235,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
     if (!validation.ok) {
       await connection.query(
         `UPDATE deposits
-         SET status = ?, external_status_response = ?, qr_data = NULL, qr_image = NULL, updated_at = CURRENT_TIMESTAMP
+         SET status = ?, external_status_response = ?, qr_data = NULL, qr_image = NULL, qr_raw = NULL, updated_at = CURRENT_TIMESTAMP
          WHERE invoice = ?`,
         [
           validation.status || 'manual_required',
@@ -241,7 +261,7 @@ export async function applyDepositSuccess(invoice, externalResponse = {}) {
 
     await connection.query(
       `UPDATE deposits
-       SET status = 'success', external_status_response = ?, processed_at = ?, qr_data = NULL, qr_image = NULL, updated_at = CURRENT_TIMESTAMP
+       SET status = 'success', external_status_response = ?, processed_at = ?, qr_data = NULL, qr_image = NULL, qr_raw = NULL, updated_at = CURRENT_TIMESTAMP
        WHERE invoice = ? AND processed_at IS NULL AND status <> 'success'`,
       [JSON.stringify(externalResponse ?? parseDbJson(deposit.external_response, null)), processedAt, invoice],
     );

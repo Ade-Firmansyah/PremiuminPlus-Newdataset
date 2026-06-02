@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -442,18 +442,83 @@ function normalizeDepositUiStatus(status?: string | null) {
   return value;
 }
 
+function isExpiredTimestamp(value?: string | null) {
+  if (!value) return false;
+  const expiry = new Date(value).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
+}
+
+function formatPaymentCountdown(seconds: number) {
+  const safeSeconds = Math.max(0, Number(seconds || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const rest = safeSeconds % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function paymentStatusTone(status: string) {
+  if (status === 'success') return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200';
+  if (status === 'pending') return 'border-amber-500/20 bg-amber-500/10 text-amber-200';
+  if (status === 'expired' || status === 'canceled') return 'border-white/10 bg-white/5 text-white/45';
+  return 'border-rose-500/20 bg-rose-500/10 text-rose-200';
+}
+
+const depositHistoryStorageKey = 'premiuminplus:deposit-payment-history';
+
+interface DepositHistoryItem {
+  invoice: string;
+  amount: number;
+  total_bayar: number;
+  status: string;
+  expired_at?: string | null;
+  created_at?: string | null;
+}
+
+function readDepositHistory() {
+  try {
+    const raw = localStorage.getItem(depositHistoryStorageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.invoice).slice(0, 8) as DepositHistoryItem[] : [];
+  } catch {
+    return [];
+  }
+}
+
 function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; maintenanceActive?: boolean }) {
   const [amount, setAmount] = useState(50000);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [deposit, setDeposit] = useState<DepositRecord | null>(null);
+  const [depositHistory, setDepositHistory] = useState<DepositHistoryItem[]>(() => readDepositHistory());
+  const [paymentSecondsLeft, setPaymentSecondsLeft] = useState(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const expiryCheckRef = useRef('');
   const quickAmounts = [10000, 25000, 50000, 100000, 250000, 500000];
-  const depositStatus = normalizeDepositUiStatus(deposit?.status);
+  const depositStatusRaw = normalizeDepositUiStatus(deposit?.status);
+  const depositStatusExpiredByTime = depositStatusRaw === 'pending' && Boolean(deposit?.expired_at) && paymentSecondsLeft <= 0 && isExpiredTimestamp(deposit?.expired_at);
+  const depositStatus = depositStatusExpiredByTime ? 'expired' : depositStatusRaw;
   const depositPending = Boolean(deposit && depositStatus === 'pending');
   const depositTerminal = Boolean(deposit && ['success', 'failed', 'expired', 'canceled'].includes(depositStatus));
   const qrSource = renderDepositQr(deposit?.qr_image || deposit?.qr_raw || deposit?.qr_data);
+  const canShowDepositQr = Boolean(depositPending && paymentSecondsLeft > 0 && qrSource);
+
+  const rememberDeposit = useCallback((record: DepositRecord) => {
+    const item: DepositHistoryItem = {
+      invoice: record.invoice,
+      amount: Number(record.amount || 0),
+      total_bayar: Number(record.total_bayar || record.amount || 0),
+      status: normalizeDepositUiStatus(record.status),
+      expired_at: record.expired_at || null,
+      created_at: record.created_at || new Date().toISOString(),
+    };
+    setDepositHistory((current) => {
+      const next = [item, ...current.filter((history) => history.invoice !== item.invoice)].slice(0, 8);
+      localStorage.setItem(depositHistoryStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const checkDeposit = useCallback(async (invoice = deposit?.invoice) => {
     if (!invoice || checking) return;
@@ -462,6 +527,7 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
     try {
       const response = await premiuminApi.depositStatus(invoice, apiKey);
       setDeposit(response.data);
+      rememberDeposit(response.data);
       const nextStatus = normalizeDepositUiStatus(response.data.status);
       if (nextStatus === 'success') {
         setMessage('Deposit sukses. Saldo masuk sesuai nominal deposit.');
@@ -476,7 +542,7 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
     } finally {
       setChecking(false);
     }
-  }, [apiKey, checking, deposit?.invoice]);
+  }, [apiKey, checking, deposit?.invoice, rememberDeposit]);
 
   useStablePolling(
     () => checkDeposit(deposit?.invoice),
@@ -500,6 +566,7 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
     try {
       const response = await premiuminApi.deposit({ amount }, apiKey);
       setDeposit(response.data);
+      rememberDeposit(response.data);
       setMessage(`Deposit ${response.data.invoice} dibuat. Bayar sesuai total QRIS.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal membuat deposit.');
@@ -515,6 +582,7 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
     try {
       const response = await premiuminApi.depositCancel(deposit.invoice, apiKey);
       setDeposit(response.data);
+      rememberDeposit(response.data);
       setMessage('Deposit dibatalkan.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal membatalkan deposit.');
@@ -522,6 +590,49 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
       setLoading(false);
     }
   };
+
+  const openDepositHistory = async (invoice: string) => {
+    setChecking(true);
+    setError('');
+    try {
+      const response = await premiuminApi.depositStatus(invoice, apiKey);
+      setDeposit(response.data);
+      rememberDeposit(response.data);
+      const nextStatus = normalizeDepositUiStatus(response.data.status);
+      if (nextStatus === 'success') setMessage('Deposit sukses. Saldo masuk sesuai nominal deposit.');
+      else if (nextStatus === 'expired') setMessage('QR deposit sudah expired. Silakan buat deposit baru.');
+      else if (nextStatus === 'canceled') setMessage('Deposit sudah dibatalkan.');
+      else setMessage(`Deposit ${response.data.invoice} dibuka ulang.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Gagal membuka ulang deposit.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!deposit?.expired_at || normalizeDepositUiStatus(deposit.status) !== 'pending') {
+      setPaymentSecondsLeft(0);
+      expiryCheckRef.current = '';
+      return;
+    }
+    const update = () => {
+      const next = Math.max(0, Math.floor((new Date(deposit.expired_at || '').getTime() - Date.now()) / 1000));
+      setPaymentSecondsLeft(Number.isFinite(next) ? next : 0);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [deposit?.expired_at, deposit?.status]);
+
+  useEffect(() => {
+    if (!deposit?.invoice || normalizeDepositUiStatus(deposit.status) !== 'pending' || paymentSecondsLeft > 0) return;
+    const expiry = new Date(deposit.expired_at || '').getTime();
+    if (!Number.isFinite(expiry) || expiry > Date.now()) return;
+    if (expiryCheckRef.current === deposit.invoice) return;
+    expiryCheckRef.current = deposit.invoice;
+    void checkDeposit(deposit.invoice);
+  }, [checkDeposit, deposit?.expired_at, deposit?.invoice, deposit?.status, paymentSecondsLeft]);
 
   return (
     <Panel>
@@ -568,8 +679,8 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
                   {depositStatus}
                 </span>
               </div>
-              <div className={`rounded-2xl border p-3 ${depositPending && qrSource ? 'border-white/10 bg-white' : 'border-white/10 bg-black/20'}`}>
-                {depositPending && qrSource ? (
+              <div className={`rounded-2xl border p-3 ${canShowDepositQr ? 'border-white/10 bg-white' : 'border-white/10 bg-black/20'}`}>
+                {canShowDepositQr ? (
                   <img src={qrSource} alt="QRIS Deposit" className="mx-auto aspect-square w-full max-w-[260px] rounded-xl object-contain" />
                 ) : (
                   <div className="mx-auto grid aspect-square w-full max-w-[260px] place-items-center rounded-xl bg-black/20 px-4 text-center text-sm font-bold text-white/58">
@@ -581,6 +692,9 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Total bayar</p>
                 <p className="mt-1 text-2xl font-black text-white">{formatCurrency(deposit.total_bayar || deposit.amount)}</p>
                 <p className="mt-1 text-xs font-semibold text-white/45">Saldo masuk {formatCurrency(deposit.amount)}</p>
+                {depositPending && deposit.expired_at ? (
+                  <p className="mt-2 text-xs font-bold text-amber-200">Berlaku {formatPaymentCountdown(paymentSecondsLeft)}</p>
+                ) : null}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
@@ -613,6 +727,50 @@ function DepositPage({ apiKey, maintenanceActive = false }: { apiKey: string; ma
             </>
           )}
           </div>
+      </div>
+      <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Riwayat QRIS</p>
+            <h3 className="text-lg font-extrabold text-white">Deposit saldo</h3>
+          </div>
+          <p className="text-xs text-white/45">Klik invoice untuk cek status atau membuka ulang QR pending.</p>
+        </div>
+        {depositHistory.length ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {depositHistory.map((item) => {
+              const status = normalizeDepositUiStatus(item.status);
+              const pending = status === 'pending' && !isExpiredTimestamp(item.expired_at);
+              return (
+                <button
+                  key={item.invoice}
+                  type="button"
+                  onClick={() => void openDepositHistory(item.invoice)}
+                  disabled={checking}
+                  className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:border-[#ff2f92]/35 hover:bg-[#ff2f92]/10 disabled:opacity-60"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-white">Deposit {formatCurrency(item.amount)}</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-white/40">{item.invoice}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${paymentStatusTone(pending ? 'pending' : status)}`}>
+                      {pending ? 'pending' : status}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-black text-white">{formatCurrency(item.total_bayar || item.amount)}</span>
+                    <span className="text-white/45">{pending ? 'Buka QR' : 'Lihat status'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-black/15 px-4 py-5 text-sm text-white/45">
+            Belum ada riwayat deposit di browser ini.
+          </div>
+        )}
       </div>
     </Panel>
   );
