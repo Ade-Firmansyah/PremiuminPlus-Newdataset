@@ -30,8 +30,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     });
   }
 
-  retry = () => {
+  retry = async () => {
+    try {
+      if ('caches' in window) {
+        const cacheNames = await window.caches.keys();
+        await Promise.all(cacheNames.map((cacheName) => window.caches.delete(cacheName)));
+      }
+    } catch {
+      // Cache cleanup is best effort; reload still gives the browser a fresh app shell.
+    }
     this.setState({ hasError: false, message: '' });
+    window.location.reload();
   };
 
   render() {
