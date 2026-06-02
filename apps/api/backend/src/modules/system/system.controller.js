@@ -249,7 +249,14 @@ function validateBackupPayload(backup) {
 }
 
 function extractZipBackup(buffer) {
-  const zip = new AdmZip(buffer);
+  let zip;
+  try {
+    zip = new AdmZip(buffer);
+  } catch (_error) {
+    const error = new Error('Backup ZIP tidak valid atau rusak.');
+    error.statusCode = 400;
+    throw error;
+  }
   const entries = new Map(zip.getEntries().map((entry) => [entry.entryName.replace(/\\/g, '/'), entry]));
   const missing = REQUIRED_ZIP_FILES.filter((name) => !entries.has(name));
   if (missing.length) {
@@ -258,11 +265,21 @@ function extractZipBackup(buffer) {
     throw error;
   }
 
-  const backupJson = entries.get('backup.json').getData().toString('utf8');
-  const backup = JSON.parse(backupJson);
-  const metadata = entries.has('metadata.json') ? JSON.parse(entries.get('metadata.json').getData().toString('utf8')) : backup.metadata;
-  const backupInfo = entries.has('backup_info.json') ? JSON.parse(entries.get('backup_info.json').getData().toString('utf8')) : backup.backup_info;
-  const checksums = entries.has('checksums.json') ? JSON.parse(entries.get('checksums.json').getData().toString('utf8')) : null;
+  let backup;
+  let metadata;
+  let backupInfo;
+  let checksums;
+  try {
+    const backupJson = entries.get('backup.json').getData().toString('utf8');
+    backup = JSON.parse(backupJson);
+    metadata = entries.has('metadata.json') ? JSON.parse(entries.get('metadata.json').getData().toString('utf8')) : backup.metadata;
+    backupInfo = entries.has('backup_info.json') ? JSON.parse(entries.get('backup_info.json').getData().toString('utf8')) : backup.backup_info;
+    checksums = entries.has('checksums.json') ? JSON.parse(entries.get('checksums.json').getData().toString('utf8')) : null;
+  } catch (_error) {
+    const error = new Error('Backup ZIP memiliki JSON yang tidak valid.');
+    error.statusCode = 400;
+    throw error;
+  }
 
   return {
     backup: {
