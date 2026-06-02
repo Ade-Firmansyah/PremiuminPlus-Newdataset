@@ -35,7 +35,7 @@ function normalizeDirectPaymentStatus(status?: string | null) {
 }
 
 function isProviderDone(payment: DirectPaymentRecord | null) {
-  return normalizeDirectPaymentStatus(payment?.status) === 'success' && payment?.order?.order_status === 'success';
+  return normalizeDirectPaymentStatus(payment?.status) === 'success' && ['success', 'provider_success', 'credential_delivery'].includes(String(payment?.order?.order_status || '').toLowerCase());
 }
 
 function isProviderFailed(payment: DirectPaymentRecord | null) {
@@ -223,7 +223,7 @@ export default function Order() {
     } else {
       sessionStorage.setItem(directPaymentStorageKey, payment.invoice);
     }
-    if (normalizeDirectPaymentStatus(payment.status) === 'success' && payment.order?.order_status === 'success') {
+    if (isProviderDone(payment)) {
       setResult('Pesanan berhasil diproses.');
       setLastOrder({
         invoice: payment.order.invoice,
@@ -712,7 +712,7 @@ export default function Order() {
                     </p>
                   ) : null}
                 </div>
-                {directStatus === 'success' && directPayment.order?.order_status === 'success' ? (
+                {isProviderDone(directPayment) ? (
                   <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                     <p className="font-black">Pesanan berhasil diproses</p>
                     <p className="mt-1">Produk: {directPayment.order.product_name || '-'}</p>
@@ -746,7 +746,7 @@ export default function Order() {
                     {checkingPayment ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                     Cek Pembayaran
                   </button>
-                  {directStatus === 'success' && directPayment.order?.order_status === 'success' ? (
+                  {isProviderDone(directPayment) ? (
                     <button
                       onClick={() => {
                         sessionStorage.removeItem(directPaymentStorageKey);

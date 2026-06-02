@@ -40,6 +40,10 @@ function isTerminalPaymentStatus(status) {
   return ['success', 'payment_success', 'failed', 'expired', 'canceled', 'payment_mismatch', 'manual_required'].includes(String(status || '').toLowerCase());
 }
 
+function isCredentialOrderStatus(status) {
+  return ['success', 'provider_success', 'credential_delivery'].includes(String(status || '').toLowerCase());
+}
+
 function resolvePaymentProviderInvoice(payment) {
   return payment?.provider_invoice || payment?.invoice;
 }
@@ -663,7 +667,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
       const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [invoice]);
       return orderRows[0] || null;
     });
-    if (existing && !['success', 'failed'].includes(existing.order_status)) {
+    if (existing && !isCredentialOrderStatus(existing.order_status) && !['failed', 'canceled', 'cancelled'].includes(String(existing.order_status || '').toLowerCase())) {
       await refreshOrderStatus(existing.invoice);
       existing = await transaction(async (connection) => {
         const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [invoice]);
@@ -676,8 +680,8 @@ export async function refreshDirectPaymentStatus(invoice, user) {
         ? {
             invoice: existing.invoice,
             product_name: existing.product_name,
-            email_account: existing.order_status === 'success' ? existing.email_account : null,
-            password_account: existing.order_status === 'success' ? existing.password_account : null,
+            email_account: isCredentialOrderStatus(existing.order_status) ? existing.email_account : null,
+            password_account: isCredentialOrderStatus(existing.order_status) ? existing.password_account : null,
             payment_status: existing.payment_status,
             provider_status: existing.provider_status,
             order_status: existing.order_status,
@@ -751,7 +755,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
   if (nextStatus === 'success') {
     const result = await processSuccessfulPayment(invoice, statusResponse);
     if (result.blocked) return result.payment;
-    if (result.order && result.order.order_status === 'success' && result.order.delivery_status !== 'sent') {
+    if (result.order && isCredentialOrderStatus(result.order.order_status) && result.order.delivery_status !== 'sent') {
       const delivery = await sendOrderDelivery(result.order);
       await updateOrderDelivery(result.order.invoice, {
         delivery_status: delivery.status,
@@ -770,8 +774,8 @@ export async function refreshDirectPaymentStatus(invoice, user) {
         ? {
             invoice: result.order.invoice,
             product_name: result.order.product_name,
-            email_account: result.order.order_status === 'success' ? result.order.email_account : null,
-            password_account: result.order.order_status === 'success' ? result.order.password_account : null,
+            email_account: isCredentialOrderStatus(result.order.order_status) ? result.order.email_account : null,
+            password_account: isCredentialOrderStatus(result.order.order_status) ? result.order.password_account : null,
             payment_status: result.order.payment_status,
             provider_status: result.order.provider_status,
             order_status: result.order.order_status,

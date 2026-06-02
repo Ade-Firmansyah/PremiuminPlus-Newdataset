@@ -212,6 +212,10 @@ QRIS direct payment:
 - Frontend countdown wajib memakai normalized status `pending_payment -> pending`.
 - Riwayat QRIS pembayaran langsung boleh disimpan lokal di browser agar invoice pending bisa dibuka ulang tanpa membuat QR baru.
 - Order ke provider/manual/hybrid hanya boleh berjalan setelah Premku payment status valid `success`.
+- Setelah payment sukses, order provider wajib menyimpan `provider_invoice` dari Premku `/api/order`.
+- Sinkron status provider wajib memakai `orders.provider_invoice` atau `transactions.external_order_response.invoice`, bukan fallback invoice lokal `ORD-*` kecuali provider invoice tidak ada.
+- Jika Premku `/api/status` mengembalikan `success` dan `accounts`, backend wajib menyimpan `email_account`/`password_account`, mengubah `order_status` menjadi `provider_success`, dan menghapus cache order/dashboard.
+- `GET /api/orders` boleh melakukan lazy sync ringan untuk order aktif (`pending`, `waiting_provider`, `provider_processing`) dengan guard cache agar riwayat user tidak tertinggal dari status Premku.
 
 ## Credential Safety
 

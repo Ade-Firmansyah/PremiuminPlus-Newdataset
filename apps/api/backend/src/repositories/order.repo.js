@@ -142,7 +142,7 @@ export async function listPendingOrders() {
     `SELECT o.*, u.username
      FROM orders o
      LEFT JOIN users u ON u.id = o.user_id
-     WHERE o.order_status IN ('pending_manual','waiting_provider')
+     WHERE o.order_status IN ('pending_manual','waiting_provider','provider_processing','manual_required')
         OR o.payment_status = 'pending'
      ORDER BY o.id DESC
      LIMIT 100`,

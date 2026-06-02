@@ -1,6 +1,6 @@
-import { createOrder, getOrderStatus } from './order.service.js';
+import { createOrder, getOrderStatus, syncActiveOrdersForUser } from './order.service.js';
 import { requireFields } from '../../utils/validator.js';
-import { listOrdersByUser, findOrderByInvoice } from '../../repositories/order.repo.js';
+import { findOrderByInvoice } from '../../repositories/order.repo.js';
 import { listOrderTransactionsByUser, findTransactionByInvoice } from '../../repositories/transaction.repo.js';
 
 function canExposeCredential(order = {}) {
@@ -66,6 +66,6 @@ export async function orderStatus(req, res) {
 }
 
 export async function myOrders(req, res) {
-  const data = await listOrdersByUser(req.user.id);
+  const data = await syncActiveOrdersForUser(req.user.id);
   res.json({ status: true, success: true, data: data.map(maskPendingCredential) });
 }

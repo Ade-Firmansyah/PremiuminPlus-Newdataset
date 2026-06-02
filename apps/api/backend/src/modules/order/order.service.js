@@ -2,7 +2,7 @@ import { query, transaction as dbTransaction } from '../../config/db.js';
 import { findProductById, markManualStockItemsUsed, refreshManualStockCount, reserveManualStockItems } from '../../repositories/product.repo.js';
 import { getUserById } from '../../repositories/user.repo.js';
 import { createTransaction, findTransactionByInvoice, refundTransaction, updateTransactionStatus } from '../../repositories/transaction.repo.js';
-import { updateOrderDelivery, updateOrderProviderStatus, upsertOrderRecord, findOrderByInvoice, updateOrderStatusByInvoice } from '../../repositories/order.repo.js';
+import { updateOrderDelivery, updateOrderProviderStatus, upsertOrderRecord, findOrderByInvoice, updateOrderStatusByInvoice, listOrdersByUser } from '../../repositories/order.repo.js';
 import { premkuOrder, premkuStatus } from '../../services/premku.service.js';
 import { addSaldo, applyWalletMutationInTransaction, deductSaldo, getUsableBalance } from '../../services/wallet.service.js';
 import { sendOrderDelivery, validateWhatsapp } from '../../services/delivery.service.js';
@@ -12,6 +12,10 @@ import { createInvoice } from '../../utils/invoice.js';
 import { getCache, setCache } from '../../services/cache.service.js';
 import { getMarkupSetting } from '../../repositories/settings.repo.js';
 import { calculateProductPrices } from '../../services/product-pricing.service.js';
+
+function toMysqlDate(value = new Date()) {
+  return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
+}
 
 function normalizeStatus(payload) {
   return String(payload?.status ?? payload?.data?.status ?? payload?.pay_status ?? payload?.transaction_status ?? '').toLowerCase();
@@ -42,6 +46,10 @@ function requiresManualHandling(nextStatus, accounts) {
   if (nextStatus === 'success') return noAccountData;
   if (nextStatus === 'failed') return noAccountData;
   return false;
+}
+
+function isProviderActiveStatus(status) {
+  return ['pending', 'waiting_provider', 'provider_processing', 'processing'].includes(String(status || '').toLowerCase());
 }
 
 async function notifyOrderSuccessOnce(userId, invoice, productName, type = 'order_success') {
@@ -88,18 +96,40 @@ export async function getSellPrice(product, user = { role: 'member' }) {
 
 export async function refreshOrderStatus(invoice) {
   const transaction = await findTransactionByInvoice(invoice);
-  if (!transaction) {
+  const existingOrder = await findOrderByInvoice(invoice);
+  if (!transaction && !existingOrder) {
     return null;
   }
 
-  if (['success', 'failed'].includes(transaction.status)) {
-    return transaction;
+  const orderStatus = String(existingOrder?.order_status || '').toLowerCase();
+  if (['success', 'provider_success', 'credential_delivery', 'failed', 'canceled', 'cancelled'].includes(orderStatus)) {
+    if (['success', 'provider_success', 'credential_delivery'].includes(orderStatus) && transaction && transaction.status !== 'success') {
+      const accountData = existingOrder?.raw_response?.accounts?.length
+        ? existingOrder.raw_response.accounts
+        : existingOrder?.email_account || existingOrder?.password_account
+          ? [{ username: existingOrder.email_account, password: existingOrder.password_account }]
+          : transaction.account_data || null;
+      await updateTransactionStatus(invoice, 'success', {
+        external_status_response: existingOrder.raw_response || transaction.external_status_response || null,
+        account_data: accountData,
+        processed_at: existingOrder.success_at || toMysqlDate(),
+      });
+    }
+    return existingOrder || transaction;
   }
 
-  const externalInvoice = transaction.external_order_response?.invoice || transaction.external_order_response?.data?.invoice || invoice;
+  if (!transaction) {
+    return existingOrder;
+  }
+
+  const externalInvoice =
+    existingOrder?.provider_invoice ||
+    transaction.external_order_response?.invoice ||
+    transaction.external_order_response?.data?.invoice ||
+    invoice;
   const statusCacheKey = `sync:order-status:${externalInvoice}`;
   if (getCache(statusCacheKey)) {
-    return transaction;
+    return existingOrder || transaction;
   }
   const statusResponse = await premkuStatus(externalInvoice);
   setCache(statusCacheKey, true, 15);
@@ -124,7 +154,7 @@ export async function refreshOrderStatus(invoice) {
       payment_status: 'success',
       provider_invoice: externalInvoice,
       provider_status: 'success',
-      order_status: 'success',
+      order_status: 'provider_success',
       fulfillment_type: 'provider_auto',
       target_whatsapp: transaction.target_whatsapp || user?.phone || null,
       delivery_status: accounts.length ? 'pending' : 'manual_pending',
@@ -143,7 +173,11 @@ export async function refreshOrderStatus(invoice) {
     }
 
     void notifyOrderSuccessOnce(transaction.user_id, invoice, transaction.product_name);
-    return updateTransactionStatus(invoice, nextStatus, extra);
+    await updateTransactionStatus(invoice, 'success', {
+      ...extra,
+      processed_at: toMysqlDate(),
+    });
+    return findOrderByInvoice(invoice);
   }
 
   if (requiresManualHandling(nextStatus, accounts)) {
@@ -157,11 +191,12 @@ export async function refreshOrderStatus(invoice) {
 
   if (['processing', 'pending'].includes(nextStatus)) {
     await updateOrderProviderStatus(invoice, {
-      provider_status: 'waiting_provider',
-      order_status: 'waiting_provider',
+      provider_status: 'provider_processing',
+      order_status: 'provider_processing',
       raw_response: statusResponse,
     });
-    return updateTransactionStatus(invoice, 'pending', extra);
+    await updateTransactionStatus(invoice, 'pending', extra);
+    return findOrderByInvoice(invoice);
   }
 
   if (nextStatus === 'failed' && transaction.status !== 'failed') {
@@ -171,15 +206,33 @@ export async function refreshOrderStatus(invoice) {
         order_status: 'failed',
         raw_response: statusResponse,
       });
-      return updateTransactionStatus(invoice, 'failed', {
+      await updateTransactionStatus(invoice, 'failed', {
         external_status_response: statusResponse,
-        refund_at: new Date().toISOString(),
+        refund_at: toMysqlDate(),
       });
+      return findOrderByInvoice(invoice);
     }
     return refundTransaction(invoice, statusResponse, 'premku-status-failed');
   }
 
   return updateTransactionStatus(invoice, nextStatus, extra);
+}
+
+export async function syncActiveOrdersForUser(userId, limit = 5) {
+  const rows = await listOrdersByUser(userId);
+  const activeOrders = rows
+    .filter((order) => isProviderActiveStatus(order.order_status) && order.provider_invoice)
+    .slice(0, Math.max(1, Number(limit || 5)));
+
+  for (const order of activeOrders) {
+    try {
+      await refreshOrderStatus(order.invoice);
+    } catch {
+      // Lazy sync must not block the order history page.
+    }
+  }
+
+  return listOrdersByUser(userId);
 }
 
 export async function createOrder(user, payload) {
@@ -411,7 +464,7 @@ export async function createOrder(user, payload) {
       await updateTransactionStatus(invoice, nextStatus, {
         external_order_response: external,
         account_data: accounts.length ? accounts : null,
-        processed_at: new Date().toISOString(),
+        processed_at: toMysqlDate(),
       });
       const orderRecord = await upsertOrderRecord({
         user_id: user.id,
@@ -519,7 +572,7 @@ export async function createOrder(user, payload) {
     if (transaction) {
       await updateTransactionStatus(invoice, 'failed', {
         external_order_response: { message: error instanceof Error ? error.message : 'Premku order call failed' },
-        refund_at: new Date().toISOString(),
+        refund_at: toMysqlDate(),
       });
     }
   }
@@ -577,7 +630,7 @@ export async function retryOrderByAdmin(invoice) {
     await updateTransactionStatus(invoice, 'success', {
       external_order_response: external,
       account_data: accounts,
-      processed_at: new Date().toISOString(),
+      processed_at: toMysqlDate(),
     });
 
     const orderRecord = await upsertOrderRecord({

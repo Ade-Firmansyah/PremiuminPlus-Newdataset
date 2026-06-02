@@ -1029,6 +1029,7 @@ async function initializeDatabase() {
 
 function parseDbJson(value, fallback = null) {
   if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value;
   try {
     return JSON.parse(String(value));
   } catch {

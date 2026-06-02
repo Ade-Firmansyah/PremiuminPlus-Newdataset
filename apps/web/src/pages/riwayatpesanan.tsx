@@ -8,8 +8,8 @@ import { useStablePolling } from '../hooks/useStablePolling';
 
 function statusTone(status?: string) {
   const value = String(status || 'pending').toLowerCase();
-  if (value === 'success') return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300';
-  if (value === 'processing') return 'border-sky-500/20 bg-sky-500/10 text-sky-300';
+  if (['success', 'provider_success', 'credential_delivery'].includes(value)) return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300';
+  if (['processing', 'provider_processing', 'waiting_provider'].includes(value)) return 'border-sky-500/20 bg-sky-500/10 text-sky-300';
   if (value === 'failed') return 'border-rose-500/20 bg-rose-500/10 text-rose-300';
   if (value === 'expired' || value === 'canceled') return 'border-white/10 bg-white/5 text-white/45';
   return 'border-amber-500/20 bg-amber-500/10 text-amber-200';
@@ -47,7 +47,7 @@ function hasActiveOrder(rows: OrderRecord[]) {
   return rows.some((order) => {
     const payment = String(order.payment_status || '').toLowerCase();
     const status = String(order.order_status || order.status || '').toLowerCase();
-    return ['pending', 'processing'].includes(status) || (payment && !['success', 'failed', 'expired', 'canceled', 'refunded'].includes(payment));
+    return ['pending', 'processing', 'provider_processing', 'waiting_provider'].includes(status) || (payment && !['success', 'failed', 'expired', 'canceled', 'refunded'].includes(payment));
   });
 }
 
