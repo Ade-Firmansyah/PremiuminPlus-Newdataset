@@ -107,7 +107,7 @@ export default function Order() {
   const directPaymentPending = directStatus === 'pending';
   const directPaymentTerminal = ['success', 'failed', 'expired', 'canceled'].includes(directStatus);
   const canShowDirectQr = Boolean(directPaymentPending && paymentSecondsLeft > 0 && directQrSource);
-  const canCheckDirectPayment = Boolean(directPaymentPending && !checkingPayment);
+  const canCheckDirectPayment = Boolean((directPaymentPending || (directStatus === 'success' && !isProviderDone(directPayment))) && !checkingPayment);
   const canCancelDirectPayment = Boolean(directPaymentPending && !directLoading);
 
   const rememberDirectPayment = (payment: DirectPaymentRecord) => {
@@ -127,6 +127,11 @@ export default function Order() {
       localStorage.setItem(directPaymentHistoryStorageKey, JSON.stringify(next));
       return next;
     });
+  };
+
+  const minimizeDirectPayment = () => {
+    if (directPayment) rememberDirectPayment(directPayment);
+    setDirectPayment(null);
   };
 
   useEffect(() => {
@@ -672,16 +677,27 @@ export default function Order() {
       ) : null}
 
       {directPayment ? (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/75 p-3 backdrop-blur-sm sm:p-4">
-          <div className="max-h-[90dvh] w-[min(94vw,760px)] overflow-y-auto rounded-[1.4rem] border border-brand/20 bg-[#0d0912] shadow-2xl shadow-brand/20">
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/75 p-3 backdrop-blur-sm sm:p-4" onClick={minimizeDirectPayment}>
+          <div className="max-h-[90dvh] w-[min(94vw,760px)] overflow-y-auto rounded-[1.4rem] border border-brand/20 bg-[#0d0912] shadow-2xl shadow-brand/20" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-5">
               <div className="min-w-0">
                 <p className="text-sm font-black text-white">QRIS Pembayaran</p>
                 <p className="break-all text-xs text-white/40">{directPayment.invoice}</p>
               </div>
-              <span className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${paymentStatusTone(directStatus)}`}>
-                {directStatus}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${paymentStatusTone(directStatus)}`}>
+                  {directStatus}
+                </span>
+                <button
+                  type="button"
+                  onClick={minimizeDirectPayment}
+                  className="grid h-8 w-8 place-items-center rounded-full border border-white/10 bg-white/5 text-white/65 transition hover:border-brand/40 hover:bg-brand/10 hover:text-white"
+                  aria-label="Minimize QRIS pembayaran"
+                  title="Minimize"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-[210px_minmax(0,1fr)] sm:p-5">
               <div className={`rounded-[1.2rem] border p-3 ${canShowDirectQr ? 'border-white/10 bg-white' : 'border-white/10 bg-white/5'}`}>
@@ -727,8 +743,8 @@ export default function Order() {
                   </div>
                 ) : directStatus === 'expired' ? (
                   <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                    <p className="font-black">QR sudah expired</p>
-                    <p className="mt-2 leading-6">Silakan buat pembayaran baru. QR lama sudah tidak aktif dan tidak akan dicek ulang otomatis.</p>
+                    <p className="font-black">QR expired dan otomatis dibatalkan</p>
+                    <p className="mt-2 leading-6">Silakan buat pembayaran baru. QR lama sudah tidak aktif dan tidak akan dipakai ulang.</p>
                   </div>
                 ) : directStatus === 'canceled' ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
@@ -757,9 +773,9 @@ export default function Order() {
                       Tutup
                     </button>
                   ) : directStatus === 'success' ? (
-                    <button type="button" disabled className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm font-bold text-sky-100 disabled:opacity-80">
+                    <button type="button" onClick={() => void checkDirectPayment()} disabled={checkingPayment} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm font-bold text-sky-100 disabled:opacity-80">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Processing Provider
+                      {checkingPayment ? 'Cek Provider...' : 'Cek Status Provider'}
                     </button>
                   ) : directPaymentTerminal ? (
                     <>
