@@ -18,3 +18,19 @@ bot-engine/queues/*
 !bot-engine/queues/.gitkeep
 bot-engine/websocket/*
 !bot-engine/websocket/.gitkeep
+apps/bot-engine/sessions/*
+!apps/bot-engine/sessions/.gitkeep
+apps/bot-engine/qr/*
+!apps/bot-engine/qr/.gitkeep
+apps/bot-engine/queues/*
+!apps/bot-engine/queues/.gitkeep
+apps/bot-engine/websocket/*
+!apps/bot-engine/websocket/.gitkeep
+
+# Local/runtime database snapshots are not deploy source.
+database/*.json
+database/*.db
+database/*.db-*
+database/db.js
+!database/schema.mysql.sql
+!database/.gitkeep

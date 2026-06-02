@@ -1,0 +1,30 @@
+{
+  "name": "premiumin-plus-api",
+  "version": "3.0.0",
+  "description": "Premiumin Plus Backend API",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "migrate": "node -e \"import('./src/config/db.js').then(m => m.ensureInitialized())\"",
+    "reset-db": "node -e \"import('./src/config/db.js').then(m => m.query('DROP DATABASE IF EXISTS apps_premhytam; CREATE DATABASE apps_premhytam;'))\""
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "mysql2": "^3.22.3",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.19.17",
+    "tsx": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

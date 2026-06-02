@@ -1,0 +1,8 @@
+{
+  "name": "@premiumin-plus/shared",
+  "version": "3.2.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}
