@@ -36,6 +36,7 @@
     "protobufjs": "^7.5.5"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.60.2"
+    "@rollup/rollup-linux-x64-gnu": "^4.60.2",
+    "lightningcss-linux-x64-gnu": "^1.32.0"
   }
 }
