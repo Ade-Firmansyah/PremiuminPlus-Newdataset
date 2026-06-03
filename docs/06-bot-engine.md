@@ -158,6 +158,7 @@ When a bot QRIS order succeeds:
 
 - `bot_payment_in` credits the bot owner wallet by buyer sell price.
 - `bot_order_cost` debits the bot owner wallet by modal/reseller price.
+- `transactions.profit` stores admin/platform profit: `modal_price - provider_cost`.
 - `transactions.reseller_profit` stores bot margin profit for analytics.
 - `saldo_logs` and `saldo_mutations` record both wallet movements.
 - dashboard Mutasi Saldo can show buyer payment in, modal out, and resulting profit.
@@ -166,7 +167,8 @@ Final balance formula:
 
 ```text
 saldo_akhir = saldo_awal + sell_price - modal_price
-profit = sell_price - modal_price
+admin_profit = modal_price - provider_cost
+reseller_profit = sell_price - modal_price
 ```
 
 `reseller_profit` is an analytics row, not a second wallet credit. This prevents double profit.

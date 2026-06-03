@@ -580,7 +580,7 @@ export default function BotWA() {
                 </div>
               </div>
               <p className="mt-3 text-xs leading-5 text-white/45">
-                Saat buyer bayar via WhatsApp, QRIS memakai harga bot. Setelah sukses, transaksi menyimpan modal reseller, harga jual bot, dan profit margin; wallet reseller hanya dikredit profit agar saldo tidak dobel.
+                Saat buyer bayar via WhatsApp, QRIS memakai harga bot. Setelah sukses, wallet mencatat uang masuk buyer lalu modal reseller keluar; profit tampil sebagai analytics tanpa kredit dobel.
               </p>
             </NeonCard>
             <button onClick={saveMargin} disabled={marginSaving} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 disabled:opacity-60">

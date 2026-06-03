@@ -16,7 +16,9 @@ Mutasi yang valid:
 - order saldo: keluar
 - refund: masuk
 - withdraw approve: keluar
-- profit reseller: masuk
+- bot payment buyer: masuk
+- bot modal/order cost: keluar
+- profit reseller/admin: analytics, bukan mutasi saldo kedua
 - admin adjustment: masuk/keluar
 
 Setiap perubahan saldo harus tercatat di:

@@ -659,6 +659,7 @@ Admin:
 - Harga bot reseller wajib memakai `products.reseller_price` sebagai modal lalu ditambah margin bot. Margin mendukung `percent` dan `fixed`.
 - Untuk contoh modal Rp12.000 dan profit Rp500, reseller wajib memilih margin `fixed = 500`; jika memilih `percent = 10`, profit adalah Rp1.200.
 - QRIS buyer bot memakai harga jual bot. Saat sukses, backend mencatat `bot_payment_in`, `bot_order_cost`, dan `reseller_profit` secara idempotent.
+- Model B2B final adalah `provider -> admin platform -> member/reseller -> buyer`. Untuk bot order, `transactions.profit` adalah admin/platform profit (`reseller_price - provider_cost`), sedangkan `transactions.reseller_profit` adalah analytics reseller (`bot_sell_price - reseller_price`) dan tidak mengubah saldo kedua kali.
 - Provider/manual/hybrid baru diproses setelah QRIS buyer sukses dan ledger saldo reseller berhasil.
 - Bot session mirror wajib disimpan di `users.bot_session_id`, `users.bot_session_status`, `users.bot_connected_number`, dan `users.bot_last_active_at`.
 - Admin maintenance backup/restore tetap harus preview/confirm dahulu; restore tidak boleh berjalan hanya karena file diupload.

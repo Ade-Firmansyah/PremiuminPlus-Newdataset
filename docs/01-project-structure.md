@@ -273,20 +273,22 @@ UI must display:
 
 This prevents confusion like product/topup Rp 880 but scanned QRIS Rp 904.
 
-## Reseller Profit Synchronization
+## B2B Bot Ledger Synchronization
 
 Member/reseller bot sales use `users.reseller_margin_percent`.
 
 When buyer QRIS succeeds:
 
 1. web-core locks the payment row.
-2. web-core creates the order through Premku.
-3. returned credentials are saved permanently.
-4. `transactions.reseller_profit` records bot margin profit.
-5. reseller saldo is credited with profit once.
-6. `saldo_logs` and `saldo_mutations` receive the profit entry.
+2. `bot_payment_in` credits reseller saldo by buyer sell price.
+3. `bot_order_cost` debits reseller saldo by reseller modal price.
+4. web-core creates the order through manual stock or Premku.
+5. returned credentials are saved permanently.
+6. `transactions.profit` records admin/platform profit.
+7. `transactions.reseller_profit` records bot margin profit for analytics only.
+8. `saldo_logs` and `saldo_mutations` receive only the real saldo movements.
 
-No bot process may credit profit directly.
+No bot process may credit profit directly, and reseller profit is not credited twice.
 
 ## Railway Deployment
 

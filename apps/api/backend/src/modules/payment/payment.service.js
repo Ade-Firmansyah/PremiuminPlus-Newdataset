@@ -441,7 +441,7 @@ async function applyBotPaymentLedger(connection, { payment, product, orderInvoic
         modalTotal,
         total,
         resellerProfit,
-        resellerProfit,
+        0,
         resellerProfit,
         resellerProfit,
         processedAt,
@@ -504,17 +504,29 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 
     const orderInvoice = payment.order_invoice || createInvoice('ORD');
     const isBotOrder = payment.payment_type === 'bot_order';
+    const qty = Number(payment.qty || 1);
     const total = Number(payment.amount || 0);
-    const modalTotal = Number(payment.modal_price || (product.price_base || product.base_price || 0) * Number(payment.qty || 1));
-    const unitModal = Math.round(modalTotal / Number(payment.qty || 1));
+    const providerCostTotal = Number(product.price_base || product.base_price || 0) * qty;
+    const modalTotal = Number(payment.modal_price || providerCostTotal);
+    const platformRevenueTotal = isBotOrder ? modalTotal : total;
+    const unitProviderCost = Math.round(providerCostTotal / qty);
+    const platformUnitSellPrice = Math.round(platformRevenueTotal / qty);
+    const adminProfit = Math.max(platformRevenueTotal - providerCostTotal, 0);
     const resellerProfit = Number(payment.reseller_profit || 0);
+    const b2bLedger = {
+      provider_cost: providerCostTotal,
+      reseller_price: modalTotal,
+      platform_revenue: platformRevenueTotal,
+      sell_price: total,
+      admin_profit: adminProfit,
+      reseller_profit: resellerProfit,
+    };
     const [paymentUserRows] = await connection.query('SELECT id, role, saldo FROM users WHERE id = ? LIMIT 1', [payment.user_id]);
     const paymentUser = paymentUserRows[0] || {};
     const role = String(paymentUser.role || 'member').toLowerCase();
     const targetWhatsapp = validateWhatsapp(payment.target_whatsapp || '');
 
     if (product.product_source === 'manual' || product.product_source === 'hybrid') {
-      const qty = Number(payment.qty || 1);
       const stockItems = await reserveManualStockItems(connection, product.id, orderInvoice, qty);
       if (stockItems.length < qty) {
         await refreshManualStockCount(connection, product.id);
@@ -567,14 +579,14 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           payment.user_id,
           product.id,
           product.name,
-          Number(payment.qty || 1),
-          unitModal,
-          Math.round(total / Number(payment.qty || 1)),
-          total,
-          Math.max(total - modalTotal, 0),
+          qty,
+          unitProviderCost,
+          platformUnitSellPrice,
+          platformRevenueTotal,
+          adminProfit,
           resellerProfit,
           JSON.stringify(accounts),
-          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id) }),
+          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
           product.image || product.image_url || null,
           product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
@@ -602,7 +614,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           manualSource,
           targetWhatsapp || null,
           total,
-          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts, bot_ledger: botLedger }),
+          JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts, bot_ledger: botLedger, b2b_ledger: b2bLedger }),
           processedAt,
           processedAt,
         ],
@@ -661,18 +673,18 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           payment.user_id,
           product.id,
           product.name,
-          Number(payment.qty || 1),
-          unitModal,
-          Math.round(total / Number(payment.qty || 1)),
-          total,
-          Math.max(total - modalTotal, 0),
+          qty,
+          unitProviderCost,
+          platformUnitSellPrice,
+          platformRevenueTotal,
+          adminProfit,
           resellerProfit,
           JSON.stringify(null),
-          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger }),
+          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger, b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
           product.image || product.image_url || null,
           product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
-          total,
+          platformRevenueTotal,
         ],
       );
       await connection.query(
@@ -690,7 +702,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           orderInvoice,
           targetWhatsapp || null,
           total,
-          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger }),
+          JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger, b2b_ledger: b2bLedger }),
           processedAt,
         ],
       );
@@ -738,19 +750,19 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         payment.user_id,
         product.id,
         product.name,
-        Number(payment.qty || 1),
-        unitModal,
-        Math.round(total / Number(payment.qty || 1)),
-        total,
-        Math.max(total - modalTotal, 0),
+        qty,
+        unitProviderCost,
+        platformUnitSellPrice,
+        platformRevenueTotal,
+        adminProfit,
         resellerProfit,
         orderStatus,
         JSON.stringify(accounts.length ? accounts : null),
-        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger }),
+        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger, b2b_ledger: b2bLedger }),
         isBotOrder ? 'bot-qris' : 'qris-direct',
         product.image || product.image_url || null,
         product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
-        total,
+        platformRevenueTotal,
         orderStatus === 'success' ? processedAt : null,
       ],
     );
@@ -785,7 +797,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
         targetWhatsapp || null,
         orderStatus === 'success' ? (accounts.length ? 'pending' : 'manual_pending') : 'pending',
         total,
-        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger }),
+        JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger, b2b_ledger: b2bLedger }),
         processedAt,
         orderStatus === 'success' ? processedAt : null,
       ],
