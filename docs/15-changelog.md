@@ -4,6 +4,14 @@
 
 ## FASE 2 - Auth Audit
 
+- Bot WhatsApp payment flow now stores and watches `payment_invoice`, never product code/id, so status checks cannot call `/payments/7/status`.
+- Backend payment lookup accepts local `PAY-*` and provider `INV-*` references, then normalizes processing to the local payment invoice before wallet ledger, order fulfillment, cancel, and history updates.
+- Bot QRIS success ledger is locked to `saldo_awal + sell_price - modal_price`; `reseller_profit` is analytics only and is not double-credited.
+- Bot watcher accepts credential-ready order statuses `success`, `provider_success`, and `credential_delivery`.
+- API Key page now documents real member/reseller usage: base URL, auth header, curl examples, order/deposit/withdraw/direct QRIS payloads, status codes, and reseller bot endpoints.
+- `GET /api/docs` now returns structured API contract JSON for user-safe and reseller bot endpoints.
+- API auth accepts `x-api-key` and `Authorization: Bearer USER_API_KEY`; `x-api-key` remains the primary documented header.
+- Withdraw API/UI bank validation now includes common bank/e-wallet targets: BCA, BNI, BRI, Mandiri, Jago, SeaBank, DANA, OVO, ShopeePay, and GoPay.
 - Hardened API auth middleware to reject empty `x-api-key` before database lookup.
 - Login now updates `users.last_login_at` after successful authentication.
 - Bootstrap admin seed normalizes valid admin email/phone env values before writing to database.

@@ -1,10 +1,20 @@
 import { findUserByApiKey } from '../repositories/user.repo.js';
 import { execute } from '../config/db.js';
 
+function readApiKey(req) {
+  const rawApiKey = req.headers['x-api-key'];
+  const apiKey = Array.isArray(rawApiKey) ? String(rawApiKey[0] || '').trim() : String(rawApiKey || '').trim();
+  if (apiKey) return apiKey;
+
+  const rawAuthorization = req.headers.authorization;
+  const authorization = Array.isArray(rawAuthorization) ? String(rawAuthorization[0] || '') : String(rawAuthorization || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i);
+  return bearer ? bearer[1].trim() : '';
+}
+
 export async function auth(req, res, next) {
   try {
-    const rawApiKey = req.headers['x-api-key'];
-    const apiKey = Array.isArray(rawApiKey) ? String(rawApiKey[0] || '').trim() : String(rawApiKey || '').trim();
+    const apiKey = readApiKey(req);
     if (!apiKey) {
       return res.status(401).json({
         status: false,

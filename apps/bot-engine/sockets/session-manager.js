@@ -27,6 +27,15 @@ function normalizeJid(jid = '') {
   return jid ? String(jid).split(':')[0] : '';
 }
 
+function normalizePaymentInvoice(invoice = '') {
+  return String(invoice || '').trim();
+}
+
+function isLikelyPaymentInvoice(invoice = '') {
+  const value = normalizePaymentInvoice(invoice);
+  return Boolean(value) && !/^\d+$/.test(value);
+}
+
 export class BotSessionManager {
   constructor({ logger, webCoreBaseUrl }) {
     this.logger = logger;
@@ -255,7 +264,12 @@ export class BotSessionManager {
     }
   }
 
-  schedulePaymentWatch(session, remoteJid, invoice) {
+  schedulePaymentWatch(session, remoteJid, rawInvoice) {
+    const invoice = normalizePaymentInvoice(rawInvoice);
+    if (!isLikelyPaymentInvoice(invoice)) {
+      this.logger.error('Invalid payment invoice, skip status watch', { invoice: rawInvoice });
+      return;
+    }
     if (session.paymentTimers.has(invoice)) return;
     let statusRunning = false;
     const client = createWebCoreClient({
@@ -281,7 +295,12 @@ export class BotSessionManager {
         const paymentStatus = String(status.data?.status || '').toLowerCase();
         const orderStatus = String(status.data?.order?.order_status || '').toLowerCase();
 
-        if (['success', 'payment_success'].includes(paymentStatus) && orderStatus === 'success' && status.data.order && session.socket) {
+        if (
+          ['success', 'payment_success'].includes(paymentStatus) &&
+          ['success', 'provider_success', 'credential_delivery'].includes(orderStatus) &&
+          status.data.order &&
+          session.socket
+        ) {
           await session.socket.sendMessage(remoteJid, { text: formatSuccess(status.data.order) });
           finish();
         } else if (['failed', 'expired', 'canceled'].includes(orderStatus || paymentStatus)) {
@@ -293,6 +312,11 @@ export class BotSessionManager {
           finish();
         }
       } catch (error) {
+        if (error?.invalidInvoice) {
+          this.logger.error('Invalid payment invoice, stop status watch', { invoice });
+          finish();
+          return;
+        }
         if (error?.maintenance || error?.statusCode === 503) {
           if (session.socket) {
             await session.socket.sendMessage(remoteJid, { text: 'Web sedang maintenance. Transaksi sementara tidak tersedia.' });
@@ -324,6 +348,7 @@ export class BotSessionManager {
           });
         }
       } catch (error) {
+        if (error?.invalidInvoice) finish();
         if (error?.maintenance || error?.statusCode === 503) finish();
       }
     }, 3 * 60 * 1000);
@@ -341,6 +366,7 @@ export class BotSessionManager {
           finish();
         }
       } catch (error) {
+        if (error?.invalidInvoice) finish();
         if (error?.maintenance || error?.statusCode === 503) finish();
       }
     }, 5 * 60 * 1000);

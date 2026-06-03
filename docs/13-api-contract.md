@@ -66,12 +66,76 @@ Admin only.
 ## Auth Endpoints
 
 ```text
-POST /api/auth/login
-GET  /api/auth/me
+POST /api/login
+POST /api/register
+POST /api/forgot-password
 GET  /api/me
 ```
 
-No public register endpoint exists. Login validates admin-created users and returns the user's API key for backend API access.
+Login validates local users and returns the user's API key for backend API access. Register member is public unless maintenance blocks public mutation.
+
+## User API Key Contract
+
+User API key is a local Premiumin Plus credential, not a Premku provider key.
+
+Accepted auth headers:
+
+```text
+x-api-key: USER_API_KEY
+Authorization: Bearer USER_API_KEY
+```
+
+Frontend UI must show complete API usage docs on `/dashboard/api-key`, including base URL, header, examples, role limits, response format, and safe endpoint list.
+
+User-safe endpoints for `member`, `reseller`, and `admin`:
+
+```text
+GET  /api/me
+GET  /api/products
+POST /api/order
+GET  /api/order/:invoice
+GET  /api/orders
+POST /api/payments/direct-order
+GET  /api/payments/:invoice/status
+POST /api/deposit
+GET  /api/deposit/:invoice
+GET  /api/saldo/logs
+POST /api/withdraw
+GET  /api/withdraws
+```
+
+Rules:
+
+- `POST /api/order` uses wallet saldo and must validate usable balance before provider/manual/hybrid fulfillment.
+- Usable balance is `users.saldo - users.locked_balance`.
+- Direct QRIS order uses `POST /api/payments/direct-order`; provider order starts only after payment success.
+- Member can use API key for a private bot/integration, but cannot access managed Bot Engine endpoints.
+- Reseller can access managed Bot Engine endpoints after bot access is unlocked.
+- API key must never be stored in public frontend code, GitHub, docs screenshots, or customer-side localStorage.
+
+Reseller-only managed bot endpoints:
+
+```text
+GET  /api/bot/catalog
+POST /api/bot/order/init
+GET  /api/bot/payments/:invoice/status
+GET  /api/bot/order/:invoice/status
+GET  /api/bot/history
+GET  /api/bot/analytics
+POST /api/bot/session/connect
+GET  /api/bot/session/status
+POST /api/bot/session/logout
+```
+
+Bot payment status `:invoice` must be the `payment_invoice` returned by `/api/bot/order/init`. Product code/id is not a valid invoice.
+
+Docs endpoint:
+
+```text
+GET /api/docs
+```
+
+`GET /api/docs` returns structured JSON with `base_url`, auth header rules, role descriptions, response format, limits, endpoint list, and examples.
 
 ## Product Endpoint
 

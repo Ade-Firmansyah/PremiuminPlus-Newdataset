@@ -26,10 +26,20 @@ function matches(list, method, path) {
   return list.some((item) => item.method === method && item.pattern.test(path));
 }
 
-async function resolveRequestUser(req) {
-  if (req.user) return req.user;
+function readApiKey(req) {
   const rawApiKey = req.headers['x-api-key'];
   const apiKey = Array.isArray(rawApiKey) ? String(rawApiKey[0] || '').trim() : String(rawApiKey || '').trim();
+  if (apiKey) return apiKey;
+
+  const rawAuthorization = req.headers.authorization;
+  const authorization = Array.isArray(rawAuthorization) ? String(rawAuthorization[0] || '') : String(rawAuthorization || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i);
+  return bearer ? bearer[1].trim() : '';
+}
+
+async function resolveRequestUser(req) {
+  if (req.user) return req.user;
+  const apiKey = readApiKey(req);
   if (!apiKey) return null;
   try {
     return await findUserByApiKey(apiKey);

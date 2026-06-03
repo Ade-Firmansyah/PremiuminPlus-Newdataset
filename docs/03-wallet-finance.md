@@ -119,6 +119,32 @@ bot_disabled_reason set
 mutation_type = bot_disable
 ```
 
+## Bot WhatsApp Sales Ledger
+
+Semua order yang datang dari Bot WhatsApp tetap diproses oleh backend, bukan oleh bot-engine.
+
+Saat QRIS buyer sukses:
+
+```text
+bot_payment_in  = saldo + sell_price
+bot_order_cost  = saldo - modal_price
+reseller_profit = sell_price - modal_price
+```
+
+`reseller_profit` dicatat untuk analytics dan riwayat, tetapi tidak menambah saldo kedua kali.
+
+Contoh:
+
+```text
+saldo_awal   = Rp 50.000
+buyer bayar  = Rp 1.000
+modal produk = Rp 800
+saldo_akhir  = Rp 50.200
+profit       = Rp 200
+```
+
+Status checker bot wajib memakai `payment_invoice` lokal/provider yang tersimpan di `payments`, bukan `product_code`.
+
 ## Withdraw Approval
 
 Withdraw request creates a pending row first.

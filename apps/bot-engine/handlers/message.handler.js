@@ -21,6 +21,15 @@ function productCode(product) {
   return String(product.product_code || product.buy_code || product.code || '').replace(/^buy/i, '').trim();
 }
 
+function paymentInvoice(payment = {}) {
+  return String(payment.payment_invoice || payment.invoice || payment.provider_invoice || '').trim();
+}
+
+function isLikelyPaymentInvoice(value = '') {
+  const invoice = String(value || '').trim();
+  return Boolean(invoice) && !/^\d+$/.test(invoice);
+}
+
 function splitProducts(products) {
   return {
     ready: products.filter((product) => Number(product.stock || 0) > 0),
@@ -269,22 +278,34 @@ export function createMessageHandler({ client, queue, logger }) {
         const catalog = await client.catalog();
         const product = (catalog.data || []).find((item) => productCode(item) === code);
         const payment = await client.payment({ product_code: code, qty: 1, buyer_whatsapp: context.jid?.split('@')[0], buyer_name: context.pushName || '' });
-        logger.info(`Payment created ${payment.data.invoice}`);
+        const invoice = paymentInvoice(payment.data);
+        if (!isLikelyPaymentInvoice(invoice)) {
+          logger.error('Invalid payment invoice from web-core', { product_code: code, invoice });
+          throw new Error('Invoice pembayaran tidak valid dari backend');
+        }
+        logger.info(`Payment created ${invoice}`);
         return {
           image: payment.data.qr_image || payment.data.qr_raw,
-          text: formatPaymentCaption(payment.data, product?.name),
-          invoice: payment.data.invoice,
+          text: formatPaymentCaption({ ...payment.data, invoice }, product?.name),
+          invoice,
+          payment_invoice: invoice,
         };
       }
 
       if (text.startsWith('cancel ')) {
         const invoice = text.replace('cancel ', '').trim();
+        if (!isLikelyPaymentInvoice(invoice)) {
+          return 'Invoice tidak valid. Gunakan invoice pembayaran, bukan kode produk.';
+        }
         await client.paymentCancel(invoice);
         return 'TRANSAKSI DIBATALKAN\n\nTenang kak 🙏\nPesanan bisa dibuat kembali kapan saja.\n\n━━━━━━━━━━━━━━━━━━';
       }
 
       if (text.startsWith('cek ')) {
         const invoice = text.replace('cek ', '').trim();
+        if (!isLikelyPaymentInvoice(invoice)) {
+          return 'Invoice tidak valid. Contoh benar: cek PAY-20260603-ABC12345';
+        }
         const status = await client.paymentStatus(invoice);
         if (['success', 'payment_success'].includes(String(status.data?.status || '').toLowerCase()) && status.data.order) {
           return formatSuccess(status.data.order, settings);

@@ -101,6 +101,154 @@ const router = express.Router();
 const PUBLIC_USER_BASE = 1368;
 const PUBLIC_USER_GROWTH_PER_REGISTER = 3;
 
+function getApiDocs(req) {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.get('host') || 'premiuminplus.store';
+  const baseUrl = `${protocol}://${host}/api`;
+
+  const userEndpoints = [
+    {
+      method: 'GET',
+      path: '/me',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Ambil profil akun, saldo, locked balance, role, dan API key aktif.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/me`,
+    },
+    {
+      method: 'GET',
+      path: '/products',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Ambil katalog produk dengan harga final sesuai role akun.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/products`,
+    },
+    {
+      method: 'POST',
+      path: '/order',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Order langsung memakai saldo akun. Backend validasi saldo/locked balance sebelum hit provider atau stok manual.',
+      body: { product_id: 123, qty: 1 },
+      example: `curl -X POST ${baseUrl}/order -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"product_id\\":123,\\"qty\\":1}"`,
+    },
+    {
+      method: 'GET',
+      path: '/order/:invoice',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Cek status order dan ambil credential jika order sudah success/sent.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/order/ORD-XXXX`,
+    },
+    {
+      method: 'GET',
+      path: '/orders',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Riwayat order akun. Credential pending disembunyikan sampai order sukses.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/orders`,
+    },
+    {
+      method: 'POST',
+      path: '/payments/direct-order',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Buat QRIS order langsung tanpa memakai saldo. Order baru diproses setelah QRIS sukses.',
+      body: { product_id: 123, qty: 1, target_whatsapp: '6281234567890' },
+      example: `curl -X POST ${baseUrl}/payments/direct-order -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"product_id\\":123,\\"qty\\":1}"`,
+    },
+    {
+      method: 'GET',
+      path: '/payments/:invoice/status',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Cek status QRIS order langsung. Saat success, backend otomatis proses order.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/payments/PAY-XXXX/status`,
+    },
+    {
+      method: 'POST',
+      path: '/deposit',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Buat QRIS deposit saldo.',
+      body: { amount: 50000 },
+      example: `curl -X POST ${baseUrl}/deposit -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"amount\\":50000}"`,
+    },
+    {
+      method: 'GET',
+      path: '/deposit/:invoice',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Cek status deposit. Saldo dikredit hanya sekali saat provider menyatakan success.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/deposit/DEP-XXXX`,
+    },
+    {
+      method: 'GET',
+      path: '/saldo/logs',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Mutasi saldo legacy-compatible untuk akun pemilik API key.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/saldo/logs`,
+    },
+    {
+      method: 'POST',
+      path: '/withdraw',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Ajukan tarik saldo. Minimal Rp50.000 dan saldo usable harus cukup.',
+      body: { amount: 50000, bank_name: 'DANA', account_number: '6281234567890', account_name: 'Nama Akun', notes: 'Catatan opsional' },
+      example: `curl -X POST ${baseUrl}/withdraw -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"amount\\":50000,\\"bank_name\\":\\"DANA\\",\\"account_number\\":\\"6281234567890\\",\\"account_name\\":\\"Nama Akun\\"}"`,
+    },
+    {
+      method: 'GET',
+      path: '/withdraws',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Riwayat withdraw akun beserta status pending/approved/rejected.',
+      example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/withdraws`,
+    },
+  ];
+
+  const resellerEndpoints = [
+    {
+      method: 'GET',
+      path: '/bot/catalog',
+      roles: ['reseller', 'admin'],
+      description: 'Katalog bot reseller dengan harga jual bot sesuai margin reseller.',
+    },
+    {
+      method: 'POST',
+      path: '/bot/order/init',
+      roles: ['reseller', 'admin'],
+      description: 'Buat QRIS order dari bot. Backend mencatat uang masuk, modal keluar, profit reseller, dan order.',
+      body: { product_id: 123, qty: 1, buyer_whatsapp: '6281234567890' },
+    },
+    {
+      method: 'GET',
+      path: '/bot/order/:invoice/status',
+      roles: ['reseller', 'admin'],
+      description: 'Cek status QRIS/order bot reseller.',
+    },
+  ];
+
+  return {
+    version: '3.2.2',
+    base_url: baseUrl,
+    auth: {
+      header: 'x-api-key',
+      alternative_header: 'Authorization: Bearer YOUR_API_KEY',
+      example_header: { 'x-api-key': 'YOUR_API_KEY' },
+      note: 'Jangan taruh API key di frontend publik. Gunakan dari server, bot pribadi, cron, atau backend integrasi Anda.',
+    },
+    roles: {
+      member: 'Bisa memakai API key untuk bot pribadi/bisnis sendiri, deposit, withdraw, order saldo, QRIS order, riwayat, dan mutasi.',
+      reseller: 'Semua akses member plus managed Bot Engine, bot catalog, bot QRIS, bot history, dan analytics.',
+      admin: 'Full access termasuk endpoint admin.',
+    },
+    response_format: {
+      success: { status: true, success: true, data: {} },
+      error: { status: false, message: 'Pesan error' },
+    },
+    limits: {
+      withdraw_minimum: 50000,
+      order_rule: 'Saldo usable = saldo - locked_balance. Order saldo hanya diproses jika saldo usable cukup.',
+      direct_qris_rule: 'QRIS order/deposit diproses setelah status provider success. QR disembunyikan setelah success untuk cegah double bayar.',
+    },
+    endpoints: {
+      user_safe: userEndpoints,
+      reseller_bot: resellerEndpoints,
+    },
+  };
+}
+
 async function getPublicStats() {
   return remember('public:stats', 60, async () => {
     const [userRows] = await query('SELECT COUNT(*) AS total_users FROM users');
@@ -258,9 +406,12 @@ router.post('/admin/system/restore/upload', auth, adminOnly, uploadRestoreBackup
 router.get('/admin/system/restore/:jobId/status', auth, adminOnly, getRestoreJobStatus);
 router.post('/admin/system/restore/:jobId/confirm', auth, adminOnly, confirmRestoreJob);
 
-router.get('/docs', (_req, res) => {
+router.get('/docs', (req, res) => {
+  const contract = getApiDocs(req);
   res.json({
     status: true,
+    success: true,
+    data: contract,
     docs: [
       'POST /api/login',
       'POST /api/register',

@@ -1,5 +1,5 @@
 import { transaction } from '../config/db.js';
-import { applyBalanceMutation, invalidateBalanceCaches, recordBalanceMutation } from './balance.service.js';
+import { applyBalanceMutation, invalidateBalanceCaches, recordBalanceMutation, recordSaldoLog } from './balance.service.js';
 
 export const BOT_LOCKED_BALANCE = 50000;
 
@@ -59,20 +59,15 @@ export async function applyWalletMutationInTransaction(connection, userOrId, pay
   }
 
   await connection.query('UPDATE users SET saldo = ? WHERE id = ?', [after, userId]);
-  await connection.query(
-    `INSERT INTO saldo_logs
-      (user_id, type, amount, balance_before, balance_after, reference, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userId,
-      direction === 'in' ? 'credit' : direction === 'out' ? 'debit' : 'adjustment',
-      amount,
-      before,
-      after,
-      payload.source_ref || payload.reference || null,
-      payload.notes || null,
-    ],
-  );
+  await recordSaldoLog(connection, {
+    ...payload,
+    user_id: userId,
+    type: direction === 'in' ? 'credit' : direction === 'out' ? 'debit' : 'adjustment',
+    direction,
+    amount,
+    balance_before: before,
+    balance_after: after,
+  });
   await recordBalanceMutation(connection, {
     ...payload,
     user_id: userId,
@@ -143,12 +138,17 @@ export async function setSaldo(userOrId, nextSaldo, reference = 'admin-adjustmen
     }
 
     await connection.query('UPDATE users SET saldo = ? WHERE id = ?', [value, userId]);
-    await connection.query(
-      `INSERT INTO saldo_logs
-        (user_id, type, amount, balance_before, balance_after, reference, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, value > before ? 'credit' : 'debit', Math.abs(value - before), before, value, reference || null, 'adjustment'],
-    );
+    await recordSaldoLog(connection, {
+      user_id: userId,
+      type: value > before ? 'credit' : 'debit',
+      direction: value > before ? 'in' : 'out',
+      amount: Math.abs(value - before),
+      balance_before: before,
+      balance_after: value,
+      source_type: 'admin_adjustment',
+      source_ref: reference || null,
+      notes: 'adjustment',
+    });
     await recordBalanceMutation(connection, {
       user_id: userId,
       mutation_type: 'admin_adjustment',
@@ -265,12 +265,17 @@ async function applyWithdrawDebit(connection, user, amount, reference) {
      WHERE id = ?`,
     [after, userId],
   );
-  await connection.query(
-    `INSERT INTO saldo_logs
-      (user_id, type, amount, balance_before, balance_after, reference, notes)
-     VALUES (?, 'debit', ?, ?, ?, ?, ?)`,
-    [userId, value, before, after, reference, 'withdraw-approved'],
-  );
+  await recordSaldoLog(connection, {
+    user_id: userId,
+    type: 'debit',
+    direction: 'out',
+    amount: value,
+    balance_before: before,
+    balance_after: after,
+    source_type: 'withdraw',
+    source_ref: reference,
+    notes: 'withdraw-approved',
+  });
   await recordBalanceMutation(connection, {
     user_id: userId,
     mutation_type: 'withdraw',

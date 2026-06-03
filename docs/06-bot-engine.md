@@ -156,10 +156,20 @@ profit = sell_price - modal
 
 When a bot QRIS order succeeds:
 
-- `transactions.reseller_profit` stores bot margin profit.
-- `saldo_logs` gets a credit entry with `-profit` reference.
-- `saldo_mutations` gets an adjustment entry for profit.
-- dashboard Mutasi Saldo can show bot margin profit for member/reseller.
+- `bot_payment_in` credits the bot owner wallet by buyer sell price.
+- `bot_order_cost` debits the bot owner wallet by modal/reseller price.
+- `transactions.reseller_profit` stores bot margin profit for analytics.
+- `saldo_logs` and `saldo_mutations` record both wallet movements.
+- dashboard Mutasi Saldo can show buyer payment in, modal out, and resulting profit.
+
+Final balance formula:
+
+```text
+saldo_akhir = saldo_awal + sell_price - modal_price
+profit = sell_price - modal_price
+```
+
+`reseller_profit` is an analytics row, not a second wallet credit. This prevents double profit.
 
 Implementation lock:
 
@@ -168,7 +178,8 @@ Implementation lock:
 - `users.reseller_margin_percent` is applied only when `include_personal_markup = true`.
 - `payments.amount` and `payments.sell_price` store the buyer QRIS amount.
 - `payments.modal_price` stores the reseller modal before personal margin.
-- Wallet credit on success is limited to `reseller_profit` so reseller saldo is not credited twice.
+- Wallet mutation on success uses one credit for buyer payment and one debit for modal. Profit is visible from the balance delta and analytics row.
+- Bot status checks must use `payment_invoice` from the backend response. Product code, product id, and buy code are never valid payment status references.
 
 Phase 1 reseller settings lock:
 

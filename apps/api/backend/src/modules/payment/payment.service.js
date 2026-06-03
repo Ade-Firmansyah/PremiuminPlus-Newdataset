@@ -319,7 +319,7 @@ export async function createBotOrderPayment(user, payload) {
     status: 'PENDING PAYMENT',
     invoice,
   });
-  return createPayment({
+  const record = await createPayment({
     user_id: user.id,
     invoice,
     provider_invoice: providerInvoice,
@@ -340,6 +340,24 @@ export async function createBotOrderPayment(user, payload) {
     reseller_profit: resellerProfit,
     expired_at: resolveExpiredAt(payment),
   });
+
+  return {
+    ...record,
+    payment_invoice: record.invoice,
+    invoice: record.invoice,
+    provider_invoice: record.provider_invoice,
+    product_code: String(payload.product_code || payload.buy_code || product.code || product.id || ''),
+    product_id: product.id,
+    product_name: product.name,
+    base_price: Number(product.price_base || product.base_price || 0),
+    reseller_price: modal,
+    modal_price: modal,
+    sell_price: total,
+    profit: resellerProfit,
+    reseller_profit: resellerProfit,
+    qty,
+    total_bayar: Number(record.total_bayar || totalBayar),
+  };
 }
 
 async function applyBotPaymentLedger(connection, { payment, product, orderInvoice, total, modalTotal, resellerProfit, processedAt }) {
@@ -798,6 +816,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 export async function refreshDirectPaymentStatus(invoice, user) {
   const payment = await findPaymentByInvoice(invoice);
   if (!payment) return null;
+  const paymentInvoice = payment.invoice;
   if (user.role !== 'admin' && payment.user_id !== user.id) {
     const error = new Error('Invoice bukan milik akun ini');
     error.statusCode = 403;
@@ -806,13 +825,13 @@ export async function refreshDirectPaymentStatus(invoice, user) {
 
   if (isPaymentSuccessStatus(payment.status) && payment.processed_at) {
     let existing = await transaction(async (connection) => {
-      const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [invoice]);
+      const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [paymentInvoice]);
       return orderRows[0] || null;
     });
     if (existing && !isCredentialOrderStatus(existing.order_status) && !['failed', 'canceled', 'cancelled'].includes(String(existing.order_status || '').toLowerCase())) {
       await refreshOrderStatus(existing.invoice);
       existing = await transaction(async (connection) => {
-        const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [invoice]);
+        const [orderRows] = await connection.query('SELECT * FROM orders WHERE payment_invoice = ? ORDER BY id DESC LIMIT 1', [paymentInvoice]);
         return orderRows[0] || existing;
       });
     }
@@ -850,7 +869,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
 
     const providerStatus = normalizePaymentStatus(statusResponse);
     if (providerStatus === 'success') {
-      const result = await processSuccessfulPayment(invoice, statusResponse);
+      const result = await processSuccessfulPayment(paymentInvoice, statusResponse);
       if (result.blocked) return result.payment;
       return {
         ...payment,
@@ -869,7 +888,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
       // Provider cancel is best-effort; local expiry remains authoritative.
     }
 
-    const updated = await updatePayment(invoice, {
+    const updated = await updatePayment(paymentInvoice, {
       status: providerStatus === 'pending' ? 'expired' : providerStatus,
       status_response: statusResponse,
       clear_qr: true,
@@ -877,14 +896,14 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     });
     void notifyAdmin('failed payment', {
       user_id: payment.user_id,
-      invoice,
+      invoice: paymentInvoice,
       status: providerStatus === 'pending' ? 'expired' : providerStatus,
       payment_type: payment.payment_type,
     });
     return updated;
   }
 
-  const syncCacheKey = `sync:payment:${invoice}`;
+  const syncCacheKey = `sync:payment:${paymentInvoice}`;
   if (isPendingPaymentStatus(payment.status) && getCache(syncCacheKey)) {
     return payment;
   }
@@ -895,7 +914,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
   setCache(syncCacheKey, true, 3);
   const nextStatus = normalizePaymentStatus(statusResponse);
   if (nextStatus === 'success') {
-    const result = await processSuccessfulPayment(invoice, statusResponse);
+    const result = await processSuccessfulPayment(paymentInvoice, statusResponse);
     if (result.blocked) return result.payment;
     if (result.order && isCredentialOrderStatus(result.order.order_status) && result.order.delivery_status !== 'sent') {
       const delivery = await sendOrderDelivery(result.order);
@@ -932,11 +951,11 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     };
   }
 
-  const updated = await updatePayment(invoice, { status: nextStatus === 'pending' ? 'pending_payment' : nextStatus, status_response: statusResponse, clear_qr: nextStatus !== 'pending' });
+  const updated = await updatePayment(paymentInvoice, { status: nextStatus === 'pending' ? 'pending_payment' : nextStatus, status_response: statusResponse, clear_qr: nextStatus !== 'pending' });
   if (['failed', 'expired', 'canceled'].includes(nextStatus)) {
     void notifyAdmin('failed payment', {
       user_id: payment.user_id,
-      invoice,
+      invoice: paymentInvoice,
       status: nextStatus,
       payment_type: payment.payment_type,
     });
@@ -951,6 +970,7 @@ export async function cancelDirectPayment(invoice, user) {
     error.statusCode = 404;
     throw error;
   }
+  const paymentInvoice = payment.invoice;
   if (user.role !== 'admin' && payment.user_id !== user.id) {
     const error = new Error('Invoice bukan milik akun ini');
     error.statusCode = 403;
@@ -976,12 +996,12 @@ export async function cancelDirectPayment(invoice, user) {
   } catch (error) {
     response = { message: error instanceof Error ? error.message : 'Premku cancel_pay failed' };
   }
-  logger('PAYMENT', { invoice, user_id: user.id, status: 'canceled' });
+  logger('PAYMENT', { invoice: paymentInvoice, user_id: user.id, status: 'canceled' });
   void notifyAdmin('failed payment', {
     user: user.username,
-    invoice,
+    invoice: paymentInvoice,
     status: 'canceled',
     payment_type: payment.payment_type,
   });
-  return updatePayment(invoice, { status: 'canceled', status_response: response, canceled_at: toMysqlDate(), clear_qr: true });
+  return updatePayment(paymentInvoice, { status: 'canceled', status_response: response, canceled_at: toMysqlDate(), clear_qr: true });
 }

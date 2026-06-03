@@ -5,7 +5,7 @@ import { formatCurrency } from '../utils/format';
 import { getApiKey } from '../store/useAuth';
 import { premiuminApi, type WithdrawRecord } from '../services/api';
 
-const BANK_OPTIONS = ['BRI', 'JAGO', 'SEABANK', 'SHOPEPAY', 'GOPAY'] as const;
+const BANK_OPTIONS = ['BCA', 'BNI', 'BRI', 'MANDIRI', 'JAGO', 'SEABANK', 'DANA', 'OVO', 'SHOPEPAY', 'GOPAY'] as const;
 const WITHDRAW_AMOUNTS = [50000, 100000, 150000, 200000, 250000, 300000, 500000, 750000, 1000000];
 const MIN_WITHDRAW = 50000;
 const MAX_WITHDRAW = 1000000;

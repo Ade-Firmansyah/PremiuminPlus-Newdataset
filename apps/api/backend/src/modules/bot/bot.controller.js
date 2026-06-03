@@ -268,6 +268,7 @@ export async function botCreatePayment(req, res, next) {
 
     const data = await createBotOrderPayment(req.user, {
       product_id: product.id,
+      product_code: product.product_code || product.buy_code || product.command || req.body?.product_code || req.body?.buy_code,
       qty: Number(req.body?.qty || 1),
       buyer_whatsapp: req.body?.buyer_whatsapp,
       buyer_name: req.body?.buyer_name,

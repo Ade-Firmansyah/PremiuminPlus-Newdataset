@@ -63,7 +63,17 @@ export async function createPayment(payload) {
 }
 
 export async function findPaymentByInvoice(invoice) {
-  const rows = await query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
+  const reference = String(invoice || '').trim();
+  if (!reference) return null;
+
+  const rows = await query(
+    `SELECT *
+     FROM payments
+     WHERE invoice = ? OR provider_invoice = ?
+     ORDER BY CASE WHEN invoice = ? THEN 0 ELSE 1 END, id DESC
+     LIMIT 1`,
+    [reference, reference, reference],
+  );
   return toPayment(rows[0] || null);
 }
 

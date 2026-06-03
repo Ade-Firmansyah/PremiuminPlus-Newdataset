@@ -387,7 +387,7 @@ const TABLES = {
       id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
       user_id: 'BIGINT UNSIGNED NOT NULL',
       mutation_type: "VARCHAR(60) NOT NULL DEFAULT 'unknown'",
-      direction: "VARCHAR(16) NOT NULL DEFAULT 'in'",
+      direction: "VARCHAR(16) NOT NULL DEFAULT 'neutral'",
       amount: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       balance_before: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       balance_after: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
@@ -815,6 +815,10 @@ async function ensureRuntimeColumnTypes(pool, database, report) {
     ['transactions', 'direction', "VARCHAR(16) NOT NULL DEFAULT 'out'"],
     ['notifications', 'target_role', 'VARCHAR(40) NULL'],
     ['products', 'product_source', "VARCHAR(32) NOT NULL DEFAULT 'provider'"],
+    ['saldo_logs', 'type', "VARCHAR(40) NOT NULL DEFAULT 'adjustment'"],
+    ['saldo_logs', 'log_type', "VARCHAR(40) NOT NULL DEFAULT 'unknown'"],
+    ['saldo_mutations', 'mutation_type', "VARCHAR(60) NOT NULL DEFAULT 'unknown'"],
+    ['saldo_mutations', 'direction', "VARCHAR(16) NOT NULL DEFAULT 'neutral'"],
   ];
 
   for (const [table, column, definition] of expected) {
@@ -827,7 +831,9 @@ async function ensureRuntimeColumnTypes(pool, database, report) {
     );
     const columnType = String(rows[0]?.COLUMN_TYPE || '').toLowerCase();
     const wantsVarchar = String(definition).toLowerCase().includes('varchar');
-    if (rows[0] && wantsVarchar && !columnType.includes('varchar')) {
+    const defaultMatch = String(definition).match(/DEFAULT\s+'([^']*)'/i);
+    const defaultMismatch = defaultMatch && String(rows[0]?.COLUMN_DEFAULT ?? '') !== defaultMatch[1];
+    if (rows[0] && wantsVarchar && (!columnType.includes('varchar') || defaultMismatch)) {
       await pool.query(`ALTER TABLE ${quoteId(table)} MODIFY COLUMN ${quoteId(column)} ${definition}`);
       report.columns.push(`${table}.${column}(varchar-runtime)`);
     }

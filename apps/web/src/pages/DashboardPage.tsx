@@ -210,11 +210,48 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${tone}`}>{status || 'pending'}</span>;
 }
 
+const userApiEndpoints = [
+  ['GET', '/me', 'Profil, role, saldo, locked balance, dan API key aktif.'],
+  ['GET', '/products', 'Katalog produk dengan harga final sesuai role member/reseller.'],
+  ['POST', '/order', 'Order langsung memakai saldo. Body: product_id, qty.'],
+  ['GET', '/order/:invoice', 'Cek status order dan buka credential saat order sukses.'],
+  ['GET', '/orders', 'Riwayat order akun pemilik API key.'],
+  ['POST', '/payments/direct-order', 'Buat QRIS order langsung tanpa potong saldo dulu.'],
+  ['GET', '/payments/:invoice/status', 'Cek status QRIS order dan proses provider setelah success.'],
+  ['POST', '/deposit', 'Buat QRIS deposit saldo. Body: amount.'],
+  ['GET', '/deposit/:invoice', 'Cek status deposit dan kredit saldo sekali saat success.'],
+  ['GET', '/saldo/logs', 'Mutasi saldo legacy-compatible.'],
+  ['POST', '/withdraw', 'Ajukan tarik saldo minimal Rp50.000.'],
+  ['GET', '/withdraws', 'Riwayat withdraw dan status admin.'],
+];
+
+const resellerApiEndpoints = [
+  ['GET', '/bot/catalog', 'Katalog bot dengan harga jual sesuai margin reseller.'],
+  ['POST', '/bot/order/init', 'Buat QRIS order bot, catat uang masuk/modal/profit.'],
+  ['GET', '/bot/order/:invoice/status', 'Cek status QRIS dan order bot.'],
+  ['GET', '/bot/history', 'Riwayat transaksi bot reseller.'],
+  ['GET', '/bot/analytics', 'Profit dan statistik order bot.'],
+  ['POST', '/bot/session/connect', 'Connect WhatsApp session dan tampilkan QR login.'],
+];
+
 function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: { username: string; apiKey: string; maintenanceActive?: boolean }) {
   const [key, setKey] = useState(apiKey);
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const apiBaseUrl = useMemo(() => {
+    const configured = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+    if (configured) return configured;
+    return `${window.location.origin}/api`;
+  }, []);
+  const curlOrder = `curl -X POST ${apiBaseUrl}/order \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: ${visible ? key : 'YOUR_API_KEY'}" \\
+  -d "{\\"product_id\\":123,\\"qty\\":1}"`;
+  const curlQris = `curl -X POST ${apiBaseUrl}/payments/direct-order \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: ${visible ? key : 'YOUR_API_KEY'}" \\
+  -d "{\\"product_id\\":123,\\"qty\\":1,\\"target_whatsapp\\":\\"6281234567890\\"}"`;
 
   const refresh = async () => {
     setLoading(true);
@@ -264,12 +301,23 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
   return (
     <Panel>
       <SectionTitle kicker="Developer" title="API Key" />
-      <div className="rounded-xl border border-white/10 bg-[#050816] p-3">
-        <p className="text-xs text-white/38">Pengguna: {username}</p>
-        <p className="mt-2 break-all font-mono text-sm tracking-[0.16em] text-white">{visible ? key : maskKey(key)}</p>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="rounded-2xl border border-white/10 bg-[#050816] p-4">
+          <p className="text-xs text-white/38">Pengguna: {username}</p>
+          <p className="mt-2 break-all font-mono text-sm tracking-[0.16em] text-white">{visible ? key : maskKey(key)}</p>
+          <p className="mt-3 text-xs leading-5 text-white/45">
+            API key ini bisa dipakai member dan reseller untuk integrasi server, bot pribadi, cron, atau aplikasi internal.
+            Semua request wajib lewat backend Premiumin Plus dan memakai header <code>x-api-key</code>.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-brand/20 bg-brand/10 p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-light">Base URL</p>
+          <p className="mt-2 break-all font-mono text-xs text-white">{apiBaseUrl}</p>
+          <p className="mt-3 text-xs leading-5 text-white/55">Production: <b className="text-white">https://premiuminplus.store/api</b></p>
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <button onClick={() => setVisible((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-bold text-white/80">Mask</button>
+        <button onClick={() => setVisible((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-bold text-white/80">{visible ? 'Sembunyikan' : 'Tampilkan'}</button>
         <button onClick={copy} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#ff2f92] px-3 py-2 text-xs font-bold text-white">
           <Copy className="h-3.5 w-3.5" />
           {copied ? 'OK' : 'Copy'}
@@ -282,14 +330,84 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
           Regenerate
         </button>
       </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Endpoint member dan reseller</p>
+          <div className="mt-3 grid gap-2">
+            {userApiEndpoints.map(([method, path, description]) => (
+              <div key={`${method}-${path}`} className="grid gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs sm:grid-cols-[130px_minmax(0,1fr)]">
+                <code className="font-black text-white">{method} {path}</code>
+                <span className="text-white/55">{description}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-white/45">
+            Member boleh memakai API key untuk bot pribadi buatan sendiri. Managed Bot Engine bawaan web tetap khusus reseller/admin dengan akses bot aktif.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Header wajib</p>
+            <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-white/75">{`x-api-key: ${visible ? key : 'YOUR_API_KEY'}
+authorization: Bearer ${visible ? key : 'YOUR_API_KEY'}
+content-type: application/json`}</pre>
+            <p className="mt-3 text-xs leading-5 text-white/50">Pilih salah satu: <code>x-api-key</code> atau <code>Authorization: Bearer</code>. Jangan kirim key berbeda di dua header sekaligus.</p>
+            <p className="mt-3 text-xs leading-5 text-amber-100/75">Jangan simpan API key di frontend publik, GitHub, atau localStorage aplikasi milik customer.</p>
+          </div>
+          <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/10 p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200">Aturan saldo</p>
+            <p className="mt-3 text-xs leading-5 text-white/60">Order saldo memakai usable balance: saldo dikurangi locked balance bot. Jika saldo tidak cukup, API mengembalikan 402 dengan detail required dan available.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Contoh order saldo</p>
+          <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{curlOrder}</pre>
+          <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Body JSON</p>
+            <pre className="mt-2 overflow-x-auto text-xs text-white/70">{`{
+  "product_id": 123,
+  "qty": 1
+}`}</pre>
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Contoh QRIS order</p>
+          <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{curlQris}</pre>
+          <p className="mt-3 text-xs leading-5 text-white/45">QRIS order langsung tidak memotong saldo saat dibuat. Backend memproses order hanya setelah status QRIS success.</p>
+        </div>
+      </div>
+
       <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.035] p-4">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Endpoint user-safe</p>
-        <div className="mt-3 grid gap-2 text-xs font-semibold text-white/62 sm:grid-cols-2">
-          {['GET /api/me', 'GET /api/products', 'POST /api/order', 'GET /api/orders', 'GET /api/saldo/logs', 'POST /api/withdraw'].map((endpoint) => (
-            <code key={endpoint} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">{endpoint}</code>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Endpoint khusus reseller bot</p>
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+          {resellerApiEndpoints.map(([method, path, description]) => (
+            <div key={`${method}-${path}`} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+              <code className="font-black text-white">{method} {path}</code>
+              <p className="mt-1 leading-5 text-white/50">{description}</p>
+            </div>
           ))}
         </div>
-        <p className="mt-3 text-xs leading-5 text-white/45">Gunakan header <code>x-api-key</code>. Member boleh memakai API key untuk bot pribadi, sedangkan managed Bot Engine tetap khusus reseller/admin dengan akses bot aktif.</p>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {[
+          ['200', 'Berhasil. Data ada di field data.'],
+          ['401', 'API key kosong/salah/regenerated.'],
+          ['402', 'Saldo usable tidak cukup untuk order saldo.'],
+          ['403', 'Role tidak sesuai atau akun nonaktif.'],
+          ['404', 'Invoice/produk tidak ditemukan.'],
+          ['429/5xx', 'Tunggu beberapa detik, lalu retry dari server.'],
+        ].map(([code, text]) => (
+          <div key={code} className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <p className="text-lg font-black text-white">{code}</p>
+            <p className="mt-1 text-xs leading-5 text-white/50">{text}</p>
+          </div>
+        ))}
       </div>
     </Panel>
   );

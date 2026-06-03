@@ -48,6 +48,20 @@ async function request({ apiBaseUrl, apiKey }, path, options = {}) {
   return promise;
 }
 
+function paymentInvoice(value = '') {
+  return String(value || '').trim();
+}
+
+function assertPaymentInvoice(value = '') {
+  const invoice = paymentInvoice(value);
+  if (!invoice || /^\d+$/.test(invoice)) {
+    const error = new Error('Invalid payment invoice, status check skipped');
+    error.invalidInvoice = true;
+    throw error;
+  }
+  return encodeURIComponent(invoice);
+}
+
 export function createWebCoreClient(config) {
   return {
     profile: () => request(config, '/bot/profile'),
@@ -62,11 +76,11 @@ export function createWebCoreClient(config) {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    paymentStatus: (invoice) => request(config, `/bot/payments/${invoice}/status`),
+    paymentStatus: (invoice) => request(config, `/bot/payments/${assertPaymentInvoice(invoice)}/status`),
     paymentCancel: (invoice) =>
-      request(config, `/bot/payments/${invoice}/cancel`, {
+      request(config, `/bot/payments/${assertPaymentInvoice(invoice)}/cancel`, {
         method: 'POST',
-        body: JSON.stringify({ invoice }),
+        body: JSON.stringify({ invoice: paymentInvoice(invoice) }),
       }),
   };
 }

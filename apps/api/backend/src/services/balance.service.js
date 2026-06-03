@@ -58,6 +58,41 @@ export function invalidateBalanceCaches(userId) {
   deleteCachePrefix('admin:balance-mutations');
 }
 
+export async function recordSaldoLog(connection, payload) {
+  const before = Number(payload.balance_before ?? payload.before_saldo ?? 0);
+  const after = Number(payload.balance_after ?? payload.after_saldo ?? 0);
+  const amount = assertAmount(payload.amount, { allowZero: true });
+  const direction = payload.direction || resolveDirection(payload.mutation_type || payload.type || payload.log_type, before, after);
+  const logType = String(
+    payload.log_type ||
+      payload.type ||
+      (direction === 'in' ? 'credit' : direction === 'out' ? 'debit' : 'adjustment'),
+  ).slice(0, 40);
+  const reference = payload.source_ref || payload.reference || payload.reference_id || null;
+  const notes = payload.notes || payload.description || null;
+
+  await connection.query(
+    `INSERT INTO saldo_logs
+      (user_id, type, log_type, amount, balance_before, balance_after, before_saldo, after_saldo, reference, notes, reference_table, reference_id, description)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      Number(payload.user_id),
+      logType,
+      logType,
+      amount,
+      before,
+      after,
+      before,
+      after,
+      reference,
+      notes,
+      payload.reference_table || payload.source_type || null,
+      reference,
+      notes,
+    ],
+  );
+}
+
 export async function recordBalanceMutation(connection, payload) {
   const mutationType = normalizeMutationType(payload.mutation_type);
   const before = Number(payload.balance_before || 0);
@@ -86,9 +121,21 @@ export async function recordBalanceMutation(connection, payload) {
 
   await connection.query(
     `INSERT INTO saldo_mutations
-      (user_id, mutation_type, amount, balance_before, balance_after, reference)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [Number(payload.user_id), mutationType, amount, before, after, payload.source_ref || payload.reference || null],
+      (user_id, mutation_type, direction, amount, balance_before, balance_after, reference_table, reference_id, description, metadata, reference)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`,
+    [
+      Number(payload.user_id),
+      mutationType,
+      direction,
+      amount,
+      before,
+      after,
+      payload.source_type || payload.reference_table || null,
+      payload.source_ref || payload.reference || null,
+      payload.notes || null,
+      JSON.stringify(payload.metadata ?? null),
+      payload.source_ref || payload.reference || null,
+    ],
   );
 }
 
@@ -127,12 +174,16 @@ export async function applyBalanceMutation(userOrId, payload) {
 
     const logType = direction === 'in' ? 'credit' : direction === 'out' ? 'debit' : 'adjustment';
     await connection.query('UPDATE users SET saldo = ? WHERE id = ?', [after, userId]);
-    await connection.query(
-      `INSERT INTO saldo_logs
-        (user_id, type, amount, balance_before, balance_after, reference, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, logType, amount, before, after, payload.source_ref || payload.reference || null, payload.notes || null],
-    );
+    await recordSaldoLog(connection, {
+      ...payload,
+      user_id: userId,
+      type: logType,
+      log_type: logType,
+      direction,
+      amount,
+      balance_before: before,
+      balance_after: after,
+    });
     await recordBalanceMutation(connection, {
       ...payload,
       user_id: userId,

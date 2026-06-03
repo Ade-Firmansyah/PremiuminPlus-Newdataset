@@ -3,7 +3,7 @@ import { notifyAdmin } from '../../services/notification.service.js';
 
 const MIN_WITHDRAW = 50000;
 const MAX_WITHDRAW = 1000000;
-const ALLOWED_BANKS = new Set(['BRI', 'JAGO', 'SEABANK', 'SHOPEPAY', 'GOPAY']);
+const ALLOWED_BANKS = new Set(['BCA', 'BNI', 'BRI', 'MANDIRI', 'JAGO', 'SEABANK', 'DANA', 'OVO', 'SHOPEPAY', 'GOPAY']);
 
 export async function requestWithdraw(user, payload) {
   const numericAmount = Number(payload?.amount);
