@@ -185,6 +185,16 @@ export async function dashboardSummary(req, res) {
        WHERE user_id = ? AND type = 'debit'`,
       [userId],
     );
+    const [botLedgerRows] = await query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN mutation_type = 'bot_payment_in' THEN amount ELSE 0 END), 0) AS bot_payment_in,
+         COALESCE(SUM(CASE WHEN mutation_type = 'bot_order_cost' THEN amount ELSE 0 END), 0) AS bot_order_cost,
+         COALESCE(SUM(CASE WHEN mutation_type = 'bot_payment_in' THEN amount ELSE 0 END), 0)
+           - COALESCE(SUM(CASE WHEN mutation_type = 'bot_order_cost' THEN amount ELSE 0 END), 0) AS bot_profit
+       FROM saldo_mutations
+       WHERE user_id = ?`,
+      [userId],
+    );
     const [lastDepositRows] = await query(
       `SELECT invoice, amount, total_bayar, status, created_at, processed_at
        FROM deposits
@@ -267,6 +277,11 @@ export async function dashboardSummary(req, res) {
       total_deposit_amount: Number(depositRows?.total_deposit_amount || 0),
       saldo_masuk: Number(saldoInRows?.saldo_masuk || 0),
       saldo_keluar: Number(saldoOutRows?.saldo_keluar || 0),
+      bot_ledger: {
+        total_masuk: Number(botLedgerRows?.bot_payment_in || 0),
+        total_keluar: Number(botLedgerRows?.bot_order_cost || 0),
+        profit: Number(botLedgerRows?.bot_profit || 0),
+      },
       last_deposit: lastDepositRows || null,
       active_products: activeProducts,
       charts: {

@@ -91,6 +91,18 @@ export async function adminSummary(_req, res) {
        AND transaction_type = 'order'
        AND (product_id IS NOT NULL OR invoice LIKE 'ORD%')`,
   );
+  const [b2bLedgerRows] = await query(
+    `SELECT
+       COUNT(*) AS total_bot_orders,
+       COALESCE(SUM(total_price), 0) AS reseller_revenue,
+       COALESCE(SUM(price_base * qty), 0) AS provider_cost,
+       COALESCE(SUM(profit), 0) AS admin_profit,
+       COALESCE(SUM(reseller_profit), 0) AS reseller_profit
+     FROM transactions
+     WHERE status IN ('processing', 'success')
+       AND transaction_type = 'order'
+       AND channel = 'bot-qris'`,
+  );
   const [withdrawRows] = await query(
     `SELECT
       COUNT(*) AS pending_withdraw_count,
@@ -125,7 +137,7 @@ export async function adminSummary(_req, res) {
   const [operationalRows] = await query(
     `SELECT
        (SELECT COUNT(*) FROM orders WHERE fulfillment_type <> 'manual_admin') AS web_orders,
-       (SELECT COUNT(*) FROM transactions WHERE channel = 'bot' AND transaction_type = 'order') AS bot_orders,
+       (SELECT COUNT(*) FROM transactions WHERE channel IN ('bot', 'bot-qris') AND transaction_type = 'order') AS bot_orders,
        (SELECT COUNT(*) FROM orders WHERE fulfillment_type = 'manual_admin') AS manual_orders,
        (SELECT COUNT(*) FROM deposits WHERE status = 'success') AS successful_deposits,
        (SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS new_users_7d,
@@ -141,6 +153,13 @@ export async function adminSummary(_req, res) {
       total_transactions: Number(transactionRows?.total_transactions || 0),
       total_revenue: Number(transactionRows?.total_revenue || 0),
       system_profit: Number(transactionRows?.system_profit || 0),
+      b2b_ledger: {
+        total_bot_orders: Number(b2bLedgerRows?.total_bot_orders || 0),
+        revenue_reseller: Number(b2bLedgerRows?.reseller_revenue || 0),
+        provider_cost: Number(b2bLedgerRows?.provider_cost || 0),
+        profit_admin: Number(b2bLedgerRows?.admin_profit || 0),
+        profit_reseller: Number(b2bLedgerRows?.reseller_profit || 0),
+      },
       pending_withdraw_count: Number(withdrawRows?.pending_withdraw_count || 0),
       pending_withdraw: Number(withdrawRows?.pending_withdraw || 0),
       recent_orders: recentOrders,

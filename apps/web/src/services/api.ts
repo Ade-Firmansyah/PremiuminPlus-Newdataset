@@ -97,6 +97,11 @@ export interface DashboardSummaryRecord {
   total_deposit_amount: number;
   saldo_masuk?: number;
   saldo_keluar?: number;
+  bot_ledger?: {
+    total_masuk: number;
+    total_keluar: number;
+    profit: number;
+  };
   last_deposit?: DepositRecord | null;
   active_products: number;
   charts?: {
@@ -128,6 +133,11 @@ export interface DashboardRecord {
   total_order: number;
   total_transactions?: number;
   total_profit: number;
+  bot_ledger?: {
+    total_masuk: number;
+    total_keluar: number;
+    profit: number;
+  };
   recent_transactions: Array<{
     invoice: string;
     amount: number;
@@ -169,6 +179,13 @@ export interface AdminSummaryRecord {
   recent_orders?: OrderRecord[];
   pending_payments?: DirectPaymentRecord[];
   recent_users?: AdminUserRecord[];
+  b2b_ledger?: {
+    total_bot_orders: number;
+    revenue_reseller: number;
+    provider_cost: number;
+    profit_admin: number;
+    profit_reseller: number;
+  };
   operational?: {
     web_orders: number;
     bot_orders: number;

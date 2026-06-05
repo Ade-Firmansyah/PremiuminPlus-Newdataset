@@ -19,7 +19,8 @@
     "dev:backend": "npm --prefix apps/api/backend run dev",
     "start:backend": "npm --prefix apps/api/backend run backend",
     "dev:bot": "npm --prefix apps/bot-engine run dev",
-    "start:bot": "npm --prefix apps/bot-engine run bot"
+    "start:bot": "npm --prefix apps/bot-engine run bot",
+    "smoke:b2b-ledger": "node scripts/smoke-b2b-ledger-staging.mjs"
   },
   "keywords": [
     "premiumin-plus",

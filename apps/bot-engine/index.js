@@ -3,7 +3,8 @@ import { BotSessionManager } from './sockets/session-manager.js';
 import { createLogger } from './utils/logger.js';
 
 const port = Number(process.env.PORT || process.env.BOT_ENGINE_PORT || 4100);
-const webCoreBaseUrl = process.env.BOT_API_BASE_URL;
+const isProduction = process.env.NODE_ENV === 'production';
+const webCoreBaseUrl = process.env.BOT_API_BASE_URL || (isProduction ? '' : 'http://localhost:4000/api');
 const logger = createLogger('BOT');
 
 if (!webCoreBaseUrl) {

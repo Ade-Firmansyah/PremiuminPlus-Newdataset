@@ -15,6 +15,13 @@ const emptySummary: AdminSummaryRecord = {
   system_profit: 0,
   pending_withdraw_count: 0,
   pending_withdraw: 0,
+  b2b_ledger: {
+    total_bot_orders: 0,
+    revenue_reseller: 0,
+    provider_cost: 0,
+    profit_admin: 0,
+    profit_reseller: 0,
+  },
 };
 
 export function AdminDashboardHome({ apiKey: sessionApiKey }: { apiKey?: string } = {}) {
@@ -83,6 +90,25 @@ export function AdminDashboardHome({ apiKey: sessionApiKey }: { apiKey?: string 
           );
         })}
       </section>
+
+      <PageSection title="B2B Bot Ledger" subtitle="Ringkasan transaksi bot berdasarkan ledger Premiumin Plus">
+        <div className="grid gap-3 md:grid-cols-5">
+          {[
+            ['Order Bot', summary.b2b_ledger?.total_bot_orders || 0, 'number'],
+            ['Revenue Reseller', summary.b2b_ledger?.revenue_reseller || 0, 'currency'],
+            ['Provider Cost', summary.b2b_ledger?.provider_cost || 0, 'currency'],
+            ['Profit Admin', summary.b2b_ledger?.profit_admin || 0, 'currency'],
+            ['Profit Reseller', summary.b2b_ledger?.profit_reseller || 0, 'currency'],
+          ].map(([label, value, type]) => (
+            <NeonCard key={String(label)}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">{label}</p>
+              <p className="mt-2 text-2xl font-black text-white">
+                {type === 'currency' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0))}
+              </p>
+            </NeonCard>
+          ))}
+        </div>
+      </PageSection>
 
       <PageSection title="Saldo API Premku" subtitle="Realtime jika provider mendukung">
         <div className="grid gap-4 md:grid-cols-3">

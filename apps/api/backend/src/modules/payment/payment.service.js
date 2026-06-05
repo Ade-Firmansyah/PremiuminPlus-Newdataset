@@ -9,8 +9,8 @@ import { sendOrderDelivery, validateWhatsapp } from '../../services/delivery.ser
 import { notifyAdmin } from '../../services/notification.service.js';
 import { refreshOrderStatus } from '../order/order.service.js';
 import env from '../../config/env.js';
-import { deleteCachePrefix, getCache, setCache } from '../../services/cache.service.js';
-import { applyWalletMutationInTransaction } from '../../services/wallet.service.js';
+import { getCache, setCache } from '../../services/cache.service.js';
+import { applyBotPaymentSuccess, buildB2BLedgerSnapshot, clearB2BLedgerCaches } from '../../services/b2bLedger.service.js';
 import { getMarkupSetting } from '../../repositories/settings.repo.js';
 import { calculateProductPrices } from '../../services/product-pricing.service.js';
 import { calculateRoleSellPrice } from '../../services/pricing.service.js';
@@ -360,98 +360,6 @@ export async function createBotOrderPayment(user, payload) {
   };
 }
 
-async function applyBotPaymentLedger(connection, { payment, product, orderInvoice, total, modalTotal, resellerProfit, processedAt }) {
-  if (payment.payment_type !== 'bot_order') return null;
-
-  await applyWalletMutationInTransaction(connection, payment.user_id, {
-    mutation_type: 'bot_payment_in',
-    direction: 'in',
-    amount: total,
-    source_type: 'bot_payment',
-    source_ref: `${payment.invoice}-in`,
-    notes: `bot payment buyer ${product.name}`,
-  });
-
-  if (modalTotal > 0) {
-    await applyWalletMutationInTransaction(connection, payment.user_id, {
-      mutation_type: 'bot_order_cost',
-      direction: 'out',
-      amount: modalTotal,
-      source_type: 'bot_order',
-      source_ref: `${orderInvoice}-cost`,
-      notes: `modal bot ${product.name}`,
-    });
-  }
-
-  await connection.query(
-    `INSERT INTO transactions
-      (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'success', 'bot-qris', 'Pembayaran buyer via Bot WhatsApp', 'bot_payment_in', ?, ?)
-     ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
-    [
-      `${payment.invoice}-in`,
-      payment.invoice,
-      payment.user_id,
-      product.id,
-      product.name,
-      Number(payment.qty || 1),
-      modalTotal,
-      total,
-      total,
-      total,
-      processedAt,
-    ],
-  );
-
-  if (modalTotal > 0) {
-    await connection.query(
-      `INSERT INTO transactions
-        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'success', 'bot-qris', 'Modal reseller untuk order bot', 'bot_order_cost', ?, ?)
-       ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
-      [
-        `${orderInvoice}-cost`,
-        orderInvoice,
-        payment.user_id,
-        product.id,
-        product.name,
-        Number(payment.qty || 1),
-        modalTotal,
-        total,
-        modalTotal,
-        modalTotal,
-        processedAt,
-      ],
-    );
-  }
-
-  if (resellerProfit > 0) {
-    await connection.query(
-      `INSERT INTO transactions
-        (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, channel, description, transaction_type, amount, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', 'bot-qris', 'Profit reseller Bot WhatsApp', 'reseller_profit', ?, ?)
-       ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
-      [
-        `${orderInvoice}-profit`,
-        orderInvoice,
-        payment.user_id,
-        product.id,
-        product.name,
-        Number(payment.qty || 1),
-        modalTotal,
-        total,
-        resellerProfit,
-        0,
-        resellerProfit,
-        resellerProfit,
-        processedAt,
-      ],
-    );
-  }
-
-  return { credited: total, debited: modalTotal, profit: resellerProfit };
-}
-
 async function processSuccessfulPayment(invoice, statusResponse) {
   return transaction(async (connection) => {
     const [paymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? FOR UPDATE', [invoice]);
@@ -513,14 +421,13 @@ async function processSuccessfulPayment(invoice, statusResponse) {
     const platformUnitSellPrice = Math.round(platformRevenueTotal / qty);
     const adminProfit = Math.max(platformRevenueTotal - providerCostTotal, 0);
     const resellerProfit = Number(payment.reseller_profit || 0);
-    const b2bLedger = {
-      provider_cost: providerCostTotal,
-      reseller_price: modalTotal,
-      platform_revenue: platformRevenueTotal,
-      sell_price: total,
-      admin_profit: adminProfit,
-      reseller_profit: resellerProfit,
-    };
+    const b2bLedger = buildB2BLedgerSnapshot({
+      providerCost: providerCostTotal,
+      adminPrice: platformRevenueTotal,
+      sellPrice: total,
+      userProfit: resellerProfit,
+      adminProfit,
+    });
     const [paymentUserRows] = await connection.query('SELECT id, role, saldo FROM users WHERE id = ? LIMIT 1', [payment.user_id]);
     const paymentUser = paymentUserRows[0] || {};
     const role = String(paymentUser.role || 'member').toLowerCase();
@@ -545,13 +452,14 @@ async function processSuccessfulPayment(invoice, statusResponse) {
           password: stockItem.password_account,
           description: stockItem.description,
         }));
-        const botLedger = await applyBotPaymentLedger(connection, {
+        const botLedger = await applyBotPaymentSuccess(connection, {
           payment,
           product,
           orderInvoice,
-          total,
-          modalTotal,
-          resellerProfit,
+          qty,
+          sellPrice: total,
+          adminPrice: modalTotal,
+          providerCost: providerCostTotal,
           processedAt,
         });
 
@@ -622,22 +530,21 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 
       const [updatedPaymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
       const [orderRows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [orderInvoice]);
-      deleteCachePrefix(`dashboard:user:${payment.user_id}`);
-      deleteCachePrefix('leaderboard:');
-      deleteCachePrefix('admin:summary');
+      clearB2BLedgerCaches(payment.user_id);
       return { payment: updatedPaymentRows[0], order: orderRows[0] || null };
       }
     }
 
     let external;
     const providerProcessedAt = toMysqlDate();
-    const botLedger = await applyBotPaymentLedger(connection, {
+    const botLedger = await applyBotPaymentSuccess(connection, {
       payment,
       product,
       orderInvoice,
-      total,
-      modalTotal,
-      resellerProfit,
+      qty,
+      sellPrice: total,
+      adminPrice: modalTotal,
+      providerCost: providerCostTotal,
       processedAt: providerProcessedAt,
     });
     try {
@@ -810,9 +717,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
 
     const [updatedPaymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? LIMIT 1', [invoice]);
     const [orderRows] = await connection.query('SELECT * FROM orders WHERE invoice = ? LIMIT 1', [orderInvoice]);
-    deleteCachePrefix(`dashboard:user:${payment.user_id}`);
-    deleteCachePrefix('leaderboard:');
-    deleteCachePrefix('admin:summary');
+    clearB2BLedgerCaches(payment.user_id);
     logger('ORDER', { invoice: orderInvoice, payment_invoice: invoice, user_id: payment.user_id, order_status: orderStatus });
     void notifyAdmin(orderStatus === 'success' ? 'order success' : 'provider processing', {
       user_id: payment.user_id,

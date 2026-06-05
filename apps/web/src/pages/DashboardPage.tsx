@@ -55,6 +55,11 @@ const emptyDashboard: DashboardRecord = {
   total_order: 0,
   total_transactions: 0,
   total_profit: 0,
+  bot_ledger: {
+    total_masuk: 0,
+    total_keluar: 0,
+    profit: 0,
+  },
   recent_transactions: [],
   chart_data: [],
   products: [],
@@ -951,6 +956,11 @@ function DashboardHome({ session, maintenanceActive = false }: { session: Dashbo
         total_order: summary.data.total_spent || 0,
         total_transactions: summary.data.total_transactions || 0,
         total_profit: Number(summary.data.saldo_masuk || 0) - Number(summary.data.saldo_keluar || 0),
+        bot_ledger: {
+          total_masuk: Number(summary.data.bot_ledger?.total_masuk || 0),
+          total_keluar: Number(summary.data.bot_ledger?.total_keluar || 0),
+          profit: Number(summary.data.bot_ledger?.profit || 0),
+        },
         chart_data: buildChartData(summary.data.charts),
         products: products.data.slice(0, 8).map(normalizeProduct),
         recent_transactions: transactions.data.slice(0, 8).map((item) => ({
@@ -989,6 +999,22 @@ function DashboardHome({ session, maintenanceActive = false }: { session: Dashbo
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {metrics.map((item) => <MetricCard key={item.label} {...item} loading={loading} />)}
         </div>
+
+        <Panel>
+          <SectionTitle kicker="Bot API Key Ledger" title="Mutasi Bot" />
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              ['Pembayaran bot', data.bot_ledger?.total_masuk || 0],
+              ['Order provider', data.bot_ledger?.total_keluar || 0],
+              ['Profit reseller', data.bot_ledger?.profit || 0],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/38">{label}</p>
+                {loading ? <SkeletonBlock className="mt-3 h-7 w-28" /> : <p className="mt-2 text-xl font-black text-white">{formatCurrency(Number(value || 0))}</p>}
+              </div>
+            ))}
+          </div>
+        </Panel>
 
         {error ? <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
 

@@ -12,11 +12,12 @@ function requireEngineToken(req, res, next) {
 export function createBotHttpServer({ manager, logger }) {
   const app = express();
   app.use(express.json({ limit: '512kb' }));
-  app.use(requireEngineToken);
 
   app.get('/health', (_req, res) => {
     res.json({ status: true, service: 'premiumin-plus-bot-engine' });
   });
+
+  app.use(requireEngineToken);
 
   app.post('/sessions/:sessionId/connect', async (req, res, next) => {
     try {
