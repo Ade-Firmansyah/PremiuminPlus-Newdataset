@@ -50,8 +50,9 @@ export async function depositStatus(req, res, next) {
 
 export async function depositCancel(req, res, next) {
   try {
-    requireFields(req.body, ['invoice']);
-    const data = await cancelDeposit(req.body.invoice, req.user);
+    const invoice = req.params.invoice || req.body?.invoice;
+    if (!invoice) requireFields(req.body, ['invoice']);
+    const data = await cancelDeposit(invoice, req.user);
     res.json({ status: true, success: true, data });
   } catch (error) {
     next(error);

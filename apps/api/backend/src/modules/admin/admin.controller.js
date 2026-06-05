@@ -12,7 +12,7 @@ import { exportBalanceMutations, listBalanceMutations } from '../../repositories
 import { safeCreateAdminLog } from '../../repositories/admin-log.repo.js';
 import { recalculateAllProductPrices } from '../../services/product-pricing.service.js';
 import env from '../../config/env.js';
-import { query } from '../../config/db.js';
+import { parseDbJson, query } from '../../config/db.js';
 import { approveWithdrawRequest, setSaldo } from '../../services/wallet.service.js';
 import { premkuProfile } from '../../services/premku.service.js';
 import { requireFields } from '../../utils/validator.js';
@@ -24,6 +24,48 @@ const DEFAULT_COMMUNITY_SETTINGS = {
   announcement: 'Bergabung bersama reseller, anggota, admin, dan developer untuk diskusi, update stok, dan strategi jualan digital.',
   support_text: 'Jalur cepat untuk hubungi admin, tanya stok, dan koordinasi reseller harian.',
 };
+
+function maskSensitiveLogValue(value) {
+  if (Array.isArray(value)) return value.map(maskSensitiveLogValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.entries(value).reduce((next, [key, item]) => {
+    if (/password|api[_-]?key|premku|credential|token|secret/i.test(key)) {
+      next[key] = item ? '***' : item;
+    } else {
+      next[key] = maskSensitiveLogValue(item);
+    }
+    return next;
+  }, {});
+}
+
+export async function adminLogs(req, res, next) {
+  try {
+    const limit = Math.min(200, Math.max(1, Number(req.query?.limit || 100)));
+    const rows = await query(
+      `SELECT al.id, al.admin_id, u.username AS admin_username, al.action, al.target_type, al.target_id,
+              al.ip_address, al.metadata, al.created_at
+       FROM admin_logs al
+       LEFT JOIN users u ON u.id = al.admin_id
+       ORDER BY al.id DESC
+       LIMIT ?`,
+      [limit],
+    );
+    const data = rows.map((row) => ({
+      id: row.id,
+      admin_id: row.admin_id,
+      admin_username: row.admin_username || null,
+      action: row.action,
+      target_type: row.target_type,
+      target_id: row.target_id,
+      ip_address: row.ip_address,
+      metadata: maskSensitiveLogValue(parseDbJson(row.metadata, null)),
+      created_at: row.created_at,
+    }));
+    res.json({ status: true, success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function users(_req, res) {
   res.json({ status: true, data: await remember('admin:users', 5, () => listUsers()) });

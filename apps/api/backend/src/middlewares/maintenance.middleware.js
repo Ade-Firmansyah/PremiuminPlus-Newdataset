@@ -18,7 +18,6 @@ const READ_ONLY_ALLOWED = [
   { method: 'GET', pattern: /^\/community\/settings$/ },
   { method: 'GET', pattern: /^\/dashboard\/summary$/ },
   { method: 'GET', pattern: /^\/leaderboard\/accounts$/ },
-  { method: 'GET', pattern: /^\/order\/[^/]+$/ },
   { method: 'GET', pattern: /^\/deposits$/ },
 ];
 

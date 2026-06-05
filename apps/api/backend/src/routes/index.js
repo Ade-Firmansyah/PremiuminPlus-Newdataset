@@ -35,6 +35,7 @@ import {
   getDiscount,
   getMarkup,
   getPremkuKey,
+  adminLogs,
   notifications,
   pendingOrders,
   rejectWithdraw,
@@ -301,6 +302,7 @@ router.get('/leaderboard/accounts', auth, topAccounts);
 router.get('/products', auth, getProducts);
 router.post('/order', auth, order);
 router.get('/order/:invoice', auth, orderStatus);
+router.get('/order/:invoice/status', auth, orderStatus);
 router.get('/transactions', auth, myOrders);
 router.get('/orders', auth, myOrders);
 router.post('/payments/direct-order', auth, createDirectOrderPaymentController);
@@ -309,8 +311,10 @@ router.post('/payments/cancel', auth, cancelDirectPaymentController);
 router.post('/deposit', auth, deposit);
 router.post('/bot/activation/deposit', auth, resellerOnly, botActivationDeposit);
 router.post('/deposit/cancel', auth, depositCancel);
+router.post('/deposit/:invoice/cancel', auth, depositCancel);
 router.get('/deposits', auth, myDeposits);
 router.get('/deposit/:invoice', auth, depositStatus);
+router.get('/deposit/:invoice/status', auth, depositStatus);
 router.post('/withdraw', auth, withdraw);
 router.get('/withdraws', auth, myWithdraws);
 router.get('/saldo', auth, saldo);
@@ -340,6 +344,7 @@ router.post('/bot/session/logout', auth, resellerOnly, botSessionLogout);
 
 router.get('/admin/users', auth, adminOnly, users);
 router.get('/admin/summary', auth, adminOnly, adminSummary);
+router.get('/admin/logs', auth, adminOnly, adminLogs);
 router.get('/admin/pending-orders', auth, adminOnly, pendingOrders);
 router.post('/admin/orders/:invoice/manual-complete', auth, adminOnly, completeOrder);
 router.post('/admin/orders/:invoice/manual-send', auth, adminOnly, sendManualOrder);
@@ -424,6 +429,7 @@ router.get('/docs', (req, res) => {
       'GET /api/products',
       'POST /api/order',
       'GET /api/order/:invoice',
+      'GET /api/order/:invoice/status',
       'GET /api/transactions',
       'GET /api/orders',
       'POST /api/payments/direct-order',
@@ -432,8 +438,10 @@ router.get('/docs', (req, res) => {
       'POST /api/deposit',
       'POST /api/bot/activation/deposit',
       'POST /api/deposit/cancel',
+      'POST /api/deposit/:invoice/cancel',
       'GET /api/deposits',
       'GET /api/deposit/:invoice',
+      'GET /api/deposit/:invoice/status',
       'POST /api/withdraw',
       'GET /api/withdraws',
       'GET /api/saldo',
@@ -460,6 +468,7 @@ router.get('/docs', (req, res) => {
       'POST /api/bot/session/logout',
       'GET /api/admin/summary',
       'GET /api/admin/users',
+      'GET /api/admin/logs',
       'GET /api/admin/transactions',
       'GET /api/admin/products',
       'POST /api/admin/products/sync-provider',

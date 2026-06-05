@@ -379,6 +379,62 @@ CREATE TABLE IF NOT EXISTS finance_daily_summaries (
   UNIQUE KEY uq_finance_daily_summaries_summary_date (summary_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS balance_mutations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  mutation_type VARCHAR(40) NOT NULL DEFAULT 'unknown',
+  direction VARCHAR(16) NOT NULL DEFAULT 'neutral',
+  amount DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
+  balance_before DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
+  balance_after DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
+  source_type VARCHAR(80) NULL,
+  source_ref VARCHAR(120) NULL,
+  admin_executor_id BIGINT UNSIGNED NULL,
+  notes TEXT NULL,
+  metadata JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_balance_mutations_user_id (user_id),
+  KEY idx_balance_mutations_type_created (mutation_type, created_at),
+  KEY idx_balance_mutations_source_ref (source_ref),
+  CONSTRAINT fk_balance_mutations_user_id FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  admin_id BIGINT UNSIGNED NULL,
+  action VARCHAR(80) NOT NULL DEFAULT '',
+  target_type VARCHAR(80) NULL,
+  target_id VARCHAR(120) NULL,
+  ip_address VARCHAR(64) NULL,
+  metadata JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_admin_logs_admin_id (admin_id),
+  KEY idx_admin_logs_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS webhook_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  provider VARCHAR(40) NOT NULL DEFAULT 'premku',
+  payload JSON NULL,
+  status VARCHAR(40) NOT NULL DEFAULT 'received',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_webhook_logs_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS provider_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  provider VARCHAR(40) NOT NULL DEFAULT 'premku',
+  action VARCHAR(80) NOT NULL DEFAULT '',
+  status VARCHAR(40) NOT NULL DEFAULT 'unknown',
+  metadata JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_provider_logs_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS websocket_events (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_name VARCHAR(120) NOT NULL,
