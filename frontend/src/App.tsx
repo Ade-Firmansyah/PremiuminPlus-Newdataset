@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { premiuminApi } from './services/api';
 import { clearApiKey, saveApiKey, saveToken } from './store/useAuth';
 import { closeAllSockets } from './services/socketManager';
@@ -249,6 +250,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Suspense>
+      <Analytics />
     </BrowserRouter>
   );
 }
