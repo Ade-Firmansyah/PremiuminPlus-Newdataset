@@ -14,7 +14,7 @@ import { recalculateAllProductPrices } from '../../services/product-pricing.serv
 import env from '../../config/env.js';
 import { parseDbJson, query } from '../../config/db.js';
 import { approveWithdrawRequest, setSaldo } from '../../services/wallet.service.js';
-import { premkuProfile } from '../../services/premku.service.js';
+import { getPremkuProviderState, premkuProfile } from '../../services/premku.service.js';
 import { requireFields } from '../../utils/validator.js';
 import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 
@@ -504,6 +504,7 @@ export async function premkuFinanceProfile(_req, res) {
         status: true,
         data: {
           available: false,
+          provider_status: getPremkuProviderState().status,
           message: 'Saldo API realtime unavailable.',
         },
       });
@@ -513,17 +514,25 @@ export async function premkuFinanceProfile(_req, res) {
       status: true,
       data: {
         available: true,
+        provider_status: 'online',
         saldo: saldo !== null ? Number(saldo) : null,
         username: username || '',
         whatsapp: whatsapp || '',
       },
     });
-  } catch {
+  } catch (error) {
+    const providerState = getPremkuProviderState();
+    const isProviderFailure = String(error?.code || '').startsWith('PROVIDER_');
     return res.json({
       status: true,
       data: {
         available: false,
-        message: 'Saldo API realtime unavailable.',
+        provider_status: providerState.status,
+        code: error?.code || 'PROVIDER_PROFILE_UNAVAILABLE',
+        retry_after_seconds: error?.data?.retry_after_seconds || providerState.retry_after_seconds || 0,
+        message: isProviderFailure
+          ? `Provider Premku sedang ${error.code === 'PROVIDER_TIMEOUT' ? 'timeout' : 'down'}. Saldo realtime sementara tidak tersedia.`
+          : 'Saldo API realtime unavailable.',
       },
     });
   }
