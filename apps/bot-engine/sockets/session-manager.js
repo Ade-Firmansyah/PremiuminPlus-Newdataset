@@ -326,7 +326,7 @@ export class BotSessionManager {
       } finally {
         statusRunning = false;
       }
-    }, 10 * 1000);
+    }, 20 * 1000);
 
     const reminderTimer = setTimeout(async () => {
       try {

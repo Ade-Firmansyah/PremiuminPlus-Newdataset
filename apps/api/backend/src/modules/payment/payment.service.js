@@ -243,7 +243,7 @@ export async function createDirectOrderPayment(user, payload) {
   }
 
   const { product, qty, total } = await getRoleProductPricing(payload.product_id, payload.qty, user);
-  const targetWhatsapp = validateWhatsapp(user.phone || '');
+  const targetWhatsapp = validateWhatsapp(payload.target_whatsapp || user.phone || '');
   const payment = await premkuPay({ amount: total });
   const invoice = createInvoice('PAY');
   const providerInvoice = resolvePremkuInvoice(payment, invoice);
@@ -828,7 +828,7 @@ export async function refreshDirectPaymentStatus(invoice, user) {
     return payment;
   }
   const statusResponse = await premkuPayStatus(resolvePaymentProviderInvoice(payment));
-  setCache(syncCacheKey, true, 3);
+  setCache(syncCacheKey, true, 10);
   const nextStatus = normalizePaymentStatus(statusResponse);
   if (nextStatus === 'success') {
     const result = await processSuccessfulPayment(paymentInvoice, statusResponse);

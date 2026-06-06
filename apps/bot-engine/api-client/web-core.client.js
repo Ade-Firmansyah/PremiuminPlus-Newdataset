@@ -12,7 +12,8 @@ async function request({ apiBaseUrl, apiKey }, path, options = {}) {
 
   const run = async () => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || 10000));
+    const defaultTimeoutMs = method === 'POST' ? 35000 : 15000;
+    const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || defaultTimeoutMs));
     try {
       const response = await fetch(`${apiBaseUrl}${path}`, {
         ...options,

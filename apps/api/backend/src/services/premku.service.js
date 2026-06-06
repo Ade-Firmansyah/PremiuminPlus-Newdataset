@@ -4,6 +4,63 @@ import { logger } from '../utils/logger.js';
 
 const inflight = new Map();
 const failureBackoff = new Map();
+const responseCache = new Map();
+const requestQueue = [];
+let activeRequests = 0;
+let lastRequestStartedAt = 0;
+let drainTimer = null;
+
+const READ_ENDPOINTS = new Set(['products', 'profile', 'status', 'pay_status']);
+const CACHE_TTL_MS = {
+  products: 120000,
+  profile: 60000,
+  status: 10000,
+  pay_status: 10000,
+};
+
+function maxConcurrency() {
+  return Math.max(1, Math.min(5, Number(env.PREMKU_MAX_CONCURRENCY || 2)));
+}
+
+function minRequestInterval() {
+  return Math.max(100, Number(env.PREMKU_MIN_REQUEST_INTERVAL_MS || 400));
+}
+
+function enqueueProviderRequest(run) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ run, resolve, reject });
+    drainProviderQueue();
+  });
+}
+
+function drainProviderQueue() {
+  if (activeRequests >= maxConcurrency() || requestQueue.length === 0) return;
+
+  const waitMs = Math.max(0, lastRequestStartedAt + minRequestInterval() - Date.now());
+  if (waitMs > 0) {
+    if (!drainTimer) {
+      drainTimer = setTimeout(() => {
+        drainTimer = null;
+        drainProviderQueue();
+      }, waitMs);
+      drainTimer.unref?.();
+    }
+    return;
+  }
+
+  const job = requestQueue.shift();
+  activeRequests += 1;
+  lastRequestStartedAt = Date.now();
+  Promise.resolve()
+    .then(job.run)
+    .then(job.resolve, job.reject)
+    .finally(() => {
+      activeRequests -= 1;
+      drainProviderQueue();
+    });
+
+  drainProviderQueue();
+}
 
 function buildUrl(endpoint) {
   return new URL(endpoint.replace(/^\/+/, ''), env.PREMKU_BASE_URL);
@@ -68,6 +125,13 @@ async function premkuRequest(endpoint, { method = 'POST', body = {}, query = {} 
 
   const endpointName = url.pathname.replace(/\/+$/, '').split('/').pop();
   const requestKey = `${method}:${endpointName}:${JSON.stringify(body)}:${url.search}`;
+  const isReadRequest = READ_ENDPOINTS.has(endpointName);
+  const cached = responseCache.get(requestKey);
+  if (isReadRequest && cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  if (cached) responseCache.delete(requestKey);
+
   const backoff = failureBackoff.get(requestKey);
   if (backoff && backoff > Date.now()) {
     throw new Error('Premku sementara tidak tersedia, request ditahan sebentar');
@@ -77,27 +141,48 @@ async function premkuRequest(endpoint, { method = 'POST', body = {}, query = {} 
   }
 
   const run = async () => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeoutMs = isReadRequest
+      ? Math.max(5000, Number(env.PREMKU_READ_TIMEOUT_MS || 15000))
+      : Math.max(10000, Number(env.PREMKU_WRITE_TIMEOUT_MS || 30000));
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: method === 'GET' ? undefined : JSON.stringify({ api_key: apiKey, ...body }),
-        signal: controller.signal,
+      const value = await enqueueProviderRequest(async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(url, {
+            method,
+            headers: {
+              'content-type': 'application/json',
+            },
+            body: method === 'GET' ? undefined : JSON.stringify({ api_key: apiKey, ...body }),
+            signal: controller.signal,
+          });
+          return parseResponse(response, url);
+        } finally {
+          clearTimeout(timeout);
+        }
       });
 
-      return await parseResponse(response, url);
+      if (isReadRequest) {
+        responseCache.set(requestKey, {
+          value,
+          expiresAt: Date.now() + Number(CACHE_TTL_MS[endpointName] || 10000),
+        });
+      }
+      failureBackoff.delete(requestKey);
+      return value;
     } catch (error) {
-      if (/products|profile|status|pay_status/i.test(endpointName || '')) {
-        failureBackoff.set(requestKey, Date.now() + 2500);
+      if (isReadRequest) {
+        failureBackoff.set(requestKey, Date.now() + 8000);
+      }
+      if (error?.name === 'AbortError') {
+        const timeoutError = new Error(`Premku timeout pada endpoint ${endpointName}`);
+        timeoutError.statusCode = 504;
+        throw timeoutError;
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
       inflight.delete(requestKey);
     }
   };
