@@ -77,15 +77,15 @@ export async function adminSummary(_req, res) {
     `SELECT
       COUNT(*) AS total_users,
       SUM(role = 'reseller') AS active_resellers,
-      COALESCE(SUM(saldo), 0) AS total_reseller_balance
+      COALESCE(SUM(CASE WHEN role = 'reseller' THEN saldo ELSE 0 END), 0) AS total_reseller_balance
      FROM users
      WHERE status = 'active'`,
   );
   const [transactionRows] = await query(
     `SELECT
       COUNT(*) AS total_transactions,
-      COALESCE(SUM(total_price), 0) + (SELECT COALESCE(SUM(total_order), 0) FROM finance_daily_summaries) AS total_revenue,
-      COALESCE(SUM(profit), 0) + (SELECT COALESCE(SUM(total_profit), 0) FROM finance_daily_summaries) AS system_profit
+      COALESCE(SUM(total_price), 0) AS total_revenue,
+      COALESCE(SUM(profit), 0) AS system_profit
      FROM transactions
      WHERE status IN ('processing', 'success')
        AND transaction_type = 'order'
@@ -101,7 +101,64 @@ export async function adminSummary(_req, res) {
      FROM transactions
      WHERE status IN ('processing', 'success')
        AND transaction_type = 'order'
-       AND channel = 'bot-qris'`,
+       AND channel IN ('bot', 'bot-qris')`,
+  );
+  const [financeActivityRows] = await query(
+    `SELECT
+       (SELECT COUNT(*) FROM transactions
+         WHERE transaction_type = 'order'
+           AND status IN ('processing', 'success')
+           AND (product_id IS NOT NULL OR invoice LIKE 'ORD%')) AS order_count,
+       (SELECT COALESCE(SUM(total_price), 0) FROM transactions
+         WHERE transaction_type = 'order'
+           AND status IN ('processing', 'success')
+           AND (product_id IS NOT NULL OR invoice LIKE 'ORD%')) AS order_revenue,
+       (SELECT COALESCE(SUM(price_base * qty), 0) FROM transactions
+         WHERE transaction_type = 'order'
+           AND status IN ('processing', 'success')
+           AND (product_id IS NOT NULL OR invoice LIKE 'ORD%')) AS provider_cost,
+       (SELECT COALESCE(SUM(profit), 0) FROM transactions
+         WHERE transaction_type = 'order'
+           AND status IN ('processing', 'success')
+           AND (product_id IS NOT NULL OR invoice LIKE 'ORD%')) AS order_profit,
+       (SELECT COUNT(*) FROM deposits WHERE status = 'success') AS deposit_count,
+       (SELECT COALESCE(SUM(amount), 0) FROM deposits WHERE status = 'success') AS deposit_amount,
+       (SELECT COUNT(*) FROM withdraws WHERE status = 'approved') AS withdraw_count,
+       (SELECT COALESCE(SUM(amount), 0) FROM withdraws WHERE status = 'approved') AS withdraw_amount,
+       (SELECT COALESCE(SUM(CASE WHEN direction = 'in' THEN amount ELSE 0 END), 0) FROM balance_mutations) AS wallet_in,
+       (SELECT COALESCE(SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END), 0) FROM balance_mutations) AS wallet_out,
+       (SELECT COUNT(*) FROM balance_mutations) AS mutation_count`,
+  );
+  const [ledgerSyncRows] = await query(
+    `SELECT
+       COUNT(*) AS account_count,
+       COALESCE(SUM(CASE
+         WHEN ABS(NumberedSaldo.saldo - COALESCE(NumberedSaldo.balance_after, 0)) < 0.01 THEN 1
+         ELSE 0
+       END), 0) AS synced_count,
+       COALESCE(SUM(CASE
+         WHEN ABS(NumberedSaldo.saldo - COALESCE(NumberedSaldo.balance_after, 0)) >= 0.01 THEN 1
+         ELSE 0
+       END), 0) AS mismatch_count,
+       COALESCE(SUM(ABS(NumberedSaldo.saldo - COALESCE(NumberedSaldo.balance_after, 0))), 0) AS mismatch_amount
+     FROM (
+       SELECT
+         u.id,
+         u.saldo,
+         latest_mutation.balance_after
+       FROM users u
+       LEFT JOIN (
+         SELECT bm.user_id, bm.balance_after
+         FROM balance_mutations bm
+         INNER JOIN (
+           SELECT user_id, MAX(id) AS latest_id
+           FROM balance_mutations
+           GROUP BY user_id
+         ) latest ON latest.latest_id = bm.id
+       ) latest_mutation ON latest_mutation.user_id = u.id
+       WHERE u.status = 'active'
+         AND u.role IN ('member', 'reseller')
+     ) NumberedSaldo`,
   );
   const [withdrawRows] = await query(
     `SELECT
@@ -134,6 +191,77 @@ export async function adminSummary(_req, res) {
      ORDER BY id DESC
      LIMIT 5`,
   );
+  const recentFinanceEvents = await query(
+    `SELECT *
+     FROM (
+       SELECT
+         CONCAT('order-', t.id) AS event_id,
+         'order' AS event_type,
+         t.invoice AS reference,
+         t.product_name AS title,
+         t.total_price AS amount,
+         'in' AS direction,
+         t.status,
+         t.user_id,
+         u.username,
+         t.created_at
+       FROM transactions t
+       LEFT JOIN users u ON u.id = t.user_id
+       WHERE t.transaction_type = 'order'
+         AND (t.product_id IS NOT NULL OR t.invoice LIKE 'ORD%')
+
+       UNION ALL
+
+       SELECT
+         CONCAT('deposit-', d.id) AS event_id,
+         'deposit' AS event_type,
+         d.invoice AS reference,
+         CASE WHEN d.payment_type = 'bot_activation' THEN 'Deposit Aktivasi Bot' ELSE 'Deposit Saldo' END AS title,
+         d.amount,
+         CASE WHEN d.status = 'success' THEN 'in' ELSE 'neutral' END AS direction,
+         d.status,
+         d.user_id,
+         u.username,
+         d.created_at
+       FROM deposits d
+       LEFT JOIN users u ON u.id = d.user_id
+
+       UNION ALL
+
+       SELECT
+         CONCAT('withdraw-', w.id) AS event_id,
+         'withdraw' AS event_type,
+         w.invoice AS reference,
+         'Withdraw Saldo' AS title,
+         w.amount,
+         CASE WHEN w.status = 'approved' THEN 'out' ELSE 'neutral' END AS direction,
+         w.status,
+         w.user_id,
+         u.username,
+         w.created_at
+       FROM withdraws w
+       LEFT JOIN users u ON u.id = w.user_id
+
+       UNION ALL
+
+       SELECT
+         CONCAT('mutation-', bm.id) AS event_id,
+         bm.mutation_type AS event_type,
+         bm.source_ref AS reference,
+         COALESCE(bm.notes, 'Penyesuaian saldo') AS title,
+         bm.amount,
+         bm.direction,
+         'recorded' AS status,
+         bm.user_id,
+         u.username,
+         bm.created_at
+       FROM balance_mutations bm
+       LEFT JOIN users u ON u.id = bm.user_id
+       WHERE bm.mutation_type IN ('admin_adjustment', 'adjustment', 'bonus', 'refund')
+     ) finance_events
+     ORDER BY created_at DESC
+     LIMIT 12`,
+  );
   const [operationalRows] = await query(
     `SELECT
        (SELECT COUNT(*) FROM orders WHERE fulfillment_type <> 'manual_admin') AS web_orders,
@@ -141,7 +269,7 @@ export async function adminSummary(_req, res) {
        (SELECT COUNT(*) FROM orders WHERE fulfillment_type = 'manual_admin') AS manual_orders,
        (SELECT COUNT(*) FROM deposits WHERE status = 'success') AS successful_deposits,
        (SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS new_users_7d,
-       (SELECT COUNT(*) FROM saldo_mutations WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS balance_mutations_7d,
+       (SELECT COUNT(*) FROM balance_mutations WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS balance_mutations_7d,
        (SELECT COUNT(*) FROM orders WHERE order_status IN ('waiting_provider', 'provider_processing')) AS pending_provider,
        (SELECT COUNT(*) FROM orders WHERE order_status IN ('pending_manual', 'manual_required') OR delivery_status = 'manual_pending') AS manual_required`,
   );
@@ -160,11 +288,32 @@ export async function adminSummary(_req, res) {
         profit_admin: Number(b2bLedgerRows?.admin_profit || 0),
         profit_reseller: Number(b2bLedgerRows?.reseller_profit || 0),
       },
+      finance_activity: {
+        order_count: Number(financeActivityRows?.order_count || 0),
+        order_revenue: Number(financeActivityRows?.order_revenue || 0),
+        provider_cost: Number(financeActivityRows?.provider_cost || 0),
+        order_profit: Number(financeActivityRows?.order_profit || 0),
+        deposit_count: Number(financeActivityRows?.deposit_count || 0),
+        deposit_amount: Number(financeActivityRows?.deposit_amount || 0),
+        withdraw_count: Number(financeActivityRows?.withdraw_count || 0),
+        withdraw_amount: Number(financeActivityRows?.withdraw_amount || 0),
+        wallet_in: Number(financeActivityRows?.wallet_in || 0),
+        wallet_out: Number(financeActivityRows?.wallet_out || 0),
+        net_wallet_movement: Number(financeActivityRows?.wallet_in || 0) - Number(financeActivityRows?.wallet_out || 0),
+        mutation_count: Number(financeActivityRows?.mutation_count || 0),
+        ledger_sync: {
+          account_count: Number(ledgerSyncRows?.account_count || 0),
+          synced_count: Number(ledgerSyncRows?.synced_count || 0),
+          mismatch_count: Number(ledgerSyncRows?.mismatch_count || 0),
+          mismatch_amount: Number(ledgerSyncRows?.mismatch_amount || 0),
+        },
+      },
       pending_withdraw_count: Number(withdrawRows?.pending_withdraw_count || 0),
       pending_withdraw: Number(withdrawRows?.pending_withdraw || 0),
       recent_orders: recentOrders,
       pending_payments: pendingPayments,
       recent_users: recentUsers,
+      recent_finance_events: recentFinanceEvents,
       operational: {
         web_orders: Number(operationalRows?.web_orders || 0),
         bot_orders: Number(operationalRows?.bot_orders || 0),

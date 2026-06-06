@@ -1006,6 +1006,82 @@ async function seedBootstrapAdmin(pool, report) {
   report.admins.push(`${username}(created)`);
 }
 
+async function reconcileFinanceMutations(pool, report) {
+  const [saldoMutationResult] = await pool.query(
+    `INSERT INTO balance_mutations
+      (user_id, mutation_type, direction, amount, balance_before, balance_after, source_type, source_ref, notes, metadata, created_at)
+     SELECT
+       sm.user_id,
+       LEFT(sm.mutation_type, 40),
+       sm.direction,
+       sm.amount,
+       sm.balance_before,
+       sm.balance_after,
+       sm.reference_table,
+       COALESCE(sm.reference_id, sm.reference),
+       sm.description,
+       sm.metadata,
+       sm.created_at
+     FROM saldo_mutations sm
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM balance_mutations bm
+       WHERE bm.user_id = sm.user_id
+         AND bm.mutation_type = LEFT(sm.mutation_type, 40)
+         AND bm.direction = sm.direction
+         AND bm.amount = sm.amount
+         AND bm.balance_before = sm.balance_before
+         AND bm.balance_after = sm.balance_after
+         AND COALESCE(bm.source_ref, '') = COALESCE(sm.reference_id, sm.reference, '')
+     )`,
+  );
+
+  const [saldoLogResult] = await pool.query(
+    `INSERT INTO balance_mutations
+      (user_id, mutation_type, direction, amount, balance_before, balance_after, source_type, source_ref, notes, metadata, created_at)
+     SELECT
+       sl.user_id,
+       LEFT(
+         CASE
+           WHEN sl.reference_table IN ('deposit', 'bot_activation') THEN sl.reference_table
+           WHEN sl.reference_table = 'withdraw' THEN 'withdraw'
+           WHEN sl.reference_table = 'order' THEN 'order_payment'
+           WHEN sl.log_type IN ('credit', 'debit', 'refund', 'adjustment') THEN sl.log_type
+           ELSE COALESCE(NULLIF(sl.log_type, ''), NULLIF(sl.type, ''), 'unknown')
+         END,
+         40
+       ),
+       CASE
+         WHEN COALESCE(NULLIF(sl.balance_after, 0), sl.after_saldo, 0) > COALESCE(NULLIF(sl.balance_before, 0), sl.before_saldo, 0) THEN 'in'
+         WHEN COALESCE(NULLIF(sl.balance_after, 0), sl.after_saldo, 0) < COALESCE(NULLIF(sl.balance_before, 0), sl.before_saldo, 0) THEN 'out'
+         ELSE 'neutral'
+       END,
+       sl.amount,
+       COALESCE(NULLIF(sl.balance_before, 0), sl.before_saldo, 0),
+       COALESCE(NULLIF(sl.balance_after, 0), sl.after_saldo, 0),
+       sl.reference_table,
+       COALESCE(sl.reference_id, sl.reference),
+       COALESCE(sl.description, sl.notes),
+       JSON_OBJECT('reconciled_from', 'saldo_logs', 'saldo_log_id', sl.id),
+       sl.created_at
+     FROM saldo_logs sl
+     WHERE NOT EXISTS (
+       SELECT 1
+       FROM balance_mutations bm
+       WHERE bm.user_id = sl.user_id
+         AND bm.amount = sl.amount
+         AND bm.balance_before = COALESCE(NULLIF(sl.balance_before, 0), sl.before_saldo, 0)
+         AND bm.balance_after = COALESCE(NULLIF(sl.balance_after, 0), sl.after_saldo, 0)
+         AND COALESCE(bm.source_ref, '') = COALESCE(sl.reference_id, sl.reference, '')
+     )`,
+  );
+
+  const total = Number(saldoMutationResult.affectedRows || 0) + Number(saldoLogResult.affectedRows || 0);
+  if (total > 0) {
+    report.reconciliations.push(`balance_mutations:${total}`);
+  }
+}
+
 async function validateSchema(pool, database) {
   const report = {
     tables: [],
@@ -1014,7 +1090,8 @@ async function validateSchema(pool, database) {
     constraints: [],
     constraintWarnings: [],
     settings: [],
-    admins: []
+    admins: [],
+    reconciliations: []
   };
 
   await ensureTables(pool, database, report);
@@ -1024,6 +1101,7 @@ async function validateSchema(pool, database) {
   await ensureConstraints(pool, database, report);
   await seedBootstrapSettings(pool, report);
   await seedBootstrapAdmin(pool, report);
+  await reconcileFinanceMutations(pool, report);
 
   return report;
 }

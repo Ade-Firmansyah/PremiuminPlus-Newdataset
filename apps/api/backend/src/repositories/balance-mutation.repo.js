@@ -17,6 +17,8 @@ const ALLOWED_TYPES = new Set([
   'reseller_profit',
   'commission',
   'locked_balance',
+  'bot_activation',
+  'bot_disable',
 ]);
 
 function toRecord(row) {
@@ -93,7 +95,13 @@ export async function listBalanceMutations(filters = {}) {
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const [totalRow] = await query(
-    `SELECT COUNT(*) AS total
+    `SELECT
+       COUNT(*) AS total,
+       COALESCE(SUM(CASE WHEN bm.direction = 'in' THEN bm.amount ELSE 0 END), 0) AS total_in,
+       COALESCE(SUM(CASE WHEN bm.direction = 'out' THEN bm.amount ELSE 0 END), 0) AS total_out,
+       COALESCE(SUM(CASE WHEN bm.direction = 'neutral' THEN 1 ELSE 0 END), 0) AS neutral_count,
+       COALESCE(SUM(CASE WHEN bm.direction = 'in' THEN 1 ELSE 0 END), 0) AS incoming_count,
+       COALESCE(SUM(CASE WHEN bm.direction = 'out' THEN 1 ELSE 0 END), 0) AS outgoing_count
      FROM balance_mutations bm
      INNER JOIN users u ON u.id = bm.user_id
      ${whereSql}`,
@@ -118,6 +126,14 @@ export async function listBalanceMutations(filters = {}) {
       limit,
       total,
       total_pages: Math.max(1, Math.ceil(total / limit)),
+    },
+    summary: {
+      total_in: Number(totalRow?.total_in || 0),
+      total_out: Number(totalRow?.total_out || 0),
+      net_movement: Number(totalRow?.total_in || 0) - Number(totalRow?.total_out || 0),
+      incoming_count: Number(totalRow?.incoming_count || 0),
+      outgoing_count: Number(totalRow?.outgoing_count || 0),
+      neutral_count: Number(totalRow?.neutral_count || 0),
     },
   };
 }

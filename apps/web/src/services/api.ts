@@ -186,6 +186,38 @@ export interface AdminSummaryRecord {
     profit_admin: number;
     profit_reseller: number;
   };
+  finance_activity?: {
+    order_count: number;
+    order_revenue: number;
+    provider_cost: number;
+    order_profit: number;
+    deposit_count: number;
+    deposit_amount: number;
+    withdraw_count: number;
+    withdraw_amount: number;
+    wallet_in: number;
+    wallet_out: number;
+    net_wallet_movement: number;
+    mutation_count: number;
+    ledger_sync: {
+      account_count: number;
+      synced_count: number;
+      mismatch_count: number;
+      mismatch_amount: number;
+    };
+  };
+  recent_finance_events?: Array<{
+    event_id: string;
+    event_type: string;
+    reference?: string;
+    title: string;
+    amount: number;
+    direction: 'in' | 'out' | 'neutral';
+    status: string;
+    user_id?: number;
+    username?: string;
+    created_at?: string;
+  }>;
   operational?: {
     web_orders: number;
     bot_orders: number;
@@ -523,6 +555,15 @@ export interface BalanceMutationRecord {
   created_at?: string;
 }
 
+export interface BalanceMutationSummary {
+  total_in: number;
+  total_out: number;
+  net_movement: number;
+  incoming_count: number;
+  outgoing_count: number;
+  neutral_count: number;
+}
+
 export interface PaginatedResponse<T> {
   status: boolean;
   data: T[];
@@ -532,6 +573,7 @@ export interface PaginatedResponse<T> {
     total: number;
     total_pages: number;
   };
+  summary?: BalanceMutationSummary;
 }
 
 const inflightRequests = new Map<string, Promise<unknown>>();

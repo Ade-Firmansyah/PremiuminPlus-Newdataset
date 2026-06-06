@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Activity, Banknote, Clock, PlugZap, ReceiptText, TrendingUp, Users, WalletCards } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Banknote, Clock, PlugZap, ReceiptText, TrendingUp, Users, WalletCards } from 'lucide-react';
 import { PageHero, PageSection, NeonCard } from '../../dashboardPageKit';
 import { formatCurrency, formatNumber } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
@@ -21,6 +21,26 @@ const emptySummary: AdminSummaryRecord = {
     provider_cost: 0,
     profit_admin: 0,
     profit_reseller: 0,
+  },
+  finance_activity: {
+    order_count: 0,
+    order_revenue: 0,
+    provider_cost: 0,
+    order_profit: 0,
+    deposit_count: 0,
+    deposit_amount: 0,
+    withdraw_count: 0,
+    withdraw_amount: 0,
+    wallet_in: 0,
+    wallet_out: 0,
+    net_wallet_movement: 0,
+    mutation_count: 0,
+    ledger_sync: {
+      account_count: 0,
+      synced_count: 0,
+      mismatch_count: 0,
+      mismatch_amount: 0,
+    },
   },
 };
 
@@ -90,6 +110,76 @@ export function AdminDashboardHome({ apiKey: sessionApiKey }: { apiKey?: string 
           );
         })}
       </section>
+
+      <PageSection title="Finance Monitoring" subtitle="Order, deposit, withdraw, dan pergerakan wallet dari sumber transaksi yang sama">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {[
+            ['Revenue Order', summary.finance_activity?.order_revenue || 0, `${formatNumber(summary.finance_activity?.order_count || 0)} order`],
+            ['Provider Cost', summary.finance_activity?.provider_cost || 0, 'Modal produk tercatat'],
+            ['Profit Order', summary.finance_activity?.order_profit || 0, 'Revenue dikurangi provider cost'],
+            ['Deposit Masuk', summary.finance_activity?.deposit_amount || 0, `${formatNumber(summary.finance_activity?.deposit_count || 0)} deposit sukses`],
+            ['Withdraw Keluar', summary.finance_activity?.withdraw_amount || 0, `${formatNumber(summary.finance_activity?.withdraw_count || 0)} withdraw approved`],
+            ['Net Wallet', summary.finance_activity?.net_wallet_movement || 0, `${formatNumber(summary.finance_activity?.mutation_count || 0)} mutasi tercatat`],
+          ].map(([label, value, hint]) => (
+            <NeonCard key={String(label)}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">{label}</p>
+              <p className="mt-2 text-2xl font-black text-white">{formatCurrency(Number(value || 0))}</p>
+              <p className="mt-2 text-sm text-white/45">{hint}</p>
+            </NeonCard>
+          ))}
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/10 bg-black/20 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+            <span>Aktivitas terbaru</span>
+            <span>Nominal</span>
+          </div>
+          <div className="divide-y divide-white/10">
+            {(summary.recent_finance_events || []).map((event) => {
+              const DirectionIcon = event.direction === 'in' ? ArrowDownToLine : event.direction === 'out' ? ArrowUpFromLine : Activity;
+              const amountClass = event.direction === 'in' ? 'text-emerald-200' : event.direction === 'out' ? 'text-rose-200' : 'text-white/70';
+              return (
+                <div key={event.event_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5">
+                      <DirectionIcon className={`h-4 w-4 ${amountClass}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-white">{event.title || event.event_type}</p>
+                      <p className="mt-1 truncate text-xs text-white/40">
+                        {[event.username, event.reference, event.status].filter(Boolean).join(' | ')}
+                      </p>
+                    </div>
+                  </div>
+                  <p className={`text-sm font-black ${amountClass}`}>{formatCurrency(Number(event.amount || 0))}</p>
+                </div>
+              );
+            })}
+            {!summary.recent_finance_events?.length ? (
+              <p className="px-4 py-6 text-center text-sm text-white/45">Belum ada aktivitas finance.</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
+          (summary.finance_activity?.ledger_sync?.mismatch_count || 0) > 0
+            ? 'border-amber-400/25 bg-amber-400/10'
+            : 'border-emerald-400/20 bg-emerald-400/10'
+        }`}>
+          <div>
+            <p className="text-sm font-black text-white">Audit sinkronisasi saldo</p>
+            <p className="mt-1 text-xs text-white/50">Saldo user dibandingkan dengan saldo akhir ledger terbaru.</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-black text-white">
+              {formatNumber(summary.finance_activity?.ledger_sync?.synced_count || 0)} / {formatNumber(summary.finance_activity?.ledger_sync?.account_count || 0)} akun sinkron
+            </p>
+            <p className="mt-1 text-xs text-white/50">
+              Selisih {formatCurrency(summary.finance_activity?.ledger_sync?.mismatch_amount || 0)}
+            </p>
+          </div>
+        </div>
+      </PageSection>
 
       <PageSection title="B2B Bot Ledger" subtitle="Ringkasan transaksi bot berdasarkan ledger Premiumin Plus">
         <div className="grid gap-3 md:grid-cols-5">

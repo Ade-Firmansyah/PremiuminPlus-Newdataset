@@ -3,7 +3,7 @@ import { Download, RefreshCcw, Search } from 'lucide-react';
 import { PageHero, PageSection } from '../../dashboardPageKit';
 import { formatCurrency } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
-import { premiuminApi, type BalanceMutationRecord } from '../../../services/api';
+import { premiuminApi, type BalanceMutationRecord, type BalanceMutationSummary } from '../../../services/api';
 
 const mutationTypes = [
   { value: '', label: 'Semua tipe' },
@@ -14,7 +14,20 @@ const mutationTypes = [
   { value: 'admin_adjustment', label: 'Admin adjustment' },
   { value: 'bonus', label: 'Bonus' },
   { value: 'reseller_commission', label: 'Komisi reseller' },
+  { value: 'bot_payment_in', label: 'Pembayaran bot masuk' },
+  { value: 'bot_order_cost', label: 'Modal order bot' },
+  { value: 'bot_activation', label: 'Aktivasi bot' },
+  { value: 'locked_balance', label: 'Saldo terkunci' },
 ];
+
+const emptySummary: BalanceMutationSummary = {
+  total_in: 0,
+  total_out: 0,
+  net_movement: 0,
+  incoming_count: 0,
+  outgoing_count: 0,
+  neutral_count: 0,
+};
 
 function formatDateTime(value?: string) {
   if (!value) return '-';
@@ -44,6 +57,7 @@ export function BalanceMutationPage({ apiKey: sessionApiKey }: { apiKey?: string
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ page: 1, limit: 25, total: 0, total_pages: 1 });
+  const [summary, setSummary] = useState<BalanceMutationSummary>(emptySummary);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -72,6 +86,7 @@ export function BalanceMutationPage({ apiKey: sessionApiKey }: { apiKey?: string
       const response = await premiuminApi.adminBalanceMutations(params, apiKey || undefined);
       setRows(response.data);
       setMeta(response.meta);
+      setSummary(response.summary || emptySummary);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal memuat mutasi saldo.');
     } finally {
@@ -82,18 +97,6 @@ export function BalanceMutationPage({ apiKey: sessionApiKey }: { apiKey?: string
   useEffect(() => {
     void load();
   }, [apiKey, params]);
-
-  const totals = useMemo(
-    () =>
-      rows.reduce(
-        (acc, row) => ({
-          masuk: acc.masuk + (row.saldo_masuk || 0),
-          keluar: acc.keluar + (row.saldo_keluar || 0),
-        }),
-        { masuk: 0, keluar: 0 },
-      ),
-    [rows],
-  );
 
   const exportCsv = async () => {
     setError('');
@@ -120,14 +123,23 @@ export function BalanceMutationPage({ apiKey: sessionApiKey }: { apiKey?: string
         chips={['Balance ledger', 'Server pagination', 'Audit finance']}
       />
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Saldo Masuk Halaman Ini</p>
-          <p className="mt-2 text-2xl font-black text-emerald-200">{formatCurrency(totals.masuk)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Total Masuk Filter</p>
+          <p className="mt-2 text-2xl font-black text-emerald-200">{formatCurrency(summary.total_in)}</p>
+          <p className="mt-1 text-xs text-white/40">{summary.incoming_count} mutasi masuk</p>
         </div>
         <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Saldo Keluar Halaman Ini</p>
-          <p className="mt-2 text-2xl font-black text-rose-200">{formatCurrency(totals.keluar)}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Total Keluar Filter</p>
+          <p className="mt-2 text-2xl font-black text-rose-200">{formatCurrency(summary.total_out)}</p>
+          <p className="mt-1 text-xs text-white/40">{summary.outgoing_count} mutasi keluar</p>
+        </div>
+        <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Pergerakan Bersih</p>
+          <p className={`mt-2 text-2xl font-black ${summary.net_movement >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>
+            {formatCurrency(summary.net_movement)}
+          </p>
+          <p className="mt-1 text-xs text-white/40">{summary.neutral_count} catatan netral</p>
         </div>
         <div className="rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Total Data Filter</p>
@@ -248,7 +260,10 @@ export function BalanceMutationPage({ apiKey: sessionApiKey }: { apiKey?: string
                 {!loading && rows.length === 0 ? (
                   <tr className="border-t border-white/10">
                     <td colSpan={10} className="px-4 py-8 text-center text-white/45">
-                      Tidak ada mutasi saldo pada filter ini.
+                      <p className="font-semibold text-white/65">Tidak ada perubahan saldo wallet pada filter ini.</p>
+                      <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-white/40">
+                        Order QRIS langsung tetap tercatat sebagai revenue dan profit di Finance Monitoring, tetapi tidak membuat mutasi jika saldo user tidak bertambah atau berkurang.
+                      </p>
                     </td>
                   </tr>
                 ) : null}
