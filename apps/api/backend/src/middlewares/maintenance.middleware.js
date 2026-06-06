@@ -23,6 +23,7 @@ const READ_ONLY_ALLOWED = [
   { method: 'GET', pattern: /^\/bot\/history$/ },
   { method: 'GET', pattern: /^\/bot\/analytics$/ },
   { method: 'GET', pattern: /^\/bot\/(?:order|payments)\/[^/]+\/status$/ },
+  { method: 'POST', pattern: /^\/public\/v1\/(?:profile|products|stock|pay_status|status)$/ },
 ];
 
 function matches(list, method, path) {
@@ -37,7 +38,9 @@ function readApiKey(req) {
   const rawAuthorization = req.headers.authorization;
   const authorization = Array.isArray(rawAuthorization) ? String(rawAuthorization[0] || '') : String(rawAuthorization || '');
   const bearer = authorization.match(/^Bearer\s+(.+)$/i);
-  return bearer ? bearer[1].trim() : '';
+  if (bearer) return bearer[1].trim();
+
+  return String(req.body?.api_key || '').trim();
 }
 
 async function resolveRequestUser(req) {

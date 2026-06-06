@@ -95,6 +95,7 @@ import { auth, requireApiUser, requireManagedBotAccess, resellerOnly } from '../
 import { adminOnly } from '../middlewares/admin.middleware.js';
 import { blockPublicMutationDuringMaintenance, maintenanceGuard } from '../middlewares/maintenance.middleware.js';
 import { getSetting } from '../repositories/settings.repo.js';
+import publicApiRoutes from '../modules/public-api/public-api.routes.js';
 import { query } from '../config/db.js';
 import { remember } from '../services/cache.service.js';
 
@@ -106,6 +107,7 @@ function getApiDocs(req) {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.get('host') || 'premiuminplus.store';
   const baseUrl = `${protocol}://${host}/api`;
+  const publicV1BaseUrl = `${baseUrl}/public/v1`;
 
   const userEndpoints = [
     {
@@ -235,14 +237,67 @@ function getApiDocs(req) {
     },
   ];
 
+  const publicV1Endpoints = [
+    {
+      method: 'POST',
+      path: '/profile',
+      description: 'Profil owner API key, role, saldo, usable balance, locked balance, WhatsApp, dan tanggal daftar.',
+      body: {},
+    },
+    {
+      method: 'POST',
+      path: '/products',
+      description: 'Katalog provider/manual/hybrid dari database/cache dengan harga role dan markup owner.',
+      body: {},
+    },
+    {
+      method: 'POST',
+      path: '/stock',
+      description: 'Stok gabungan provider cache dan stok manual lokal untuk satu product_id.',
+      body: { product_id: 123 },
+    },
+    {
+      method: 'POST',
+      path: '/pay',
+      description: 'Buat QRIS pembeli akhir. Order baru diproses setelah status pembayaran sukses.',
+      body: { product_id: 123, qty: 1, amount: 670, ref_id: 'INV-CLIENT-001', buyer_name: 'Pembeli', buyer_whatsapp: '6281234567890' },
+    },
+    {
+      method: 'POST',
+      path: '/pay_status',
+      description: 'Cek QRIS dan jalankan ledger B2B serta fulfillment secara idempoten.',
+      body: { invoice: 'PAY-XXXX' },
+    },
+    {
+      method: 'POST',
+      path: '/cancel_pay',
+      description: 'Batalkan payment pending milik owner API key.',
+      body: { invoice: 'PAY-XXXX' },
+    },
+    {
+      method: 'POST',
+      path: '/order',
+      description: 'Order produk memakai saldo usable owner API key.',
+      body: { product_id: 123, qty: 1, ref_id: 'ORD-CLIENT-001' },
+    },
+    {
+      method: 'POST',
+      path: '/status',
+      description: 'Cek status order milik owner dan tampilkan credential hanya setelah sukses.',
+      body: { invoice: 'ORD-XXXX' },
+    },
+  ];
+
   return {
     version: '3.2.2',
     base_url: baseUrl,
+    public_v1_base_url: publicV1BaseUrl,
     auth: {
       header: 'x-api-key',
       alternative_header: 'Authorization: Bearer YOUR_API_KEY',
+      body: { api_key: 'YOUR_API_KEY' },
       example_header: { 'x-api-key': 'YOUR_API_KEY' },
-      note: 'Jangan taruh API key di frontend publik. Gunakan dari server, bot pribadi, cron, atau backend integrasi Anda.',
+      note: 'Pilih satu sumber API key. Jika key berbeda dikirim lewat header/body, request ditolak 400. Jangan taruh API key di frontend publik.',
     },
     roles: {
       member: 'Bisa memakai API key untuk bot pribadi/bisnis sendiri, deposit, withdraw, order saldo, QRIS order, riwayat, dan mutasi.',
@@ -255,10 +310,14 @@ function getApiDocs(req) {
     },
     limits: {
       withdraw_minimum: 50000,
+      qris_ttl_minutes: 'Minimal konfigurasi lokal 30 menit, atau mengikuti expiry provider jika lebih cepat.',
+      provider_status_guard_seconds: 10,
+      public_rate_limit: '60 mutation request/menit per user, 180 read request/menit per user, dan 300 request/menit per IP. Response 429 menyertakan Retry-After.',
       order_rule: 'Saldo usable = saldo - locked_balance. Order saldo hanya diproses jika saldo usable cukup.',
       direct_qris_rule: 'QRIS order/deposit diproses setelah status provider success. QR disembunyikan setelah success untuk cegah double bayar.',
     },
     endpoints: {
+      public_v1: publicV1Endpoints,
       user_safe: userEndpoints,
       public_api_key_bot: publicBotEndpoints,
       managed_bot_hosting: managedBotEndpoints,
@@ -308,6 +367,7 @@ router.get('/config/public', async (_req, res) => {
 router.post('/callback/premku', blockPublicMutationDuringMaintenance, premkuWebhook);
 
 router.use(maintenanceGuard);
+router.use('/public/v1', publicApiRoutes);
 
 router.get('/me', auth, me);
 router.patch('/me/preferences', auth, updateMyPreferences);
@@ -437,6 +497,14 @@ router.get('/docs', (req, res) => {
       'POST /api/login',
       'POST /api/register',
       'POST /api/forgot-password',
+      'POST /api/public/v1/profile',
+      'POST /api/public/v1/products',
+      'POST /api/public/v1/stock',
+      'POST /api/public/v1/pay',
+      'POST /api/public/v1/pay_status',
+      'POST /api/public/v1/cancel_pay',
+      'POST /api/public/v1/order',
+      'POST /api/public/v1/status',
       'GET /api/me',
       'GET /api/system/status',
       'GET /api/me/apikey',

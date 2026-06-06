@@ -174,6 +174,7 @@ const TABLES = {
       amount: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       direction: "VARCHAR(16) NOT NULL DEFAULT 'out'",
       ref_id: 'VARCHAR(120) NULL',
+      idempotency_key: 'VARCHAR(320) NULL',
       product_id: 'BIGINT UNSIGNED NULL',
       product_name: 'VARCHAR(180) NULL',
       qty: 'INT UNSIGNED NOT NULL DEFAULT 1',
@@ -200,6 +201,7 @@ const TABLES = {
     },
     indexes: [
       { name: 'uq_transactions_invoice', unique: true, columns: ['invoice'] },
+      { name: 'uq_transactions_idempotency_key', unique: true, columns: ['idempotency_key'] },
       { name: 'idx_transactions_user_id', columns: ['user_id'] },
       { name: 'idx_transactions_transaction_type', columns: ['transaction_type'] },
       { name: 'idx_transactions_created_at', columns: ['created_at'] }
@@ -224,6 +226,7 @@ const TABLES = {
       qty: 'INT UNSIGNED NOT NULL DEFAULT 1',
       buyer_whatsapp: 'VARCHAR(40) NULL',
       buyer_name: 'VARCHAR(120) NULL',
+      client_ref_id: 'VARCHAR(120) NULL',
       modal_price: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       sell_price: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       reseller_profit: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
@@ -243,7 +246,8 @@ const TABLES = {
       { name: 'idx_payments_user_id', columns: ['user_id'] },
       { name: 'idx_payments_status', columns: ['status'] },
       { name: 'idx_payments_expired_at', columns: ['expired_at'] },
-      { name: 'idx_payments_product_id', columns: ['product_id'] }
+      { name: 'idx_payments_product_id', columns: ['product_id'] },
+      { name: 'uq_payments_user_client_ref', unique: true, columns: ['user_id', 'client_ref_id'] },
     ],
     constraints: [
       'CONSTRAINT fk_payments_user_id FOREIGN KEY (user_id) REFERENCES users(id)',
@@ -479,7 +483,6 @@ const TABLES = {
   },
   finance_daily_summaries: {
     columns: {
-      id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
       summary_date: 'DATE NOT NULL',
       total_deposit: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       total_withdraw: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
@@ -725,7 +728,21 @@ async function runCanonicalSchema(pool) {
   const statements = splitSqlStatements(schemaSql);
 
   for (const statement of statements) {
-    await pool.query(statement);
+    try {
+      await pool.query(statement);
+    } catch (error) {
+      const isLegacyForeignKeyTypeMismatch =
+        error?.code === 'ER_FK_INCOMPATIBLE_COLUMNS' &&
+        /^CREATE TABLE IF NOT EXISTS/i.test(statement);
+      if (!isLegacyForeignKeyTypeMismatch) throw error;
+
+      const withoutForeignKeys = statement.replace(
+        /,\s*CONSTRAINT\s+[a-zA-Z0-9_]+\s+FOREIGN KEY\s*\([^)]+\)\s+REFERENCES\s+[a-zA-Z0-9_]+\s*\([^)]+\)/gi,
+        '',
+      );
+      await pool.query(withoutForeignKeys);
+      console.warn('[DB] Legacy ID type detected; table created before optional foreign keys.');
+    }
   }
 }
 
@@ -783,7 +800,17 @@ async function ensureColumns(pool, database, report) {
     for (const [column, columnSql] of Object.entries(definition.columns)) {
       const exists = await columnExists(pool, database, table, column);
       if (!exists) {
-        await pool.query(`ALTER TABLE ${quoteId(table)} ADD COLUMN ${quoteId(column)} ${columnSql}`);
+        const isAutoIncrementId = column === 'id' && /AUTO_INCREMENT/i.test(columnSql);
+        if (isAutoIncrementId) {
+          const runtimeIndex = `uq_${table}_runtime_id`;
+          await pool.query(
+            `ALTER TABLE ${quoteId(table)}
+             ADD COLUMN ${quoteId(column)} ${columnSql},
+             ADD UNIQUE KEY ${quoteId(runtimeIndex)} (${quoteId(column)})`,
+          );
+        } else {
+          await pool.query(`ALTER TABLE ${quoteId(table)} ADD COLUMN ${quoteId(column)} ${columnSql}`);
+        }
         report.columns.push(`${table}.${column}`);
       }
     }
@@ -887,11 +914,19 @@ async function ensureConstraints(pool, database, report) {
 async function seedBootstrapSettings(pool, report) {
   for (const row of BOOTSTRAP_SETTINGS) {
     const [settingKey, settingValue, valueType, isSecret, description] = row;
+    let serializedValue = settingValue;
+    if (typeof settingValue === 'string') {
+      try {
+        JSON.parse(settingValue);
+      } catch {
+        serializedValue = JSON.stringify(settingValue);
+      }
+    }
     const [result] = await pool.query(
       `INSERT IGNORE INTO settings
        (setting_key, setting_value, value_type, is_secret, description)
        VALUES (?, ?, ?, ?, ?)`,
-      [settingKey, settingValue, valueType, isSecret, description]
+      [settingKey, serializedValue, valueType, isSecret, description]
     );
 
     if (result.affectedRows > 0) {

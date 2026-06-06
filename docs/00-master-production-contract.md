@@ -148,15 +148,29 @@ reseller
 admin
 ```
 
-Endpoint berikut wajib menolak member dengan HTTP 403 JSON:
+Endpoint managed berikut wajib menolak member dengan HTTP 403 JSON:
 
 ```text
-/api/bot/*
 /api/bot-settings
+/api/bot/profile
+/api/bot/settings
 /api/bot/session/connect
 /api/bot/session/status
 /api/bot/session/logout
 /api/bot/activation/deposit
+```
+
+Endpoint bot/API non-session berikut menerima member, reseller, dan admin untuk bot pribadi:
+
+```text
+/api/bot/catalog
+/api/bot/order
+/api/bot/order/init
+/api/bot/payments
+/api/bot/payments/:invoice/status
+/api/bot/payments/:invoice/cancel
+/api/bot/history
+/api/bot/analytics
 ```
 
 Response:
@@ -644,7 +658,7 @@ Admin:
 - Bot WhatsApp adalah fitur premium. Aktivasi memakai fixed QRIS Rp50.000 dengan `payment_type = bot_activation`, lalu saldo bertambah dan Rp50.000 dicatat sebagai `users.locked_balance`.
 - Validasi order wajib memakai `usable_balance = saldo - locked_balance`, bukan raw `saldo`.
 - Jika saldo turun di bawah locked balance, bot harus otomatis disable, `bot_access_unlocked = false`, dan activity/transaction/mutation harus tercatat.
-- Akses bot engine hanya untuk reseller/admin. Member tetap bisa memakai API key untuk flow web-core biasa, tetapi tidak boleh mengakses endpoint `/api/bot/*`, `/api/bot-settings`, atau aktivasi bot.
+- Managed bot session/settings/profile hanya untuk reseller/admin. Member dapat memakai API key untuk Public API v1 dan endpoint bot/API non-session, tetapi tidak boleh mengakses `/api/bot-settings`, session managed bot, atau aktivasi bot.
 - Frontend wajib menjalankan health check backend dan masuk maintenance mode otomatis setelah 3 kegagalan. Saat maintenance, semua aksi mutasi seperti order, withdraw, payment, edit user, dan edit setting harus diblokir.
 - Migrasi Railway/Vercel gratisan wajib melalui backup SQL, restore, schema migration, dan checksum saldo/transaksi sebelum maintenance mode dimatikan.
 

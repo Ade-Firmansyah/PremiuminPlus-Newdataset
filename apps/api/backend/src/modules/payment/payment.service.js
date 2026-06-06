@@ -1,6 +1,7 @@
+import crypto from 'node:crypto';
 import { transaction, parseDbJson } from '../../config/db.js';
 import { findProductById, markManualStockItemsUsed, refreshManualStockCount, reserveManualStockItems } from '../../repositories/product.repo.js';
-import { createPayment, findPaymentByInvoice, updatePayment } from '../../repositories/payment.repo.js';
+import { createPayment, findPaymentByInvoice, findPaymentByUserRef, updatePayment } from '../../repositories/payment.repo.js';
 import { updateOrderDelivery } from '../../repositories/order.repo.js';
 import { premkuCancelPay, premkuOrder, premkuPay, premkuPayStatus } from '../../services/premku.service.js';
 import { createInvoice } from '../../utils/invoice.js';
@@ -102,6 +103,11 @@ function extractAccounts(payload) {
 
 function resolvePremkuInvoice(payment, fallback) {
   return String(payment?.invoice ?? payment?.data?.invoice ?? payment?.ref_id ?? payment?.data?.ref_id ?? fallback);
+}
+
+function createPaymentOrderInvoice(paymentInvoice) {
+  const digest = crypto.createHash('sha256').update(String(paymentInvoice || '')).digest('hex').slice(0, 20).toUpperCase();
+  return `ORD-PAY-${digest}`;
 }
 
 function asPlainObject(payload) {
@@ -311,7 +317,22 @@ export async function createBotOrderPayment(user, payload) {
     throw error;
   }
 
-  const { product, pricing, qty, total, modalTotal } = await getBotProductPricing(payload.product_id, payload.qty, user);
+  const clientRefId = String(payload.ref_id || payload.client_ref_id || '').trim().slice(0, 120);
+  if (clientRefId) {
+    const existing = await findPaymentByUserRef(user.id, clientRefId);
+    if (existing) return existing;
+  }
+
+  const calculated = await getBotProductPricing(payload.product_id, payload.qty, user);
+  const { product, pricing, qty, modalTotal } = calculated;
+  const requestedTotal = Number(payload.sell_price ?? payload.amount ?? 0);
+  const total = requestedTotal > 0 ? requestedTotal : calculated.total;
+  if (!Number.isFinite(total) || total < modalTotal) {
+    const error = new Error(`Nominal pembayaran minimal Rp ${Math.round(modalTotal)}`);
+    error.statusCode = 400;
+    error.code = 'SELL_PRICE_BELOW_BASE_PRICE';
+    throw error;
+  }
   const buyerWhatsapp = validateWhatsapp(payload.buyer_whatsapp || '');
   if (payload.buyer_whatsapp && !buyerWhatsapp) {
     const error = new Error('Nomor WhatsApp pembeli tidak valid');
@@ -358,6 +379,7 @@ export async function createBotOrderPayment(user, payload) {
     target_whatsapp: buyerWhatsapp || user.phone || null,
     buyer_whatsapp: buyerWhatsapp || null,
     buyer_name: payload.buyer_name || null,
+    client_ref_id: clientRefId || null,
     modal_price: modal,
     sell_price: total,
     reseller_profit: resellerProfit,
@@ -383,7 +405,7 @@ export async function createBotOrderPayment(user, payload) {
   };
 }
 
-async function processSuccessfulPayment(invoice, statusResponse) {
+export async function processSuccessfulPayment(invoice, statusResponse) {
   return transaction(async (connection) => {
     const [paymentRows] = await connection.query('SELECT * FROM payments WHERE invoice = ? FOR UPDATE', [invoice]);
     const payment = paymentRows[0];
@@ -433,7 +455,7 @@ async function processSuccessfulPayment(invoice, statusResponse) {
       throw error;
     }
 
-    const orderInvoice = payment.order_invoice || createInvoice('ORD');
+    const orderInvoice = payment.order_invoice || createPaymentOrderInvoice(payment.invoice);
     const isBotOrder = payment.payment_type === 'bot_order';
     const qty = Number(payment.qty || 1);
     const total = Number(payment.amount || 0);

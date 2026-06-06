@@ -95,7 +95,7 @@ BOT_ENGINE_URL=https://BOT-ENGINE-RAILWAY-URL
 BOT_ENGINE_TOKEN=
 DATA_RETENTION_DAYS=7
 MAINTENANCE_INTERVAL_MINUTES=1440
-PAYMENT_QR_TTL_MINUTES=5
+PAYMENT_QR_TTL_MINUTES=30
 WHATSAPP_DELIVERY_WEBHOOK=
 WHATSAPP_DELIVERY_TOKEN=
 ORDER_CREDENTIAL_SECRET=
@@ -319,18 +319,21 @@ Ringkasan harian disimpan di `finance_daily_summaries`.
 Kontrak final V3.2.2 dikunci di:
 
 - `docs/00-master-production-contract.md`
-- `docs/01-auth.md`
-- `docs/02-wallet.md`
-- `docs/03-order-flow.md`
-- `docs/04-provider-flow.md`
-- `docs/05-bot-flow.md`
-- `docs/06-maintenance.md`
-- `docs/07-backup-restore.md`
+- `docs/02-auth-and-rbac.md`
+- `docs/03-wallet-finance.md`
+- `docs/04-product-pricing-provider.md`
+- `docs/05-order-payment-flow.md`
+- `docs/06-bot-engine.md`
+- `docs/07-maintenance-backup-restore.md`
 - `docs/08-deployment.md`
-- `docs/09-retention.md`
-- `docs/10-admin-flow.md`
+- `docs/09-retention-monitoring.md`
+- `docs/10-admin-system.md`
 - `docs/11-member-flow.md`
 - `docs/12-reseller-flow.md`
+- `docs/13-api-contract.md`
+- `docs/14-database-contract.md`
+- `docs/16-public-api-v1.md`
+- `docs/17-production-audit-v3.2.2.md`
 
 ## Provider Product Sync
 
@@ -356,7 +359,7 @@ Flow:
 4. `bot_access_unlocked = true`.
 5. Order memakai `usable_balance = saldo - locked_balance`.
 
-Member punya API key pribadi tetapi tidak boleh memakai managed Bot Engine `/api/bot/*`.
+Member dapat memakai Public API v1 dan endpoint bot/API non-session untuk bot pribadi. Managed bot session/settings/profile tetap khusus reseller/admin dengan akses bot aktif.
 
 ## Finance Safety
 

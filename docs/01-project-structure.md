@@ -127,11 +127,11 @@ Bot engine owns only:
 
 Role boundary:
 
-- member: dashboard, direct order/payment, deposit, withdraw, API key for normal web-core endpoints.
-- reseller: all member abilities plus reseller margin and bot engine endpoints.
+- member: dashboard, direct order/payment, deposit, withdraw, Public API v1, dan endpoint bot/API non-session untuk bot pribadi.
+- reseller: semua kemampuan member plus margin dan managed bot session.
 - admin: admin panel plus operational bot monitoring.
 
-All `/api/bot/*`, `/api/bot-settings`, and bot activation routes require `reseller` or `admin`. Frontend menu hiding is not trusted as security; backend RBAC enforces the rule.
+Endpoint katalog/order/payment/history/analytics `/api/bot/*` menerima member, reseller, dan admin sebagai API backend untuk bot pribadi. Endpoint managed session/settings/profile, `/api/bot-settings`, dan bot activation hanya menerima `reseller` atau `admin`. Frontend menu hiding tidak dipercaya sebagai security; backend RBAC tetap menjadi guard.
 
 ## Finance Rule
 

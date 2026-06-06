@@ -68,6 +68,7 @@ const JSON_COLUMNS = new Set([
 ]);
 
 const REQUIRED_ZIP_FILES = ['database.sql', 'backup.json', 'settings.json', 'metadata.json', 'backup_info.json', 'checksums.json'];
+const HASHED_ZIP_FILES = REQUIRED_ZIP_FILES.filter((name) => name !== 'checksums.json');
 const restoreJobs = new Map();
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
@@ -94,6 +95,11 @@ function crc32(buffer) {
     crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
+}
+
+function sha256(value) {
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(String(value || ''), 'utf8');
+  return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
 function dosTimeDate(date = new Date()) {
@@ -355,12 +361,52 @@ function extractZipBackup(buffer) {
     throw error;
   }
 
+  const expectedFileHashes = checksums?.files;
+  if (!expectedFileHashes || typeof expectedFileHashes !== 'object') {
+    const error = new Error('checksums.json tidak memiliki manifest hash file.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const invalidFiles = HASHED_ZIP_FILES.filter((name) => {
+    const expected = String(expectedFileHashes[name] || '').toLowerCase();
+    const actual = sha256(entries.get(name).getData());
+    return !/^[a-f0-9]{64}$/.test(expected) || expected !== actual;
+  });
+  if (invalidFiles.length) {
+    const error = new Error(`Checksum file tidak valid: ${invalidFiles.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const embeddedChecksums = backup?.checksums || {};
+  const checksumFields = [
+    'users_count',
+    'products_count',
+    'orders_count',
+    'transactions_count',
+    'saldo_mutations_count',
+    'balance_mutations_count',
+    'reseller_bot_settings_count',
+    'settings_count',
+    'saldo_total',
+  ];
+  const checksumMismatch = checksumFields.filter((field) => (
+    embeddedChecksums[field] !== undefined
+    && checksums?.[field] !== undefined
+    && Number(embeddedChecksums[field]) !== Number(checksums[field])
+  ));
+  if (checksumMismatch.length) {
+    const error = new Error(`Checksum metadata tidak cocok: ${checksumMismatch.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
   return {
     backup: {
       ...backup,
       metadata: backup.metadata || metadata,
       backup_info: backup.backup_info || backupInfo,
-      checksums: backup.checksums || checksums,
+      checksums,
     },
     files: Array.from(entries.keys()),
   };
@@ -489,6 +535,11 @@ async function restoreBackupData(backup, onProgress = () => {}) {
   await transaction(async (connection) => {
     await connection.query('SET FOREIGN_KEY_CHECKS=0');
     try {
+      onProgress(5, 'Bersihkan state target');
+      for (const table of [...BACKUP_TABLES].reverse()) {
+        await connection.query(`DELETE FROM ${quoteId(table)}`);
+      }
+
       let index = 0;
       for (const table of BACKUP_TABLES) {
         index += 1;
@@ -558,13 +609,21 @@ export async function downloadSystemBackup(_req, res, next) {
       tables,
     };
 
-    const zip = createZip([
+    const payloadFiles = [
       { name: 'database.sql', data: buildDatabaseSql(tables) },
       { name: 'backup.json', data: JSON.stringify(backup, null, 2) },
       { name: 'settings.json', data: JSON.stringify({ settings: tables.settings || [] }, null, 2) },
       { name: 'metadata.json', data: JSON.stringify(metadata, null, 2) },
       { name: 'backup_info.json', data: JSON.stringify(backupInfo, null, 2) },
-      { name: 'checksums.json', data: JSON.stringify(checksums, null, 2) },
+    ];
+    const checksumManifest = {
+      ...checksums,
+      algorithm: 'sha256',
+      files: Object.fromEntries(payloadFiles.map((file) => [file.name, sha256(file.data)])),
+    };
+    const zip = createZip([
+      ...payloadFiles,
+      { name: 'checksums.json', data: JSON.stringify(checksumManifest, null, 2) },
     ]);
 
     res.setHeader('content-type', 'application/zip');
@@ -665,12 +724,26 @@ export async function confirmRestoreJob(req, res, next) {
     if (!job) return res.status(404).json({ status: false, success: false, message: 'Restore job tidak ditemukan' });
     if (job.status === 'running') return res.status(409).json({ status: false, success: false, message: 'Restore job sedang berjalan' });
     if (['completed', 'completed_with_warning'].includes(job.status)) return res.json({ status: true, success: true, data: publicJob(job) });
+    const maintenance = await getMaintenanceStatus({ fresh: true });
+    if (!maintenance.enabled) {
+      return res.status(409).json({
+        status: false,
+        success: false,
+        code: 'MAINTENANCE_REQUIRED',
+        message: 'Aktifkan maintenance mode sebelum mengonfirmasi restore.',
+      });
+    }
 
     job.status = 'running';
     updateJob(job, 3, 'Restore dikonfirmasi');
     void (async () => {
       try {
         await restoreBackupData(job.backup, (progress, message) => updateJob(job, progress, message));
+        await setMaintenanceStatus({
+          enabled: true,
+          message: maintenance.message || 'Restore selesai. Lakukan validasi sebelum maintenance dinonaktifkan.',
+          adminId: req.user?.id || null,
+        });
         updateJob(job, 94, 'Clear cache');
         deleteCachePrefix('');
         updateJob(job, 98, 'Validasi hasil');

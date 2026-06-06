@@ -189,8 +189,8 @@ Realtime dashboard:
 Pemeliharaan data:
 
 - Backend menjalankan scheduler otomatis setiap hari.
-- Riwayat operasional detail seperti transaksi, mutasi, QR terminal, log realtime, dan cache polling yang lebih dari 7 hari akan dibersihkan.
-- Saldo user, data user, produk, setting admin, order credential, dan ringkasan finance admin tidak dihapus.
+- Hanya log realtime, cache polling, temporary notification, dan QR pending/expired yang melewati retention yang dibersihkan.
+- Transaksi, mutasi saldo, saldo user, data user, produk, setting admin, order credential, serta ringkasan finance tidak dihapus otomatis.
 
 Pengiriman WhatsApp:
 

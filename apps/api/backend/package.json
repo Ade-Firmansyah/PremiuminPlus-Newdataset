@@ -1,13 +1,14 @@
 {
   "name": "premiumin-plus-api",
-  "version": "3.2.0",
+  "version": "3.2.2",
   "private": true,
   "type": "module",
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "backend": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:production-gate": "node scripts/production-gate.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",

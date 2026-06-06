@@ -53,7 +53,7 @@ Member cannot:
 
 - use managed Bot Engine.
 - connect QR through web managed bot.
-- access `/api/bot/*`.
+- access managed bot session/settings/profile atau bot activation. Endpoint katalog/order/payment bot pribadi tetap boleh memakai API key member.
 
 ## Reseller Flow
 

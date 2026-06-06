@@ -20,6 +20,7 @@ function toTransaction(row) {
     id: row.id,
     invoice: row.invoice,
     ref_id: row.ref_id,
+    idempotency_key: row.idempotency_key || null,
     user_id: row.user_id,
     product_id: row.product_id,
     transaction_type: row.transaction_type || 'order',
@@ -54,11 +55,12 @@ async function getTransactionRow(invoice) {
 export async function createTransaction(payload) {
   const result = await execute(
     `INSERT INTO transactions
-      (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, account_data, channel, product_image, description, transaction_type, amount)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (invoice, ref_id, idempotency_key, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, account_data, channel, product_image, description, transaction_type, amount)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.invoice,
       payload.ref_id || null,
+      payload.idempotency_key || null,
       payload.user_id,
       payload.product_id || null,
       payload.product_name || null,
@@ -109,6 +111,16 @@ export async function listOrderTransactionsByUser(userId) {
 export async function findTransactionByInvoice(invoice) {
   const row = await getTransactionRow(invoice);
   return toTransaction(row);
+}
+
+export async function findTransactionByUserRef(userId, refId) {
+  const reference = String(refId || '').trim();
+  if (!reference) return null;
+  const rows = await query(
+    'SELECT * FROM transactions WHERE user_id = ? AND ref_id = ? AND transaction_type = "order" ORDER BY id DESC LIMIT 1',
+    [Number(userId), reference],
+  );
+  return toTransaction(rows[0] || null);
 }
 
 export async function updateTransactionStatus(invoice, status, extra = {}) {

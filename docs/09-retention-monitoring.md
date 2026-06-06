@@ -134,7 +134,7 @@ Routes outside each role permission set redirect back to dashboard.
 
 Bot Settings must render the locked page when `bot_access_unlocked = false`.
 
-Server-side bot engine access is restricted to `reseller` and `admin` roles. Members can use normal website/API purchase flows, but cannot call `/api/bot/*`, `/api/bot-settings`, or bot activation endpoints.
+Managed bot session/settings/profile dibatasi untuk `reseller` dan `admin`. Member tetap dapat memakai endpoint katalog/order/payment/history/analytics dengan API key untuk bot pribadi, tetapi tidak dapat memakai `/api/bot-settings`, session managed bot, atau aktivasi bot.
 
 Activation uses one pending QRIS invoice per user:
 

@@ -369,7 +369,8 @@ Member:
 
 - punya API key pribadi
 - boleh membuat bot pribadi sendiri memakai API key
-- tidak boleh memakai endpoint managed bot `/api/bot/*`
+- boleh memakai endpoint katalog/order/payment/history/analytics untuk bot pribadi
+- tidak boleh memakai managed session/settings/profile atau aktivasi managed bot
 
 Bot Engine:
 

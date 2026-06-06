@@ -1,7 +1,7 @@
 import { query, transaction as dbTransaction } from '../../config/db.js';
 import { findProductById, markManualStockItemsUsed, refreshManualStockCount, reserveManualStockItems } from '../../repositories/product.repo.js';
 import { getUserById } from '../../repositories/user.repo.js';
-import { createTransaction, findTransactionByInvoice, refundTransaction, updateTransactionStatus } from '../../repositories/transaction.repo.js';
+import { createTransaction, findTransactionByInvoice, findTransactionByUserRef, refundTransaction, updateTransactionStatus } from '../../repositories/transaction.repo.js';
 import { updateOrderDelivery, updateOrderProviderStatus, upsertOrderRecord, findOrderByInvoice, updateOrderStatusByInvoice, listOrdersByUser } from '../../repositories/order.repo.js';
 import { premkuOrder, premkuStatus } from '../../services/premku.service.js';
 import { addSaldo, applyWalletMutationInTransaction, deductSaldo, getUsableBalance } from '../../services/wallet.service.js';
@@ -236,6 +236,11 @@ export async function syncActiveOrdersForUser(userId, limit = 5) {
 }
 
 export async function createOrder(user, payload) {
+  const clientRefId = String(payload.ref_id || '').trim().slice(0, 120);
+  if (clientRefId) {
+    const existing = await findTransactionByUserRef(user.id, clientRefId);
+    if (existing) return existing;
+  }
   const product = await findProductById(payload.product_id);
 
   if (!product) {
@@ -272,6 +277,8 @@ export async function createOrder(user, payload) {
   const pricing = await getSellPrice(product, user);
   const total = pricing.sellPrice * qty;
   const invoice = createInvoice('ORD');
+  const transactionRef = clientRefId || invoice;
+  const idempotencyKey = clientRefId ? `order:${user.id}:${clientRefId}` : null;
   const targetWhatsapp = validateWhatsapp(user.phone || '');
 
   if (getUsableBalance(user) < total) {
@@ -289,56 +296,58 @@ export async function createOrder(user, payload) {
   const shouldTryManualStock = product.product_source === 'manual' || product.product_source === 'hybrid';
   let manualFulfilled = false;
   if (shouldTryManualStock) {
-    await dbTransaction(async (connection) => {
-      const stockItems = await reserveManualStockItems(connection, product.id, invoice, qty);
-      if (stockItems.length < qty) {
+    try {
+      await dbTransaction(async (connection) => {
+        const stockItems = await reserveManualStockItems(connection, product.id, invoice, qty);
+        if (stockItems.length < qty) {
+          await refreshManualStockCount(connection, product.id);
+          if (product.product_source === 'hybrid') return;
+          const error = new Error('Stok manual kosong');
+          error.statusCode = 400;
+          throw error;
+        }
+        const accounts = stockItems.map((stockItem) => ({
+          email: stockItem.email_account,
+          password: stockItem.password_account,
+          description: stockItem.description,
+        }));
+
+        const wallet = await applyWalletMutationInTransaction(connection, user.id, {
+          mutation_type: 'order_payment',
+          direction: 'out',
+          amount: total,
+          source_type: 'order',
+          source_ref: invoice,
+          notes: `manual-stock-order:${product.name}`,
+        });
+
+        await connection.query(
+          `INSERT INTO transactions
+          (invoice, ref_id, idempotency_key, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, account_data, channel, product_image, description, transaction_type, amount, processed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'success', CAST(? AS JSON), ?, ?, ?, 'order', ?, NOW())`,
+          [
+            invoice,
+            transactionRef,
+            idempotencyKey,
+            user.id,
+            product.id,
+            product.name,
+            qty,
+            product.price_base || product.base_price || 0,
+            pricing.sellPrice,
+            total,
+            (pricing.sellPrice - (product.price_base || product.base_price || 0)) * qty,
+            JSON.stringify(accounts),
+            payload.channel || 'api',
+            product.image || null,
+            product.note || '',
+            total,
+          ],
+        );
+        await markManualStockItemsUsed(connection, stockItems.map((stockItem) => stockItem.id), invoice);
         await refreshManualStockCount(connection, product.id);
-        if (product.product_source === 'hybrid') return;
-        const error = new Error('Stok manual kosong');
-        error.statusCode = 400;
-        throw error;
-      }
-      const accounts = stockItems.map((stockItem) => ({
-        email: stockItem.email_account,
-        password: stockItem.password_account,
-        description: stockItem.description,
-      }));
-
-      const wallet = await applyWalletMutationInTransaction(connection, user.id, {
-        mutation_type: 'order_payment',
-        direction: 'out',
-        amount: total,
-        source_type: 'order',
-        source_ref: invoice,
-        notes: `manual-stock-order:${product.name}`,
-      });
-
-      await connection.query(
-        `INSERT INTO transactions
-          (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, reseller_profit, status, account_data, channel, product_image, description, transaction_type, amount, processed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'success', CAST(? AS JSON), ?, ?, ?, 'order', ?, NOW())`,
-        [
-          invoice,
-          invoice,
-          user.id,
-          product.id,
-          product.name,
-          qty,
-          product.price_base || product.base_price || 0,
-          pricing.sellPrice,
-          total,
-          (pricing.sellPrice - (product.price_base || product.base_price || 0)) * qty,
-          JSON.stringify(accounts),
-          payload.channel || 'api',
-          product.image || null,
-          product.note || '',
-          total,
-        ],
-      );
-      await markManualStockItemsUsed(connection, stockItems.map((stockItem) => stockItem.id), invoice);
-      await refreshManualStockCount(connection, product.id);
-      await connection.query(
-        `INSERT INTO orders
+        await connection.query(
+          `INSERT INTO orders
           (user_id, role, invoice, product_id, product_name, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, fulfillment_type, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'success', ?, 'success', 'success', ?, ?, 'pending', ?, CAST(? AS JSON), NOW(), NOW())
          ON DUPLICATE KEY UPDATE
@@ -354,30 +363,37 @@ export async function createOrder(user, payload) {
           raw_response = VALUES(raw_response),
           success_at = COALESCE(success_at, VALUES(success_at)),
           updated_at = CURRENT_TIMESTAMP`,
-        [
-          user.id,
-          user.role,
-          invoice,
-          product.id,
-          product.name,
-          stockItems[0]?.email_account || null,
-          stockItems[0]?.password_account || null,
-          invoice,
-          product.product_source === 'hybrid' ? 'hybrid_manual_stock' : 'manual_stock',
-          targetWhatsapp || null,
-          total,
-          JSON.stringify({ source: product.product_source === 'hybrid' ? 'hybrid_manual_stock' : 'manual_stock', stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts, balance_before: wallet.before, balance_after: wallet.after }),
-        ],
-      );
+          [
+            user.id,
+            user.role,
+            invoice,
+            product.id,
+            product.name,
+            stockItems[0]?.email_account || null,
+            stockItems[0]?.password_account || null,
+            invoice,
+            product.product_source === 'hybrid' ? 'hybrid_manual_stock' : 'manual_stock',
+            targetWhatsapp || null,
+            total,
+            JSON.stringify({ source: product.product_source === 'hybrid' ? 'hybrid_manual_stock' : 'manual_stock', stock_item_ids: stockItems.map((stockItem) => stockItem.id), accounts, balance_before: wallet.before, balance_after: wallet.after }),
+          ],
+        );
 
-      void notifyAdmin('order success', {
-        user: user.username,
-        product: product.name,
-        status: 'MANUAL_STOCK_SUCCESS',
-        invoice,
+        void notifyAdmin('order success', {
+          user: user.username,
+          product: product.name,
+          status: 'MANUAL_STOCK_SUCCESS',
+          invoice,
+        });
+        manualFulfilled = true;
       });
-      manualFulfilled = true;
-    });
+    } catch (error) {
+      if (clientRefId && error?.code === 'ER_DUP_ENTRY') {
+        const existing = await findTransactionByUserRef(user.id, clientRefId);
+        if (existing) return existing;
+      }
+      throw error;
+    }
     if (manualFulfilled) {
       const orderRecord = await findOrderByInvoice(invoice);
       if (orderRecord?.delivery_status !== 'sent') {
@@ -399,7 +415,8 @@ export async function createOrder(user, payload) {
   try {
     transaction = await createTransaction({
       invoice,
-      ref_id: invoice,
+      ref_id: transactionRef,
+      idempotency_key: idempotencyKey,
       user_id: user.id,
       product_id: product.id,
       product_name: product.name,
@@ -575,6 +592,10 @@ export async function createOrder(user, payload) {
     }
   } catch (error) {
     await addSaldo(user, total, `${invoice}-refund`);
+    if (clientRefId && error?.code === 'ER_DUP_ENTRY') {
+      const existing = await findTransactionByUserRef(user.id, clientRefId);
+      if (existing) return existing;
+    }
     if (transaction) {
       await updateTransactionStatus(invoice, 'failed', {
         external_order_response: { message: error instanceof Error ? error.message : 'Premku order call failed' },

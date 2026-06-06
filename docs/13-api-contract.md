@@ -113,7 +113,7 @@ Rules:
 - Reseller can access managed Bot Engine endpoints after bot access is unlocked.
 - API key must never be stored in public frontend code, GitHub, docs screenshots, or customer-side localStorage.
 
-Reseller-only managed bot endpoints:
+Endpoint bot/API non-session untuk member, reseller, dan admin:
 
 ```text
 GET  /api/bot/catalog
@@ -122,6 +122,14 @@ GET  /api/bot/payments/:invoice/status
 GET  /api/bot/order/:invoice/status
 GET  /api/bot/history
 GET  /api/bot/analytics
+```
+
+Endpoint managed bot khusus reseller/admin dengan akses bot aktif:
+
+```text
+GET  /api/bot/profile
+GET  /api/bot/settings
+PATCH /api/bot/settings
 POST /api/bot/session/connect
 GET  /api/bot/session/status
 POST /api/bot/session/logout

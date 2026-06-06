@@ -99,8 +99,7 @@ CREATE TABLE IF NOT EXISTS product_stock_items (
   KEY idx_product_stock_items_product_id (product_id),
   KEY idx_product_stock_items_status (status),
   KEY idx_product_stock_items_reserved_by_order_invoice (reserved_by_order_invoice),
-  KEY idx_product_stock_items_used_by_order_invoice (used_by_order_invoice),
-  CONSTRAINT fk_product_stock_items_product_id FOREIGN KEY (product_id) REFERENCES products(id)
+  KEY idx_product_stock_items_used_by_order_invoice (used_by_order_invoice)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS reseller_bot_settings (
@@ -131,6 +130,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   invoice VARCHAR(80) NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   transaction_type VARCHAR(40) NOT NULL,
+  ref_id VARCHAR(120) NULL,
+  idempotency_key VARCHAR(320) NULL,
   amount DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
   direction VARCHAR(16) NOT NULL DEFAULT 'out',
   status VARCHAR(40) NOT NULL DEFAULT 'pending',
@@ -142,6 +143,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_transactions_invoice (invoice),
+  UNIQUE KEY uq_transactions_idempotency_key (idempotency_key),
   KEY idx_transactions_user_id (user_id),
   KEY idx_transactions_transaction_type (transaction_type),
   KEY idx_transactions_created_at (created_at),
@@ -163,6 +165,8 @@ CREATE TABLE IF NOT EXISTS payments (
   qr_raw TEXT NULL,
   qty INT UNSIGNED NOT NULL DEFAULT 1,
   buyer_whatsapp VARCHAR(40) NULL,
+  buyer_name VARCHAR(120) NULL,
+  client_ref_id VARCHAR(120) NULL,
   modal_price DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
   sell_price DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
   reseller_profit DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00,
@@ -177,6 +181,7 @@ CREATE TABLE IF NOT EXISTS payments (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_payments_invoice (invoice),
+  UNIQUE KEY uq_payments_user_client_ref (user_id, client_ref_id),
   KEY idx_payments_provider_invoice (provider_invoice),
   KEY idx_payments_user_id (user_id),
   KEY idx_payments_status (status),

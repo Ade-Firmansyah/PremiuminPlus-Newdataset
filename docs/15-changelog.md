@@ -2,6 +2,18 @@
 
 > Source of truth aktif Premiumin Plus. PRD lama dari `legacy/archive/fase-1-docs-cleanup/docs` sudah digabung, divalidasi, lalu duplicate archive dihapus agar tidak ada dua sumber kontrak.
 
+## V3.2.2 Public API and Documentation Audit - 2026-06-06
+
+- Added Public API v1 routes and structured `/api/docs` contract entries.
+- Added complete dashboard documentation for profile, products, stock, pay, status, order, deposit, errors, PHP, and dependency-free Python.
+- Synced backend, frontend, bot-engine, and workspace metadata to version `3.2.2`.
+- Added nullable unique `transactions.idempotency_key` for new saldo-order `ref_id` concurrency protection.
+- Synced canonical payment schema with `buyer_name`, `client_ref_id`, and the user/ref unique index already used by runtime.
+- Clamped local QR TTL configuration to at least 30 minutes while honoring earlier provider expiry.
+- Corrected bot RBAC docs: non-session bot/API endpoints support member integrations; managed session/settings/profile remain reseller/admin only.
+- Added exact-state backup/restore checksums, mandatory restore maintenance mode, deterministic provider order references, Public API rate limiting, and an isolated MySQL production gate.
+- Recorded verified release readiness and remaining production risks in `docs/17-production-audit-v3.2.2.md`.
+
 ## FASE 2 - Auth Audit
 
 - Bot WhatsApp payment flow now stores and watches `payment_invoice`, never product code/id, so status checks cannot call `/payments/7/status`.
@@ -322,7 +334,7 @@ Startup flow:
 - Set `ADMIN_WHATSAPP` for support links.
 - Set `WHATSAPP_DELIVERY_WEBHOOK` only when a real WhatsApp gateway exists.
 - Keep `VITE_API_BASE_URL` aligned with deployed backend URL.
-- Set `DATA_RETENTION_DAYS=7`, `MAINTENANCE_INTERVAL_MINUTES=1440`, and `PAYMENT_QR_TTL_MINUTES=5` unless production policy changes.
+- Set `DATA_RETENTION_DAYS=7`, `MAINTENANCE_INTERVAL_MINUTES=1440`, and `PAYMENT_QR_TTL_MINUTES=30`. Backend clamps local QR TTL to at least 30 minutes while still honoring an earlier provider expiry.
 - Logs should use standard scopes: `[FRONTEND]`, `[BACKEND]`, `[AUTH]`, `[PAYMENT]`, `[ORDER]`, `[PREMKU]`, `[BOT]`, `[SESSION]`, `[SYNC]`, `[WEBSOCKET]`, `[QUEUE]`, `[CACHE]`, `[CLEANUP]`, and `[ERROR]`.
 
 ## UI Naming

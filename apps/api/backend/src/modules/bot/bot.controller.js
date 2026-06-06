@@ -135,7 +135,7 @@ async function botEngineRequest(path, options = {}) {
   }
 }
 
-async function getBotCatalog(user) {
+export async function getBotCatalog(user) {
   const products = await listProducts();
   const markup = await getMarkupSetting();
   const settings = await findResellerBotSettings(user);

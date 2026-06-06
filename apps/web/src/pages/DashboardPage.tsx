@@ -230,6 +230,17 @@ const userApiEndpoints = [
   ['GET', '/withdraws', 'Riwayat withdraw dan status admin.'],
 ];
 
+const publicApiEndpoints = [
+  ['POST', '/profile', 'Profil, role, saldo, usable balance, dan locked balance.'],
+  ['POST', '/products', 'Katalog lokal, harga role, markup API, serta stok provider/manual/hybrid.'],
+  ['POST', '/stock', 'Stok gabungan Premiumin Plus berdasarkan product_id.'],
+  ['POST', '/pay', 'Buat QRIS pembeli akhir. Provider baru diorder setelah pembayaran sukses.'],
+  ['POST', '/pay_status', 'Cek pembayaran dan jalankan ledger B2B secara idempoten saat sukses.'],
+  ['POST', '/cancel_pay', 'Batalkan payment pending milik API key yang sama.'],
+  ['POST', '/order', 'Order langsung memakai saldo Premiumin Plus.'],
+  ['POST', '/status', 'Cek order dan tampilkan credential hanya setelah sukses.'],
+];
+
 const resellerApiEndpoints = [
   ['GET', '/bot/catalog', 'Katalog bot dengan harga jual sesuai margin reseller.'],
   ['POST', '/bot/order/init', 'Buat QRIS order bot, catat uang masuk/modal/profit.'],
@@ -244,11 +255,71 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [apiTab, setApiTab] = useState<'public' | 'internal'>('public');
+  const [exampleLanguage, setExampleLanguage] = useState<'curl' | 'node' | 'php' | 'python'>('curl');
   const apiBaseUrl = useMemo(() => {
     const configured = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
     if (configured) return configured;
     return `${window.location.origin}/api`;
   }, []);
+  const publicApiBaseUrl = `${apiBaseUrl}/public/v1`;
+  const selectedBaseUrl = apiTab === 'public' ? publicApiBaseUrl : apiBaseUrl;
+  const selectedEndpoints = apiTab === 'public' ? publicApiEndpoints : userApiEndpoints;
+  const exampleKey = visible ? key : 'YOUR_API_KEY';
+  const publicExamples = {
+    curl: `curl -X POST ${publicApiBaseUrl}/pay \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: ${exampleKey}" \\
+  -d "{\\"product_id\\":8,\\"amount\\":670,\\"ref_id\\":\\"INV-USER-001\\",\\"buyer_whatsapp\\":\\"6281234567890\\"}"`,
+    node: `const response = await fetch('${publicApiBaseUrl}/pay', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-api-key': '${exampleKey}'
+  },
+  body: JSON.stringify({
+    product_id: 8,
+    amount: 670,
+    ref_id: 'INV-USER-001',
+    buyer_whatsapp: '6281234567890'
+  })
+});
+const result = await response.json();`,
+    php: `$response = file_get_contents('${publicApiBaseUrl}/pay', false, stream_context_create([
+  'http' => [
+    'method' => 'POST',
+    'header' => "content-type: application/json\\r\\nx-api-key: ${exampleKey}\\r\\n",
+    'content' => json_encode([
+      'product_id' => 8,
+      'amount' => 670,
+      'ref_id' => 'INV-USER-001',
+      'buyer_whatsapp' => '6281234567890'
+    ])
+  ]
+]));`,
+    python: `import json
+from urllib.request import Request, urlopen
+
+payload = json.dumps({
+    "product_id": 8,
+    "amount": 670,
+    "ref_id": "INV-USER-001",
+    "buyer_whatsapp": "6281234567890"
+}).encode()
+
+request = Request(
+    "${publicApiBaseUrl}/pay",
+    data=payload,
+    headers={
+        "content-type": "application/json",
+        "x-api-key": "${exampleKey}"
+    },
+    method="POST"
+)
+
+with urlopen(request, timeout=20) as response:
+    result = json.load(response)`,
+  };
   const curlOrder = `curl -X POST ${apiBaseUrl}/order \\
   -H "content-type: application/json" \\
   -H "x-api-key: ${visible ? key : 'YOUR_API_KEY'}" \\
@@ -317,8 +388,8 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
         </div>
         <div className="rounded-2xl border border-brand/20 bg-brand/10 p-4">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-light">Base URL</p>
-          <p className="mt-2 break-all font-mono text-xs text-white">{apiBaseUrl}</p>
-          <p className="mt-3 text-xs leading-5 text-white/55">Production: <b className="text-white">https://premiuminplus.store/api</b></p>
+          <p className="mt-2 break-all font-mono text-xs text-white">{selectedBaseUrl}</p>
+          <p className="mt-3 text-xs leading-5 text-white/55">Production: <b className="text-white">https://premiuminplus.store/api/public/v1</b></p>
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -336,11 +407,16 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
         </button>
       </div>
 
+      <div className="mt-4 inline-flex border border-white/10 bg-black/20 p-1">
+        <button onClick={() => setApiTab('public')} className={`px-3 py-2 text-xs font-black ${apiTab === 'public' ? 'bg-[#ff2f92] text-white' : 'text-white/55'}`}>Public API v1</button>
+        <button onClick={() => setApiTab('internal')} className={`px-3 py-2 text-xs font-black ${apiTab === 'internal' ? 'bg-[#ff2f92] text-white' : 'text-white/55'}`}>Internal API</button>
+      </div>
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Endpoint member dan reseller</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">{apiTab === 'public' ? 'Public API v1' : 'Internal API existing'}</p>
           <div className="mt-3 grid gap-2">
-            {userApiEndpoints.map(([method, path, description]) => (
+            {selectedEndpoints.map(([method, path, description]) => (
               <div key={`${method}-${path}`} className="grid gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs sm:grid-cols-[130px_minmax(0,1fr)]">
                 <code className="font-black text-white">{method} {path}</code>
                 <span className="text-white/55">{description}</span>
@@ -348,7 +424,9 @@ function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: {
             ))}
           </div>
           <p className="mt-3 text-xs leading-5 text-white/45">
-            Member boleh memakai API key untuk bot pribadi buatan sendiri. Managed Bot Engine bawaan web tetap khusus reseller/admin dengan akses bot aktif.
+            {apiTab === 'public'
+              ? 'Gunakan ref_id unik pada /pay dan /order. Retry dengan ref_id yang sama mengembalikan transaksi yang sama tanpa debit atau order provider kedua.'
+              : 'Endpoint internal tetap tersedia untuk dashboard, integrasi existing, dan managed Bot Engine.'}
           </p>
         </div>
 
@@ -370,24 +448,45 @@ content-type: application/json`}</pre>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Contoh order saldo</p>
-          <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{curlOrder}</pre>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">{apiTab === 'public' ? 'Contoh Public API' : 'Contoh order saldo'}</p>
+          {apiTab === 'public' ? (
+            <div className="mt-3 inline-flex border border-white/10 bg-black/20 p-1">
+              {(['curl', 'node', 'php', 'python'] as const).map((language) => (
+                <button key={language} onClick={() => setExampleLanguage(language)} className={`px-3 py-1.5 text-xs font-black uppercase ${exampleLanguage === language ? 'bg-white/10 text-white' : 'text-white/45'}`}>{language}</button>
+              ))}
+            </div>
+          ) : null}
+          <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{apiTab === 'public' ? publicExamples[exampleLanguage] : curlOrder}</pre>
           <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Body JSON</p>
-            <pre className="mt-2 overflow-x-auto text-xs text-white/70">{`{
+            <pre className="mt-2 overflow-x-auto text-xs text-white/70">{apiTab === 'public' ? `{
+  "product_id": 8,
+  "amount": 670,
+  "ref_id": "INV-USER-001"
+}` : `{
   "product_id": 123,
   "qty": 1
 }`}</pre>
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Contoh QRIS order</p>
-          <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{curlQris}</pre>
-          <p className="mt-3 text-xs leading-5 text-white/45">QRIS order langsung tidak memotong saldo saat dibuat. Backend memproses order hanya setelah status QRIS success.</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">{apiTab === 'public' ? 'Ledger B2B' : 'Contoh QRIS order'}</p>
+          {apiTab === 'public' ? (
+            <div className="mt-3 space-y-2 text-xs leading-5 text-white/60">
+              <p>Pembayaran sukses: owner API menerima mutasi masuk sebesar sell price lalu mutasi keluar sebesar base price.</p>
+              <p>Profit owner = sell price - base price. Profit admin = base price - provider cost. Profit tidak dikreditkan dua kali ke saldo.</p>
+              <p>Polling status dibatasi cache backend. Credential hanya tampil setelah fulfillment sukses.</p>
+            </div>
+          ) : (
+            <>
+              <pre className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-5 text-white/75">{curlQris}</pre>
+              <p className="mt-3 text-xs leading-5 text-white/45">QRIS order langsung tidak memotong saldo saat dibuat. Backend memproses order hanya setelah status QRIS success.</p>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.035] p-4">
+      {apiTab === 'internal' ? <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.035] p-4">
         <p className="text-xs font-black uppercase tracking-[0.18em] text-white/38">Endpoint khusus reseller bot</p>
         <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
           {resellerApiEndpoints.map(([method, path, description]) => (
@@ -397,7 +496,7 @@ content-type: application/json`}</pre>
             </div>
           ))}
         </div>
-      </div>
+      </div> : null}
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {[
@@ -406,7 +505,8 @@ content-type: application/json`}</pre>
           ['402', 'Saldo usable tidak cukup untuk order saldo.'],
           ['403', 'Role tidak sesuai atau akun nonaktif.'],
           ['404', 'Invoice/produk tidak ditemukan.'],
-          ['429/5xx', 'Tunggu beberapa detik, lalu retry dari server.'],
+          ['409', 'Stok/qty/status transaksi bentrok.'],
+          ['503/5xx', 'Maintenance/provider bermasalah; retry dengan backoff dari server.'],
         ].map(([code, text]) => (
           <div key={code} className="rounded-xl border border-white/10 bg-black/20 p-3">
             <p className="text-lg font-black text-white">{code}</p>
