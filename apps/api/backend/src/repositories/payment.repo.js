@@ -18,6 +18,7 @@ function toPayment(row) {
     qty: Number(row.qty || 1),
     target_whatsapp: row.target_whatsapp || null,
     buyer_whatsapp: row.buyer_whatsapp || null,
+    buyer_name: row.buyer_name || null,
     modal_price: Number(row.modal_price || 0),
     sell_price: Number(row.sell_price || row.amount || 0),
     reseller_profit: Number(row.reseller_profit || 0),
@@ -35,8 +36,8 @@ function toPayment(row) {
 export async function createPayment(payload) {
   await execute(
     `INSERT INTO payments
-      (user_id, invoice, provider_invoice, amount, total_bayar, payment_type, source, status, qr_image, qr_raw, product_id, qty, target_whatsapp, buyer_whatsapp, modal_price, sell_price, reseller_profit, raw_response, expired_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`,
+      (user_id, invoice, provider_invoice, amount, total_bayar, payment_type, source, status, qr_image, qr_raw, product_id, qty, target_whatsapp, buyer_whatsapp, buyer_name, modal_price, sell_price, reseller_profit, raw_response, expired_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`,
     [
       payload.user_id,
       payload.invoice,
@@ -52,6 +53,7 @@ export async function createPayment(payload) {
       Number(payload.qty || 1),
       payload.target_whatsapp || null,
       payload.buyer_whatsapp || null,
+      payload.buyer_name ? String(payload.buyer_name).trim().slice(0, 120) : null,
       Number(payload.modal_price || 0),
       Number(payload.sell_price || payload.amount || 0),
       Number(payload.reseller_profit || 0),

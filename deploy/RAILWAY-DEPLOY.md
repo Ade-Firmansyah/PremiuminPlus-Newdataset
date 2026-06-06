@@ -86,8 +86,8 @@ Gunakan:
 ```env
 DB_HOST=${{MySQL.MYSQLHOST}}
 DB_USER=${{MySQL.MYSQLUSER}}
-BOT_API_BASE_URL=https://api.premiuminplus.store/api
-VITE_API_BASE_URL=https://api.premiuminplus.store/api
+BOT_API_BASE_URL=https://premiuminplus.store/api
+VITE_API_BASE_URL=/api
 DB_PASSWORD=${{MySQL.MYSQLPASSWORD}}
 DB_NAME=${{MySQL.MYSQLDATABASE}}
 ```
@@ -101,5 +101,5 @@ DB_NAME=${{MySQL.MYSQLDATABASE}}
 ## Final Targets
 
 - Frontend: `https://premiuminplus.store`
-- Backend: `https://api.premiuminplus.store`
+- Backend: `https://premiuminplus.store/api`
 - Bot: `https://bot.premiuminplus.store`

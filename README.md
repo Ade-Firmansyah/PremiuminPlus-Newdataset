@@ -5,7 +5,7 @@ Premiumin Plus adalah monorepo untuk jual produk digital dengan frontend Vercel,
 Production domain:
 
 - Frontend: `https://premiuminplus.store`
-- Backend API: `https://api.premiuminplus.store/api`
+- Backend API: `https://premiuminplus.store/api`
 
 ## Struktur Monorepo
 
@@ -137,7 +137,7 @@ npm run build
 Environment:
 
 ```env
-VITE_API_BASE_URL=https://api.premiuminplus.store/api
+VITE_API_BASE_URL=/api
 ```
 
 Jangan simpan provider key di frontend. Frontend hanya memanggil backend.
@@ -174,7 +174,7 @@ Environment:
 ```env
 NODE_ENV=production
 PORT=4001
-BOT_API_BASE_URL=https://api.premiuminplus.store/api
+BOT_API_BASE_URL=https://premiuminplus.store/api
 BOT_ENGINE_TOKEN=
 ADMIN_MONITORING_LID=64957102211197@lid
 ```
@@ -192,11 +192,11 @@ Backend menyimpan key di `settings.premku_api_key`, menampilkan masked value, da
 1. Deploy MySQL Railway.
 2. Deploy backend Railway dari `apps/api/backend`.
 3. Set backend env.
-4. Cek `https://api.premiuminplus.store/health`.
+4. Cek `https://premiuminplus.store/health`.
 5. Deploy bot Railway dari `apps/bot-engine`.
 6. Set `BOT_ENGINE_URL` dan `BOT_ENGINE_TOKEN` di backend.
 7. Deploy frontend Vercel dari `apps/web`.
-8. Set `VITE_API_BASE_URL=https://api.premiuminplus.store/api`.
+8. Set `VITE_API_BASE_URL=/api`.
 
 ## Maintenance & Backup
 

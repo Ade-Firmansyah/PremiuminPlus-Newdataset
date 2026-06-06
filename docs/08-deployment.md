@@ -12,19 +12,19 @@ Frontend:
 
 - Folder: `apps/web`
 - Build: `npm run build`
-- Env: `VITE_API_BASE_URL=https://api.premiuminplus.store/api`
+- Env: `VITE_API_BASE_URL=/api`
 
 Backend:
 
 - Folder: `apps/api/backend`
 - Start: `npm run backend`
-- Health: `https://api.premiuminplus.store/health`
+- Health: `https://premiuminplus.store/health`
 
 Bot Engine:
 
 - Folder: `apps/bot-engine`
 - Start: `npm run bot`
-- Env: `BOT_API_BASE_URL=https://api.premiuminplus.store/api`
+- Env: `BOT_API_BASE_URL=https://premiuminplus.store/api`
 
 Railway MySQL/MariaDB menjadi database production.
 

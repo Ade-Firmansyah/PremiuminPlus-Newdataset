@@ -19,7 +19,7 @@ Source of truth aktif:
 Deployment final:
 
 - Frontend: `https://premiuminplus.store`
-- Backend API: `https://api.premiuminplus.store/api`
+- Backend API: `https://premiuminplus.store/api`
 - Database: Railway MySQL/MariaDB
 - Bot Engine: Railway
 

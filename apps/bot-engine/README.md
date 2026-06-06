@@ -28,7 +28,7 @@ Status implementasi saat ini:
 Environment:
 
 ```env
-BOT_API_BASE_URL=https://api.premiuminplus.store/api
+BOT_API_BASE_URL=https://premiuminplus.store/api
 BOT_ENGINE_PORT=4100
 BOT_ENGINE_TOKEN=
 BOT_RESELLER_API_KEY=

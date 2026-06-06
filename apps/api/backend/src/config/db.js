@@ -223,6 +223,7 @@ const TABLES = {
       qr_raw: 'TEXT NULL',
       qty: 'INT UNSIGNED NOT NULL DEFAULT 1',
       buyer_whatsapp: 'VARCHAR(40) NULL',
+      buyer_name: 'VARCHAR(120) NULL',
       modal_price: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       sell_price: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       reseller_profit: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',

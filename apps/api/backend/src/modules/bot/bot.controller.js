@@ -6,9 +6,9 @@ import env from '../../config/env.js';
 import { cancelDirectPayment, createBotOrderPayment, refreshDirectPaymentStatus } from '../payment/payment.service.js';
 import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 import { execute, query } from '../../config/db.js';
-import { getResellerBotSettings, updateResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
+import { findResellerBotSettings, getResellerBotSettings, updateResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
 
-function assertBotUser(user) {
+function assertManagedBotAccess(user) {
   if (!user || !['admin', 'reseller'].includes(user.role)) {
     const error = new Error('Managed Bot Engine hanya tersedia untuk admin dan reseller aktif');
     error.statusCode = 403;
@@ -66,11 +66,14 @@ async function syncBotSessionUser(user, status = {}) {
   };
 }
 
-function calculateBotSellPrice(product, markup, settings) {
-  const modalPricing = calculateRoleSellPrice(product, markup, { role: 'reseller' });
-  const modalPrice = Number(product.reseller_price || modalPricing.modalPrice || modalPricing.sellPrice || 0);
-  const marginValue = Number(settings.reseller_margin_value || 0);
-  const marginType = settings.reseller_margin_type === 'fixed' ? 'fixed' : 'percent';
+function calculateBotSellPrice(product, markup, user, settings) {
+  const role = String(user?.role || 'member').toLowerCase();
+  const pricingRole = role === 'member' ? 'member' : 'reseller';
+  const modalPricing = calculateRoleSellPrice(product, markup, { ...user, role: pricingRole });
+  const storedPrice = pricingRole === 'member' ? product.member_price : product.reseller_price;
+  const modalPrice = Number(storedPrice || modalPricing.modalPrice || modalPricing.sellPrice || 0);
+  const marginValue = Number(settings?.reseller_margin_value || 0);
+  const marginType = settings?.reseller_margin_type === 'fixed' ? 'fixed' : 'percent';
   const marginAmount = marginType === 'fixed' ? Math.round(marginValue) : Math.round((modalPrice * marginValue) / 100);
   return {
     modalPrice,
@@ -135,25 +138,29 @@ async function botEngineRequest(path, options = {}) {
 async function getBotCatalog(user) {
   const products = await listProducts();
   const markup = await getMarkupSetting();
-  const settings = await getResellerBotSettings(user);
+  const settings = await findResellerBotSettings(user);
 
   return products.map((product, index) => {
-    const pricing = calculateBotSellPrice(product, markup, settings);
+    const pricing = calculateBotSellPrice(product, markup, user, settings);
     const stock = Number(product.stock || 0);
     const productCode = toBuyCode(product, index);
     return {
       id: product.id,
+      product_id: product.id,
       premku_id: product.premku_id,
       product_code: productCode,
       buy_code: productCode,
       command: `buy${productCode}`,
       code: product.code,
       name: product.name,
+      product_name: product.name,
       note: product.note || product.description || '',
       product_source: product.product_source,
       fulfillment_priority: product.fulfillment_priority,
       price: pricing.sellPrice,
       sell_price: pricing.sellPrice,
+      base_admin_price: pricing.modalPrice,
+      base_price: pricing.modalPrice,
       modal_price: pricing.modalPrice,
       reseller_profit: pricing.marginAmount,
       stock,
@@ -162,6 +169,7 @@ async function getBotCatalog(user) {
       provider_stock: Number(product.provider_stock || product.provider_stock_count || 0),
       max_order_qty: Number(product.max_order_qty || stock),
       availability_status: stock > 0 ? 'tersedia' : 'belum_tersedia',
+      status: product.status === 'active' && stock > 0 ? 'available' : 'unavailable',
       order_enabled: product.status === 'active' && stock > 0,
     };
   });
@@ -169,7 +177,7 @@ async function getBotCatalog(user) {
 
 export async function botProfile(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     const settings = await getResellerBotSettings(req.user);
 
     res.json({
@@ -191,7 +199,6 @@ export async function botProfile(req, res, next) {
 
 export async function botCatalog(req, res, next) {
   try {
-    assertBotUser(req.user);
     const data = await remember(`bot:catalog:user:${req.user.id}`, 10, () => getBotCatalog(req.user));
     res.json({ status: true, data });
   } catch (error) {
@@ -201,7 +208,7 @@ export async function botCatalog(req, res, next) {
 
 export async function botSettings(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     const data = await getResellerBotSettings(req.user);
     res.json({ status: true, data });
   } catch (error) {
@@ -211,7 +218,7 @@ export async function botSettings(req, res, next) {
 
 export async function updateBotSettings(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     const data = await updateResellerBotSettings(req.user, req.body || {});
     deleteCachePrefix(`bot:catalog:user:${req.user.id}`);
     res.json({ status: true, data });
@@ -235,7 +242,6 @@ function findCatalogProduct(catalog, value) {
 
 export async function botCreateOrder(req, res, next) {
   try {
-    assertBotUser(req.user);
     const catalog = await getBotCatalog(req.user);
     const product = findCatalogProduct(catalog, req.body?.buy_code || req.body?.product_code || req.body?.code);
 
@@ -261,7 +267,6 @@ export async function botCreateOrder(req, res, next) {
 
 export async function botCreatePayment(req, res, next) {
   try {
-    assertBotUser(req.user);
     const catalog = await getBotCatalog(req.user);
     const product = findCatalogProduct(catalog, req.body?.buy_code || req.body?.product_code || req.body?.code);
 
@@ -287,7 +292,6 @@ export async function botCreatePayment(req, res, next) {
 
 export async function botPaymentStatus(req, res, next) {
   try {
-    assertBotUser(req.user);
     const data = await refreshDirectPaymentStatus(req.params.invoice, req.user);
     if (!data) return res.status(404).json({ status: false, message: 'Payment tidak ditemukan' });
     return res.json({ status: true, data });
@@ -298,7 +302,6 @@ export async function botPaymentStatus(req, res, next) {
 
 export async function botPaymentCancel(req, res, next) {
   try {
-    assertBotUser(req.user);
     const data = await cancelDirectPayment(req.body?.invoice || req.params.invoice, req.user);
     return res.json({ status: true, data });
   } catch (error) {
@@ -308,7 +311,7 @@ export async function botPaymentCancel(req, res, next) {
 
 export async function botSessionConnect(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     await execute(
       `UPDATE users
        SET bot_session_id = ?, bot_session_status = 'connecting'
@@ -327,7 +330,7 @@ export async function botSessionConnect(req, res, next) {
 
 export async function botSessionStatus(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     const data = await botEngineRequest(`/sessions/${getSessionId(req.user)}/status`);
     res.json({ status: true, data: await syncBotSessionUser(req.user, data) });
   } catch (error) {
@@ -337,7 +340,7 @@ export async function botSessionStatus(req, res, next) {
 
 export async function botSessionLogout(req, res, next) {
   try {
-    assertBotUser(req.user);
+    assertManagedBotAccess(req.user);
     const data = await botEngineRequest(`/sessions/${getSessionId(req.user)}/logout`, {
       method: 'POST',
       body: JSON.stringify({}),
@@ -350,9 +353,8 @@ export async function botSessionLogout(req, res, next) {
 
 export async function botHistory(req, res, next) {
   try {
-    assertBotUser(req.user);
     const rows = await query(
-      `SELECT p.invoice, p.amount, p.total_bayar, p.modal_price, p.sell_price, p.reseller_profit, p.status, p.product_id, pr.name AS product_name, p.order_invoice, p.created_at, p.processed_at,
+      `SELECT p.invoice, p.amount, p.total_bayar, p.modal_price, p.sell_price, p.reseller_profit, p.status, p.product_id, p.buyer_whatsapp, p.buyer_name, pr.name AS product_name, p.order_invoice, p.created_at, p.processed_at,
               o.order_status, o.provider_status, o.delivery_status, o.email_account, o.password_account
        FROM payments p
        LEFT JOIN products pr ON pr.id = p.product_id
@@ -370,7 +372,6 @@ export async function botHistory(req, res, next) {
 
 export async function botAnalytics(req, res, next) {
   try {
-    assertBotUser(req.user);
     const [row] = await query(
       `SELECT
          COUNT(*) AS total_order_bot,

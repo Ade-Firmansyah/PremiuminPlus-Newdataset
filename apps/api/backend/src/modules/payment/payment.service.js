@@ -14,7 +14,7 @@ import { applyBotPaymentSuccess, buildB2BLedgerSnapshot, clearB2BLedgerCaches } 
 import { getMarkupSetting } from '../../repositories/settings.repo.js';
 import { calculateProductPrices } from '../../services/product-pricing.service.js';
 import { calculateRoleSellPrice } from '../../services/pricing.service.js';
-import { getResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
+import { findResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
 
 function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -202,7 +202,7 @@ async function getRoleProductPricing(productId, qty = 1, user = { role: 'member'
   return { product, pricing, qty: numericQty, total: pricing.sellPrice * numericQty };
 }
 
-async function getBotProductPricing(productId, qty = 1, user = { role: 'reseller' }) {
+async function getBotProductPricing(productId, qty = 1, user = { role: 'member' }) {
   const product = await findProductById(productId);
   if (!product || product.status !== 'active') {
     const error = new Error('Produk tidak ditemukan atau tidak aktif');
@@ -228,19 +228,23 @@ async function getBotProductPricing(productId, qty = 1, user = { role: 'reseller
   }
 
   const markupSetting = await getMarkupSetting();
-  const settings = await getResellerBotSettings(user);
-  const modalPricing = calculateRoleSellPrice(product, markupSetting, { ...user, role: 'reseller' });
-  const modalPrice = Number(product.reseller_price || modalPricing.modalPrice || modalPricing.sellPrice || 0);
-  const marginValue = Number(settings.reseller_margin_value || 0);
-  const marginAmount = settings.reseller_margin_type === 'fixed'
+  const settings = await findResellerBotSettings(user);
+  const role = String(user?.role || 'member').toLowerCase();
+  const pricingRole = role === 'member' ? 'member' : 'reseller';
+  const modalPricing = calculateRoleSellPrice(product, markupSetting, { ...user, role: pricingRole });
+  const storedPrice = pricingRole === 'member' ? product.member_price : product.reseller_price;
+  const modalPrice = Number(storedPrice || modalPricing.modalPrice || modalPricing.sellPrice || 0);
+  const marginType = settings?.reseller_margin_type === 'fixed' ? 'fixed' : 'percent';
+  const marginValue = Number(settings?.reseller_margin_value || 0);
+  const marginAmount = marginType === 'fixed'
     ? Math.round(marginValue)
     : Math.round((modalPrice * marginValue) / 100);
   const pricing = {
     ...modalPricing,
     modalPrice,
     resellerMarkup: marginAmount,
-    reseller_markup_percent: settings.reseller_margin_type === 'percent' ? marginValue : 0,
-    reseller_margin_type: settings.reseller_margin_type,
+    reseller_markup_percent: marginType === 'percent' ? marginValue : 0,
+    reseller_margin_type: marginType,
     reseller_margin_value: marginValue,
     sellPrice: modalPrice + marginAmount,
   };
@@ -301,8 +305,8 @@ export async function createDirectOrderPayment(user, payload) {
 }
 
 export async function createBotOrderPayment(user, payload) {
-  if (!['admin', 'reseller'].includes(user.role)) {
-    const error = new Error('Bot payment hanya tersedia untuk reseller');
+  if (!['admin', 'member', 'reseller'].includes(user.role)) {
+    const error = new Error('Bot/API payment tidak tersedia untuk role ini');
     error.statusCode = 403;
     throw error;
   }
@@ -344,7 +348,7 @@ export async function createBotOrderPayment(user, payload) {
     amount: total,
     total_bayar: totalBayar,
     payment_type: 'bot_order',
-    source: 'bot',
+    source: 'bot_api',
     status: 'pending_payment',
     qr_image: typeof qrImage === 'string' ? qrImage : null,
     qr_raw: typeof qrRaw === 'string' ? qrRaw : JSON.stringify(qrRaw),
@@ -353,6 +357,7 @@ export async function createBotOrderPayment(user, payload) {
     raw_response: payment,
     target_whatsapp: buyerWhatsapp || user.phone || null,
     buyer_whatsapp: buyerWhatsapp || null,
+    buyer_name: payload.buyer_name || null,
     modal_price: modal,
     sell_price: total,
     reseller_profit: resellerProfit,

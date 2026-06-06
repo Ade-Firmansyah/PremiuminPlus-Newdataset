@@ -91,7 +91,7 @@ import {
   botSessionStatus,
   updateBotSettings as updateResellerBotSettings,
 } from '../modules/bot/bot.controller.js';
-import { auth, resellerOnly } from '../middlewares/auth.middleware.js';
+import { auth, requireApiUser, requireManagedBotAccess, resellerOnly } from '../middlewares/auth.middleware.js';
 import { adminOnly } from '../middlewares/admin.middleware.js';
 import { blockPublicMutationDuringMaintenance, maintenanceGuard } from '../middlewares/maintenance.middleware.js';
 import { getSetting } from '../repositories/settings.repo.js';
@@ -198,25 +198,40 @@ function getApiDocs(req) {
     },
   ];
 
-  const resellerEndpoints = [
+  const publicBotEndpoints = [
     {
       method: 'GET',
       path: '/bot/catalog',
-      roles: ['reseller', 'admin'],
-      description: 'Katalog bot reseller dengan harga jual bot sesuai margin reseller.',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Katalog bot/API berdasarkan harga role pemilik API key. Tidak membutuhkan managed bot lock.',
     },
     {
       method: 'POST',
       path: '/bot/order/init',
-      roles: ['reseller', 'admin'],
-      description: 'Buat QRIS order dari bot. Backend mencatat uang masuk, modal keluar, profit reseller, dan order.',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Buat QRIS order bot/API. Backend mencatat uang masuk, modal keluar, profit user, dan order.',
       body: { product_id: 123, qty: 1, buyer_whatsapp: '6281234567890' },
     },
     {
       method: 'GET',
       path: '/bot/order/:invoice/status',
+      roles: ['member', 'reseller', 'admin'],
+      description: 'Cek status QRIS/order milik API key.',
+    },
+  ];
+
+  const managedBotEndpoints = [
+    {
+      method: 'GET',
+      path: '/bot/settings',
       roles: ['reseller', 'admin'],
-      description: 'Cek status QRIS/order bot reseller.',
+      description: 'Setting Managed Bot Hosting. Membutuhkan locked balance dan bot access aktif.',
+    },
+    {
+      method: 'POST',
+      path: '/bot/session/connect',
+      roles: ['reseller', 'admin'],
+      description: 'Hubungkan session Managed Bot Hosting.',
     },
   ];
 
@@ -231,7 +246,7 @@ function getApiDocs(req) {
     },
     roles: {
       member: 'Bisa memakai API key untuk bot pribadi/bisnis sendiri, deposit, withdraw, order saldo, QRIS order, riwayat, dan mutasi.',
-      reseller: 'Semua akses member plus managed Bot Engine, bot catalog, bot QRIS, bot history, dan analytics.',
+      reseller: 'Semua akses API key member plus Managed Bot Hosting jika locked balance dan bot access aktif.',
       admin: 'Full access termasuk endpoint admin.',
     },
     response_format: {
@@ -245,7 +260,8 @@ function getApiDocs(req) {
     },
     endpoints: {
       user_safe: userEndpoints,
-      reseller_bot: resellerEndpoints,
+      public_api_key_bot: publicBotEndpoints,
+      managed_bot_hosting: managedBotEndpoints,
     },
   };
 }
@@ -324,23 +340,23 @@ router.get('/notifications', auth, myNotifications);
 router.get('/reseller/request/status', auth, resellerRequestStatus);
 router.post('/reseller/request', auth, requestResellerUpgrade);
 router.get('/community/settings', auth, communitySettings);
-router.get('/bot-settings', auth, resellerOnly, myBotSettings);
-router.patch('/bot-settings', auth, resellerOnly, updateMyBotSettings);
-router.get('/bot/profile', auth, resellerOnly, botProfile);
-router.get('/bot/settings', auth, resellerOnly, resellerBotSettings);
-router.patch('/bot/settings', auth, resellerOnly, updateResellerBotSettings);
-router.get('/bot/catalog', auth, resellerOnly, botCatalog);
-router.post('/bot/order', auth, resellerOnly, botCreateOrder);
-router.post('/bot/order/init', auth, resellerOnly, botCreatePayment);
-router.get('/bot/order/:invoice/status', auth, resellerOnly, botPaymentStatus);
-router.post('/bot/payments', auth, resellerOnly, botCreatePayment);
-router.get('/bot/payments/:invoice/status', auth, resellerOnly, botPaymentStatus);
-router.post('/bot/payments/:invoice/cancel', auth, resellerOnly, botPaymentCancel);
-router.get('/bot/history', auth, resellerOnly, botHistory);
-router.get('/bot/analytics', auth, resellerOnly, botAnalytics);
-router.post('/bot/session/connect', auth, resellerOnly, botSessionConnect);
-router.get('/bot/session/status', auth, resellerOnly, botSessionStatus);
-router.post('/bot/session/logout', auth, resellerOnly, botSessionLogout);
+router.get('/bot-settings', auth, requireManagedBotAccess, myBotSettings);
+router.patch('/bot-settings', auth, requireManagedBotAccess, updateMyBotSettings);
+router.get('/bot/catalog', auth, requireApiUser, botCatalog);
+router.post('/bot/order', auth, requireApiUser, botCreateOrder);
+router.post('/bot/order/init', auth, requireApiUser, botCreatePayment);
+router.get('/bot/order/:invoice/status', auth, requireApiUser, botPaymentStatus);
+router.post('/bot/payments', auth, requireApiUser, botCreatePayment);
+router.get('/bot/payments/:invoice/status', auth, requireApiUser, botPaymentStatus);
+router.post('/bot/payments/:invoice/cancel', auth, requireApiUser, botPaymentCancel);
+router.get('/bot/history', auth, requireApiUser, botHistory);
+router.get('/bot/analytics', auth, requireApiUser, botAnalytics);
+router.get('/bot/profile', auth, requireManagedBotAccess, botProfile);
+router.get('/bot/settings', auth, requireManagedBotAccess, resellerBotSettings);
+router.patch('/bot/settings', auth, requireManagedBotAccess, updateResellerBotSettings);
+router.post('/bot/session/connect', auth, requireManagedBotAccess, botSessionConnect);
+router.get('/bot/session/status', auth, requireManagedBotAccess, botSessionStatus);
+router.post('/bot/session/logout', auth, requireManagedBotAccess, botSessionLogout);
 
 router.get('/admin/users', auth, adminOnly, users);
 router.get('/admin/summary', auth, adminOnly, adminSummary);

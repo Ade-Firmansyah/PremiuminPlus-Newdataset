@@ -19,6 +19,10 @@ const READ_ONLY_ALLOWED = [
   { method: 'GET', pattern: /^\/dashboard\/summary$/ },
   { method: 'GET', pattern: /^\/leaderboard\/accounts$/ },
   { method: 'GET', pattern: /^\/deposits$/ },
+  { method: 'GET', pattern: /^\/bot\/catalog$/ },
+  { method: 'GET', pattern: /^\/bot\/history$/ },
+  { method: 'GET', pattern: /^\/bot\/analytics$/ },
+  { method: 'GET', pattern: /^\/bot\/(?:order|payments)\/[^/]+\/status$/ },
 ];
 
 function matches(list, method, path) {

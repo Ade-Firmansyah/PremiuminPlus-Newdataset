@@ -139,6 +139,11 @@ export async function getResellerBotSettings(user) {
   return toRecord(nextRows[0] || null, user);
 }
 
+export async function findResellerBotSettings(user) {
+  const rows = await query('SELECT * FROM reseller_bot_settings WHERE user_id = ? LIMIT 1', [Number(user.id)]);
+  return rows[0] ? toRecord(rows[0], user) : null;
+}
+
 export async function updateResellerBotSettings(user, payload = {}) {
   const current = await getResellerBotSettings(user);
   const next = normalizeSettings(payload, current);

@@ -81,3 +81,39 @@ export function resellerOnly(req, res, next) {
 
   next();
 }
+
+export function requireApiUser(req, res, next) {
+  if (!req.user || !['member', 'reseller', 'admin'].includes(String(req.user.role || '').toLowerCase())) {
+    return res.status(403).json({
+      status: false,
+      message: 'Akses API key tidak tersedia untuk role ini',
+    });
+  }
+
+  req.apiUser = req.user;
+  return next();
+}
+
+export function requireManagedBotAccess(req, res, next) {
+  const user = req.user;
+  if (!user || !['admin', 'reseller'].includes(String(user.role || '').toLowerCase())) {
+    return res.status(403).json({
+      status: false,
+      message: 'Managed Bot Hosting hanya tersedia untuk reseller dan admin',
+    });
+  }
+
+  if (user.role === 'admin') return next();
+
+  const lockedBalance = Number(user.locked_balance || 0);
+  const saldo = Number(user.saldo || 0);
+  if (!user.bot_access_unlocked || lockedBalance < 50000 || saldo < lockedBalance) {
+    return res.status(402).json({
+      status: false,
+      code: 'BOT_ACCESS_LOCKED',
+      message: user.bot_disabled_reason || 'Managed Bot Hosting terkunci. Aktivasi membutuhkan locked balance Rp50.000.',
+    });
+  }
+
+  return next();
+}
