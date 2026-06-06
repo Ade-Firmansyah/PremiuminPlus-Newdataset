@@ -262,6 +262,12 @@ export async function createOrder(user, payload) {
     error.statusCode = 400;
     throw error;
   }
+  if (qty > Number(product.max_order_qty || product.stock || 0)) {
+    const error = new Error('Qty melebihi stok yang dapat dipenuhi dalam satu order');
+    error.statusCode = 409;
+    error.code = 'PRODUCT_QTY_UNAVAILABLE';
+    throw error;
+  }
 
   const pricing = await getSellPrice(product, user);
   const total = pricing.sellPrice * qty;

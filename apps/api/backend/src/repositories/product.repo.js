@@ -7,6 +7,32 @@ function normalizeProductSource(value, isManual = false) {
   return isManual ? 'manual' : 'provider';
 }
 
+export function resolveProductInventory(row = {}) {
+  const productSource = normalizeProductSource(row.product_source, row.is_manual);
+  const manualStock = Math.max(0, Number(row.available_stock ?? row.manual_stock_count ?? 0) || 0);
+  const storedStock = Math.max(0, Number(row.stock || 0) || 0);
+  const storedProviderStock = Math.max(0, Number(row.provider_stock_count || 0) || 0);
+  const providerStock = productSource === 'manual'
+    ? 0
+    : storedProviderStock > 0 ? storedProviderStock : storedStock;
+  const stock = productSource === 'manual'
+    ? manualStock
+    : productSource === 'hybrid'
+      ? manualStock + providerStock
+      : providerStock;
+
+  return {
+    productSource,
+    manualStock,
+    providerStock,
+    stock,
+    maxOrderQty: productSource === 'hybrid' ? Math.max(manualStock, providerStock) : stock,
+    fulfillmentPriority: productSource === 'hybrid'
+      ? (manualStock > 0 ? 'manual_then_provider' : 'provider')
+      : productSource,
+  };
+}
+
 function toValidId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -37,6 +63,7 @@ async function refreshManualStockCountByProductId(productId) {
 
 function toProduct(row) {
   if (!row) return null;
+  const inventory = resolveProductInventory(row);
   return {
     id: row.id,
     premku_id: row.premku_id,
@@ -49,23 +76,24 @@ function toProduct(row) {
     image: row.image || row.image_url || '',
     image_url: row.image_url || row.image || '',
     tutorial_url: row.tutorial_url || '',
-    product_source: normalizeProductSource(row.product_source, row.is_manual),
+    product_source: inventory.productSource,
     is_manual: Boolean(row.is_manual || ['manual', 'hybrid'].includes(row.product_source)),
     base_price: Number(row.base_price || 0),
     price_base: Number(row.base_price || 0),
     admin_margin: Number(row.admin_margin || 0),
     member_price: Number(row.member_price || 0),
     reseller_price: Number(row.reseller_price || 0),
-    manual_stock_count: Number(row.manual_stock_count || 0),
-    provider_stock_count: Number(row.provider_stock_count || 0),
+    manual_stock_count: inventory.manualStock,
+    manual_stock: inventory.manualStock,
+    provider_stock_count: inventory.providerStock,
+    provider_stock: inventory.providerStock,
     discount_label_percent: Number(row.discount_label_percent || 0),
-    stock: row.product_source === 'manual'
-      ? Number(row.available_stock ?? row.manual_stock_count ?? row.stock ?? 0)
-      : row.product_source === 'hybrid' && Number(row.available_stock ?? row.manual_stock_count ?? 0) > 0
-        ? Number(row.available_stock ?? row.manual_stock_count ?? 0)
-        : Number(row.stock || 0),
+    stock: inventory.stock,
+    total_stock: inventory.stock,
+    max_order_qty: inventory.maxOrderQty,
+    fulfillment_priority: inventory.fulfillmentPriority,
     status: row.status,
-    availability_status: Number(row.stock || 0) > 0 ? 'tersedia' : 'belum_tersedia',
+    availability_status: row.status === 'active' && inventory.stock > 0 ? 'tersedia' : 'belum_tersedia',
   };
 }
 

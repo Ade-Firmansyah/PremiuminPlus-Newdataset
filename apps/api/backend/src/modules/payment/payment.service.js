@@ -151,6 +151,12 @@ async function getMemberProductPricing(productId, qty = 1) {
     error.statusCode = 400;
     throw error;
   }
+  if (numericQty > Number(product.max_order_qty || product.stock || 0)) {
+    const error = new Error('Qty melebihi stok yang dapat dipenuhi dalam satu order');
+    error.statusCode = 409;
+    error.code = 'PRODUCT_QTY_UNAVAILABLE';
+    throw error;
+  }
 
   /**
    * Use pre-calculated member_price from database
@@ -177,6 +183,12 @@ async function getRoleProductPricing(productId, qty = 1, user = { role: 'member'
   if (!Number.isInteger(numericQty) || numericQty < 1) {
     const error = new Error('Qty tidak valid');
     error.statusCode = 400;
+    throw error;
+  }
+  if (numericQty > Number(product.max_order_qty || product.stock || 0)) {
+    const error = new Error('Qty melebihi stok yang dapat dipenuhi dalam satu order');
+    error.statusCode = 409;
+    error.code = 'PRODUCT_QTY_UNAVAILABLE';
     throw error;
   }
 
@@ -206,6 +218,12 @@ async function getBotProductPricing(productId, qty = 1, user = { role: 'reseller
   if (!Number.isInteger(numericQty) || numericQty < 1) {
     const error = new Error('Qty tidak valid');
     error.statusCode = 400;
+    throw error;
+  }
+  if (numericQty > Number(product.max_order_qty || product.stock || 0)) {
+    const error = new Error('Qty melebihi stok yang dapat dipenuhi dalam satu order');
+    error.statusCode = 409;
+    error.code = 'PRODUCT_QTY_UNAVAILABLE';
     throw error;
   }
 
