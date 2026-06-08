@@ -53,7 +53,6 @@ export const dashboardSections: NavSection[] = [
       { label: 'Riwayat Transaksi', to: '/dashboard/riwayat-pesanan', icon: ClipboardList },
       { label: 'Mutasi Saldo', to: '/dashboard/mutasi-saldo', icon: ReceiptText },
       { label: 'API Key', to: '/dashboard/api-key', icon: ReceiptText },
-      { label: 'Upgrade Reseller', to: '/dashboard/upgrade-reseller', icon: Users },
     ],
   },
   {
@@ -65,20 +64,6 @@ export const dashboardSections: NavSection[] = [
     ],
   },
 ];
-
-const memberPaths = new Set([
-  '/dashboard',
-  '/dashboard/daftar-harga',
-  '/dashboard/order-akun',
-  '/dashboard/deposit-saldo',
-  '/dashboard/tarik-saldo',
-  '/dashboard/riwayat-pesanan',
-  '/dashboard/mutasi-saldo',
-  '/dashboard/komunitas-wa',
-  '/dashboard/api-key',
-  '/dashboard/profil',
-  '/dashboard/upgrade-reseller',
-]);
 
 const resellerPaths = new Set([
   '/dashboard',
@@ -97,8 +82,8 @@ const resellerPaths = new Set([
 ]);
 
 export function getDashboardSections(role: AppRole | string) {
-  const normalized = String(role || 'member').toLowerCase();
-  const allowedPaths = normalized === 'reseller' ? resellerPaths : memberPaths;
+  void role;
+  const allowedPaths = resellerPaths;
 
   return dashboardSections
     .map((section) => ({
@@ -109,9 +94,9 @@ export function getDashboardSections(role: AppRole | string) {
 }
 
 export function canAccessDashboardPath(role: AppRole | string, path: string) {
-  const normalized = String(role || 'member').toLowerCase();
+  const normalized = String(role || 'reseller').toLowerCase();
   if (normalized === 'admin') return true;
-  return (normalized === 'reseller' ? resellerPaths : memberPaths).has(path);
+  return resellerPaths.has(path);
 }
 
 export const adminPageMeta: Record<string, { title: string; subtitle: string }> = {
@@ -149,7 +134,7 @@ export const adminPageMeta: Record<string, { title: string; subtitle: string }> 
   },
   '/admin/pesan-notifikasi': {
     title: 'Pesan Notifikasi',
-    subtitle: 'Kirim broadcast notifikasi ke anggota, reseller, atau admin.',
+    subtitle: 'Kirim broadcast notifikasi ke reseller atau admin.',
   },
   '/admin/system-backup': {
     title: 'Maintenance & Backup',

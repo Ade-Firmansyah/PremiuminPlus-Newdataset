@@ -1,8 +1,8 @@
 /**
  * Product Pricing Service
  * 
- * Pre-calculates and stores member_price and reseller_price
- * to eliminate double-markup bugs and frontend recalculations.
+ * Pre-calculates and stores reseller_price.
+ * member_price is mirrored only as a deprecated compatibility column.
  * 
  * RULE: Backend calculates ONCE, Frontend renders ONLY.
  */
@@ -28,8 +28,8 @@ export function calculateRangeMarkup(price, ranges) {
 }
 
 /**
- * Calculate member and reseller prices for a product
- * Returns pre-calculated prices that should be stored in database
+ * Calculate reseller price for a product.
+ * Returns pre-calculated prices that should be stored in database.
  */
 export function calculateProductPrices(product, markupSetting) {
   const basePrice = Number(product.base_price || product.price_base || 0);
@@ -46,18 +46,12 @@ export function calculateProductPrices(product, markupSetting) {
   const markupType = markupSetting.markup_type === 'fixed' ? 'fixed' : 'percent';
   const subtotal = basePrice + adminMargin;
 
-  // Calculate member price
-  const memberRangeMarkup = calculateRangeMarkup(subtotal, markupSetting.member_markup_ranges);
-  const memberMarkupValue = memberRangeMarkup ?? markupSetting.member_markup ?? markupSetting.markup ?? 0;
-  const memberPrice = calculateProductMarkup(basePrice, adminMargin, memberMarkupValue, markupType);
-
-  // Calculate reseller price
   const resellerRangeMarkup = calculateRangeMarkup(subtotal, markupSetting.reseller_markup_ranges);
   const resellerMarkupValue = resellerRangeMarkup ?? markupSetting.reseller_markup ?? markupSetting.markup ?? 0;
   const resellerPrice = calculateProductMarkup(basePrice, adminMargin, resellerMarkupValue, markupType);
 
   return {
-    member_price: Math.max(0, memberPrice),
+    member_price: Math.max(0, resellerPrice),
     reseller_price: Math.max(0, resellerPrice),
   };
 }

@@ -1,6 +1,8 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const API_HEALTH_URL = API_BASE_URL.replace(/\/api\/?$/, '/health');
 const maintenanceStorageKey = 'premiuminplus:maintenance-mode';
+const maintenanceEventName = 'premiuminplus:maintenance-change';
+let consecutiveApiFailures = 0;
 
 type RequestOptions = RequestInit & {
   apiKey?: string;
@@ -11,7 +13,7 @@ type RequestOptions = RequestInit & {
   skipCache?: boolean;
 };
 
-export type AppRole = 'admin' | 'reseller' | 'member';
+export type AppRole = 'admin' | 'reseller';
 
 export interface LoginResponse {
   status: boolean;
@@ -346,9 +348,7 @@ export interface MarkupRangeRecord {
 export interface MarkupSettingRecord {
   markup: number;
   markup_type: 'fixed' | 'percent';
-  member_markup?: number;
   reseller_markup?: number;
-  member_markup_ranges?: MarkupRangeRecord[];
   reseller_markup_ranges?: MarkupRangeRecord[];
 }
 
@@ -507,22 +507,6 @@ export interface WithdrawRecord {
   updated_at?: string | null;
 }
 
-export interface ResellerRequestRecord {
-  user_id?: number;
-  username?: string;
-  email?: string;
-  phone?: string;
-  role?: AppRole;
-  status: 'none' | 'pending' | 'approved' | 'rejected' | string;
-  reason?: string;
-  whatsapp?: string;
-  experience?: string;
-  rejected_reason?: string;
-  requested_at?: string | null;
-  reviewed_at?: string | null;
-  message?: string;
-}
-
 export interface SaldoLogRecord {
   id: number;
   user_id: number;
@@ -601,10 +585,27 @@ export function clearApiCache(prefix = '') {
 export function setMaintenanceMode(enabled: boolean) {
   if (enabled) localStorage.setItem(maintenanceStorageKey, '1');
   else localStorage.removeItem(maintenanceStorageKey);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(maintenanceEventName, { detail: { enabled } }));
+  }
 }
 
 export function isMaintenanceMode() {
   return localStorage.getItem(maintenanceStorageKey) === '1';
+}
+
+function recordApiSuccess() {
+  consecutiveApiFailures = 0;
+}
+
+function recordApiFailure(error: Error) {
+  if (!/backend belum aktif|jaringan|fetch|network|timeout|empty body|html returned|json parse/i.test(error.message)) {
+    return;
+  }
+  consecutiveApiFailures += 1;
+  if (consecutiveApiFailures >= 3) {
+    setMaintenanceMode(true);
+  }
 }
 
 export async function checkBackendHealth(timeoutMs = 5000) {
@@ -743,6 +744,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         if (cacheTtlMs > 0) {
           responseCache.set(key, { until: Date.now() + cacheTtlMs, value: parsed });
         }
+        recordApiSuccess();
         return parsed as T;
       } catch (caught) {
         lastError = normalizeNetworkError(caught);
@@ -755,6 +757,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
 
     const error = lastError || new Error('Request gagal.');
+    recordApiFailure(error);
     if (method === 'GET' && /backend belum aktif|jaringan|fetch|network|timeout/i.test(error.message)) {
       recentFailures.set(key, { until: Date.now() + 2500, error });
     }
@@ -840,14 +843,6 @@ export const premiuminApi = {
       apiKey,
       body: JSON.stringify(payload),
     }),
-  resellerRequestStatus: (apiKey?: string) =>
-    apiRequest<{ status: boolean; data: ResellerRequestRecord }>('/reseller/request/status', { apiKey }),
-  requestResellerUpgrade: (payload: { reason: string; whatsapp: string; experience?: string }, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: ResellerRequestRecord }>('/reseller/request', {
-      method: 'POST',
-      apiKey,
-      body: JSON.stringify(payload),
-    }),
   order: (payload: { product_id: number; qty?: number }, apiKey?: string) =>
     apiRequest<{ status: boolean; data: OrderRecord }>('/order', {
       method: 'POST',
@@ -884,19 +879,6 @@ export const premiuminApi = {
     apiRequest<{ status: boolean; data: OrderRecord }>(`/admin/orders/${invoice}/retry`, { apiKey, method: 'POST' }),
   adminDeposits: (apiKey?: string) => apiRequest<{ status: boolean; data: DepositRecord[] }>('/admin/deposits', { apiKey }),
   adminWithdraws: (apiKey?: string) => apiRequest<{ status: boolean; data: WithdrawRecord[] }>('/admin/withdraws', { apiKey }),
-  adminResellerRequests: (apiKey?: string) => apiRequest<{ status: boolean; data: ResellerRequestRecord[] }>('/admin/reseller-requests', { apiKey }),
-  adminApproveResellerRequest: (id: number, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: ResellerRequestRecord }>(`/admin/reseller-requests/${id}/approve`, {
-      method: 'POST',
-      apiKey,
-      body: JSON.stringify({}),
-    }),
-  adminRejectResellerRequest: (id: number, reason: string, apiKey?: string) =>
-    apiRequest<{ status: boolean; data: ResellerRequestRecord }>(`/admin/reseller-requests/${id}/reject`, {
-      method: 'POST',
-      apiKey,
-      body: JSON.stringify({ reason }),
-    }),
   adminBalanceMutations: (params: Record<string, string | number | undefined>, apiKey?: string) => {
     const search = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {

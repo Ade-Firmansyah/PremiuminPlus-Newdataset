@@ -87,28 +87,28 @@ function normalizeProductPayload(payload = {}) {
 }
 
 function validateFinalPrices(payload = {}) {
-  const memberPrice = Number(payload.member_price || 0);
   const resellerPrice = Number(payload.reseller_price || 0);
-  if (memberPrice <= 0 || resellerPrice <= 0) {
-    const error = new Error('Harga anggota dan reseller harus lebih dari 0.');
-    error.statusCode = 400;
-    throw error;
-  }
-  if (resellerPrice > memberPrice) {
-    const error = new Error('Harga reseller harus lebih murah atau sama dengan harga anggota.');
+  if (resellerPrice <= 0) {
+    const error = new Error('Harga reseller harus lebih dari 0.');
     error.statusCode = 400;
     throw error;
   }
 }
 
 async function applyRoleBasedPricing(products, user = {}, displayDiscount = {}) {
-  const role = String(user?.role || 'member').toLowerCase();
+  void user;
   const discountLabelPercent = Math.max(0, Math.min(100, Number(displayDiscount.discount_percent || 0)));
 
   return products.map((product) => {
-    const finalPrice = role === 'reseller' ? product.reseller_price : product.member_price;
+    const finalPrice = product.reseller_price;
+    const {
+      member_price: _memberPrice,
+      member_markup: _memberMarkup,
+      ...publicProduct
+    } = product;
     return {
-      ...product,
+      ...publicProduct,
+      price: finalPrice,
       final_price: finalPrice,
       discount_label_percent: discountLabelPercent,
       availability_status: Number(product.stock || 0) > 0 ? 'tersedia' : 'belum_tersedia',
@@ -158,10 +158,11 @@ export async function adminCreateProduct(req, res, next) {
     const normalized = normalizeProductPayload(req.body);
     const markupSetting = await getMarkupSetting();
     const calculated = calculateProductPrices(normalized, markupSetting);
+    const resellerPrice = Number(req.body?.reseller_price || 0) > 0 ? Number(req.body.reseller_price) : calculated.reseller_price;
     const payload = {
       ...normalized,
-      member_price: Number(req.body?.member_price || 0) > 0 ? req.body.member_price : calculated.member_price,
-      reseller_price: Number(req.body?.reseller_price || 0) > 0 ? req.body.reseller_price : calculated.reseller_price,
+      member_price: resellerPrice,
+      reseller_price: resellerPrice,
     };
     validateFinalPrices(payload);
     const data = await createProduct(payload);
@@ -201,18 +202,17 @@ export async function adminUpdateProduct(req, res, next) {
       return res.status(404).json({ status: false, message: 'Produk tidak ditemukan' });
     }
     const normalized = normalizeProductPayload({ ...current, ...req.body });
-    const memberPriceInvalid = Number(normalized.member_price || 0) <= 0;
     const resellerPriceInvalid = Number(normalized.reseller_price || 0) <= 0;
     let payload = normalized;
-    if (memberPriceInvalid || resellerPriceInvalid) {
+    if (resellerPriceInvalid) {
       const markupSetting = await getMarkupSetting();
       const calculated = calculateProductPrices(normalized, markupSetting);
       payload = {
         ...normalized,
-        member_price: Number(normalized.member_price || 0) > 0 ? normalized.member_price : calculated.member_price,
         reseller_price: Number(normalized.reseller_price || 0) > 0 ? normalized.reseller_price : calculated.reseller_price,
       };
     }
+    payload = { ...payload, member_price: Number(payload.reseller_price || 0) };
     validateFinalPrices(payload);
     const data = await updateProduct(req.params.id, payload);
     deleteCachePrefix('products:');

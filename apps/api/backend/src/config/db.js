@@ -32,7 +32,7 @@ const TABLES = {
       phone: 'VARCHAR(32) NULL',
       password_hash: 'VARCHAR(255) NULL',
       password: 'VARCHAR(255) NULL',
-      role: "ENUM('admin','reseller','member') NOT NULL DEFAULT 'member'",
+      role: "ENUM('admin','reseller') NOT NULL DEFAULT 'reseller'",
       status: "VARCHAR(32) NOT NULL DEFAULT 'active'",
       saldo: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
       locked_balance: 'DECIMAL(15,2) UNSIGNED NOT NULL DEFAULT 0.00',
@@ -304,7 +304,7 @@ const TABLES = {
       fulfilled_at: 'TIMESTAMP NULL',
       fulfillment_type: "VARCHAR(40) NOT NULL DEFAULT 'provider_auto'",
       retry_count: 'INT UNSIGNED NOT NULL DEFAULT 0',
-      role: "VARCHAR(32) NOT NULL DEFAULT 'member'",
+      role: "VARCHAR(32) NOT NULL DEFAULT 'reseller'",
       payment_status: "VARCHAR(40) NOT NULL DEFAULT 'pending'",
       provider_invoice: 'VARCHAR(80) NULL',
       provider_status: "VARCHAR(40) NOT NULL DEFAULT 'pending'",
@@ -418,7 +418,7 @@ const TABLES = {
     columns: {
       id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
       user_id: 'BIGINT UNSIGNED NULL',
-      target_role: "ENUM('admin','reseller','member') NULL",
+      target_role: "ENUM('admin','reseller') NULL",
       title: "VARCHAR(180) NOT NULL DEFAULT ''",
       message: 'TEXT NOT NULL',
       type: "VARCHAR(40) NOT NULL DEFAULT 'broadcast'",
@@ -464,7 +464,7 @@ const TABLES = {
       scope: "VARCHAR(40) NOT NULL DEFAULT 'SYSTEM'",
       message: 'TEXT NULL',
       activity: 'TEXT NULL',
-      actor_role: "ENUM('admin','reseller','member') NULL",
+      actor_role: "ENUM('admin','reseller') NULL",
       action: "VARCHAR(120) NOT NULL DEFAULT ''",
       entity_type: 'VARCHAR(80) NULL',
       entity_id: 'VARCHAR(120) NULL',
@@ -568,7 +568,7 @@ const TABLES = {
       id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
       event_name: "VARCHAR(120) NOT NULL DEFAULT ''",
       target_user_id: 'BIGINT UNSIGNED NULL',
-      target_role: "ENUM('admin','reseller','member') NULL",
+      target_role: "ENUM('admin','reseller') NULL",
       payload: 'JSON NULL',
       status: "VARCHAR(40) NOT NULL DEFAULT 'pending'",
       delivered_at: 'TIMESTAMP NULL',
@@ -588,7 +588,7 @@ const TABLES = {
     columns: {
       id: 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
       user_id: 'BIGINT UNSIGNED NULL',
-      target_role: "ENUM('admin','reseller','member') NULL",
+      target_role: "ENUM('admin','reseller') NULL",
       message: 'TEXT NOT NULL',
       payload: 'JSON NULL',
       expires_at: 'TIMESTAMP NOT NULL',
@@ -644,8 +644,7 @@ const BOOTSTRAP_SETTINGS = [
   ['maintenance_message', '"Web sedang maintenance. Mohon tidak melakukan transaksi terlebih dahulu."', 'string', 0, 'Public maintenance message.'],
   ['maintenance_started_at', null, 'string', 0, 'Maintenance start timestamp.'],
   ['maintenance_started_by', null, 'string', 0, 'Admin user id that enabled maintenance.'],
-  ['pricing_markup_config', '{"markup_type":"flat","admin_margin":null,"member_markup":0,"reseller_markup":0,"member_ranges":[{"min":0,"max":4999,"value":85},{"min":5000,"max":9999,"value":40},{"min":10000,"max":14999,"value":20},{"min":15000,"max":19999,"value":8},{"min":20000,"max":null,"value":3}],"reseller_ranges":[{"min":0,"max":4999,"value":40},{"min":5000,"max":9999,"value":15},{"min":10000,"max":14999,"value":11},{"min":15000,"max":19999,"value":7},{"min":20000,"max":null,"value":6}]}', 'json', 0, 'Global role markup config used to sync final product prices.'],
-  ['member_pricing_settings', null, 'json', 0, 'Legacy/admin member pricing settings if still needed.'],
+  ['pricing_markup_config', '{"markup_type":"flat","admin_margin":null,"reseller_markup":0,"reseller_ranges":[{"min":0,"max":4999,"value":40},{"min":5000,"max":9999,"value":15},{"min":10000,"max":14999,"value":11},{"min":15000,"max":19999,"value":7},{"min":20000,"max":null,"value":6}]}', 'json', 0, 'Global reseller markup config used to sync final product prices.'],
   ['reseller_pricing_settings', null, 'json', 0, 'Legacy/admin reseller pricing settings if still needed.'],
   ['bot_settings', null, 'json', 0, 'Bot access and delivery settings.'],
   ['retention_settings', '{"operational_days":7}', 'json', 0, 'Operational data retention settings.']
@@ -830,6 +829,31 @@ async function ensureTables(pool, database, report) {
       `CREATE TABLE ${quoteId(table)} (${columns}${primaryKey}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
     );
     report.tables.push(table);
+  }
+}
+
+async function migrateAccountRoles(pool, database, report) {
+  if (!(await tableExists(pool, database, 'users'))) return;
+
+  const [roleColumnRows] = await pool.query(
+    `SELECT COLUMN_TYPE, COLUMN_DEFAULT
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'
+     LIMIT 1`,
+    [database]
+  );
+  if (!roleColumnRows[0]) return;
+
+  const [memberResult] = await pool.query("UPDATE users SET role = 'reseller' WHERE role = 'member'");
+  const currentType = String(roleColumnRows[0].COLUMN_TYPE || '').toLowerCase();
+  const currentDefault = String(roleColumnRows[0].COLUMN_DEFAULT ?? '');
+  const expectedType = "enum('admin','reseller')";
+  if (currentType !== expectedType || currentDefault !== 'reseller') {
+    await pool.query("ALTER TABLE users MODIFY COLUMN role ENUM('admin','reseller') NOT NULL DEFAULT 'reseller'");
+    report.columns.push('users.role(account-role)');
+  }
+  if (Number(memberResult.affectedRows || 0) > 0) {
+    report.reconciliations.push(`users.member_to_reseller:${memberResult.affectedRows}`);
   }
 }
 
@@ -1132,6 +1156,7 @@ async function validateSchema(pool, database) {
 
   await ensureTables(pool, database, report);
   await ensureColumns(pool, database, report);
+  await migrateAccountRoles(pool, database, report);
   await ensureRuntimeColumnTypes(pool, database, report);
   await ensureIndexes(pool, database, report);
   await ensureConstraints(pool, database, report);

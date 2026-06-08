@@ -3,9 +3,9 @@ import { ArrowDownLeft, ArrowUpRight, Banknote, Bell, CheckCircle2, ListFilter, 
 import { PageHero, PageSection, NeonCard } from '../../dashboardPageKit';
 import { formatCurrency } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
-import { premiuminApi, type DepositRecord, type OrderRecord, type ResellerRequestRecord, type WithdrawRecord } from '../../../services/api';
+import { premiuminApi, type DepositRecord, type OrderRecord, type WithdrawRecord } from '../../../services/api';
 
-type TabKey = 'topup' | 'order' | 'withdraw' | 'reseller';
+type TabKey = 'topup' | 'order' | 'withdraw';
 
 const WITHDRAW_REJECT_REASONS = [
   { code: 'account_name_mismatch', label: 'Nama tidak sesuai', message: 'Nama penerima tidak sesuai dengan rekening/e-wallet tujuan.' },
@@ -20,7 +20,6 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
   const [topups, setTopups] = useState<DepositRecord[]>([]);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [withdraws, setWithdraws] = useState<WithdrawRecord[]>([]);
-  const [resellerRequests, setResellerRequests] = useState<ResellerRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [rejectDraft, setRejectDraft] = useState<{ row: WithdrawRecord; reasonCode: string; notes: string; notifyUser: boolean } | null>(null);
@@ -31,16 +30,14 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
     setLoading(true);
     setError('');
     try {
-      const [depositResponse, orderResponse, withdrawResponse, resellerResponse] = await Promise.all([
+      const [depositResponse, orderResponse, withdrawResponse] = await Promise.all([
         premiuminApi.adminDeposits(apiKey || undefined),
         premiuminApi.adminTransactions(apiKey || undefined),
         premiuminApi.adminWithdraws(apiKey || undefined),
-        premiuminApi.adminResellerRequests(apiKey || undefined),
       ]);
       setTopups(depositResponse.data);
       setOrders(orderResponse.data);
       setWithdraws(withdrawResponse.data);
-      setResellerRequests(resellerResponse.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Gagal memuat transaksi.');
     } finally {
@@ -90,24 +87,6 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
     }
   };
 
-  const handleResellerAction = async (id: number, action: 'approve' | 'reject') => {
-    setActionLoadingId(id);
-    setError('');
-    try {
-      if (action === 'approve') {
-        await premiuminApi.adminApproveResellerRequest(id, apiKey || undefined);
-      } else {
-        const reason = window.prompt('Alasan reject upgrade reseller?') || 'Request upgrade reseller belum dapat disetujui.';
-        await premiuminApi.adminRejectResellerRequest(id, reason, apiKey || undefined);
-      }
-      await load();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Gagal memproses upgrade reseller.');
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
   return (
     <div className="space-y-4">
       <PageHero
@@ -147,7 +126,6 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
             { key: 'topup' as const, label: 'Top Up', icon: ArrowDownLeft },
             { key: 'order' as const, label: 'User Order', icon: ArrowUpRight },
             { key: 'withdraw' as const, label: 'Withdraw', icon: Banknote },
-            { key: 'reseller' as const, label: 'Upgrade Reseller', icon: CheckCircle2 },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -171,9 +149,7 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
             ? 'Menampilkan deposit dari backend.'
             : tab === 'order'
               ? 'Menampilkan order dari backend.'
-              : tab === 'withdraw'
-                ? 'Kelola withdraw: selesaikan jika dana sudah dikirim, batalkan jika data tidak valid.'
-                : 'Menampilkan request upgrade reseller dari backend.'}
+              : 'Kelola withdraw: selesaikan jika dana sudah dikirim, batalkan jika data tidak valid.'}
         </div>
 
         {loading ? <p className="mt-4 text-sm text-white/45">Memuat transaksi...</p> : null}
@@ -299,60 +275,7 @@ export function MonitoringTransaksiPage({ apiKey: sessionApiKey }: { apiKey?: st
               </table>
             </div>
           </div>
-        ) : (
-          <div className="mt-4 overflow-hidden rounded-[1.2rem] border border-white/10">
-            <div className="overflow-x-auto">
-              <table className="min-w-[1000px] w-full text-left text-sm">
-                <thead className="bg-[#0f0b15] text-white/45">
-                  <tr>
-                    <th className="px-4 py-3">User</th>
-                    <th className="px-4 py-3">WhatsApp</th>
-                    <th className="px-4 py-3">Alasan</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resellerRequests.map((row) => (
-                    <tr key={row.user_id || row.username} className="border-t border-white/10">
-                      <td className="px-4 py-4 font-medium text-white">{row.username || `User #${row.user_id}`}</td>
-                      <td className="px-4 py-4 text-white/70">{row.whatsapp || '-'}</td>
-                      <td className="max-w-[360px] px-4 py-4 text-white/65">{row.reason || '-'}</td>
-                      <td className="px-4 py-4">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/70">
-                          {row.status || 'none'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void handleResellerAction(Number(row.user_id), 'approve')}
-                            disabled={actionLoadingId === row.user_id || row.status !== 'pending'}
-                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleResellerAction(Number(row.user_id), 'reject')}
-                            disabled={actionLoadingId === row.user_id || row.status !== 'pending'}
-                            className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-200 disabled:opacity-50"
-                          >
-                            <XCircle className="h-3.5 w-3.5" />
-                            Reject
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!resellerRequests.length ? <p className="p-4 text-sm text-white/45">Belum ada request upgrade reseller.</p> : null}
-            </div>
-          </div>
-        )}
+        ) : null}
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <NeonCard>

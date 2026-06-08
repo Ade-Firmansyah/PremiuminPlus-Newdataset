@@ -6,8 +6,8 @@ const connection = await mysql.createConnection(getDbConfig());
 try {
   const [[summary]] = await connection.query(
     `SELECT
-       (SELECT COUNT(*) FROM users WHERE status = 'active' AND role IN ('member', 'reseller')) AS active_wallet_accounts,
-       (SELECT COALESCE(SUM(saldo), 0) FROM users WHERE status = 'active' AND role IN ('member', 'reseller')) AS wallet_liability,
+       (SELECT COUNT(*) FROM users WHERE status = 'active' AND role = 'reseller') AS active_wallet_accounts,
+       (SELECT COALESCE(SUM(saldo), 0) FROM users WHERE status = 'active' AND role = 'reseller') AS wallet_liability,
        (SELECT COUNT(*) FROM balance_mutations) AS balance_mutations,
        (SELECT COUNT(*) FROM saldo_mutations) AS saldo_mutations,
        (SELECT COUNT(*) FROM saldo_logs) AS saldo_logs,

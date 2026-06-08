@@ -12,7 +12,7 @@ interface LoginPageProps {
     username: string;
     password: string;
     remember: boolean;
-  }) => Promise<{ role: 'admin' | 'reseller' | 'member' } | void>;
+  }) => Promise<{ role: 'admin' | 'reseller' } | void>;
   initialUsername: string;
   authMessage?: string;
 }
@@ -151,7 +151,7 @@ export function LoginPage({ onLogin, initialUsername, authMessage = '' }: LoginP
 
     try {
       const nextSession = await onLogin({ username: username.trim(), password, remember });
-      const role = nextSession && typeof nextSession === 'object' && 'role' in nextSession ? nextSession.role : 'member';
+      const role = nextSession && typeof nextSession === 'object' && 'role' in nextSession ? nextSession.role : 'reseller';
       navigate(role === 'admin' ? '/admin/dashboard' : '/dashboard', { replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Username atau password salah.');
@@ -381,7 +381,7 @@ function AuthModal({ mode, adminWhatsapp, onClose }: { mode: ModalMode; adminWha
           <motion.div initial={{ opacity: 0, y: 18, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 18, scale: 0.96 }} className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#0b1020] p-5 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#ff72b9]">{mode === 'register' ? 'Register Anggota' : 'Reset Password'}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#ff72b9]">{mode === 'register' ? 'Register Reseller' : 'Reset Password'}</p>
                 <h3 className="mt-2 text-xl font-black">{mode === 'register' ? 'Buat akun baru' : 'Lupa password'}</h3>
               </div>
               <button onClick={onClose} className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/65 hover:bg-white/5">Tutup</button>
@@ -416,7 +416,7 @@ function AuthModal({ mode, adminWhatsapp, onClose }: { mode: ModalMode; adminWha
 
             <button onClick={submit} disabled={loading} className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#ff2f92] text-sm font-extrabold text-white shadow-lg shadow-[#ff2f92]/20 disabled:opacity-65">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {mode === 'register' ? 'Daftar Anggota' : 'Kirim Instruksi Reset'}
+              {mode === 'register' ? 'Daftar Reseller' : 'Kirim Instruksi Reset'}
             </button>
           </motion.div>
         </motion.div>

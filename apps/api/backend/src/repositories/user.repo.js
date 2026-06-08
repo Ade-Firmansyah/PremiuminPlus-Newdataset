@@ -4,10 +4,10 @@ import { hashPassword, isHashedPassword } from '../utils/password.js';
 import { normalizePhoneNumber, toSafeInteger } from '../utils/validator.js';
 import crypto from 'node:crypto';
 
-function normalizeRole(role = 'member') {
+function normalizeRole(role = 'reseller') {
   const value = String(role).toLowerCase();
-  if (value === 'admin' || value === 'reseller') return value;
-  return 'member';
+  if (value === 'admin') return 'admin';
+  return 'reseller';
 }
 
 function uiStatus(status = 'active') {
@@ -262,9 +262,9 @@ export async function createUserAtomic(payload, { activity = null } = {}) {
             userId,
             userId,
             activity.scope || 'REGISTER',
-            activity.message || 'Member registered',
-            activity.message || 'Member registered',
-            activity.message || 'Member registered',
+            activity.message || 'Reseller registered',
+            activity.message || 'Reseller registered',
+            activity.message || 'Reseller registered',
             activity.ip_address || null,
             JSON.stringify(activity.metadata ?? null),
           ],

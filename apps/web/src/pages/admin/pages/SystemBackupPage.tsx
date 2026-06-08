@@ -160,8 +160,8 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
 
   const saveMaintenance = async (nextEnabled: boolean) => {
     const confirmText = nextEnabled
-      ? 'Aktifkan Maintenance Mode? Semua aktivitas member/reseller seperti deposit, order, withdraw, payment, bot, dan API transaksi akan dihentikan sementara.'
-      : 'Nonaktifkan Maintenance Mode? Member dan reseller akan dapat melakukan transaksi kembali.';
+      ? 'Aktifkan Maintenance Mode? Semua aktivitas reseller seperti deposit, order, withdraw, payment, bot, dan API transaksi akan dihentikan sementara.'
+      : 'Nonaktifkan Maintenance Mode? Reseller akan dapat melakukan transaksi kembali.';
     if (!window.confirm(confirmText)) return;
 
     setLoading(true);
@@ -235,9 +235,11 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
 
   const confirmRestore = async () => {
     if (!restoreJob) return;
-    const confirmText = enabled
-      ? 'Restore akan menerapkan data backup ke database dengan upsert dan validasi checksum. Lanjutkan sekarang?'
-      : 'Maintenance mode belum aktif. Untuk production lebih aman aktifkan maintenance dulu. Tetap lanjut restore sekarang?';
+    if (!enabled) {
+      setError('Aktifkan maintenance mode sebelum mengonfirmasi restore.');
+      return;
+    }
+    const confirmText = 'Restore akan menerapkan data backup ke database dengan upsert dan validasi checksum. Lanjutkan sekarang?';
     if (!window.confirm(confirmText)) return;
 
     setLoading(true);
@@ -261,7 +263,7 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
       <PageHero
         title="Maintenance & Backup"
         subtitle="Freeze transaksi, backup ZIP, restore ZIP, dan migrasi Railway/Vercel."
-        slogan="Admin tetap aktif; member/reseller dibuat read-only agar database aman sebelum backup."
+        slogan="Admin tetap aktif; reseller dibuat read-only agar database aman sebelum backup."
         tone="from-amber-500/15 via-sky-500/10 to-brand/10"
         chips={['Maintenance mode', 'Full ZIP backup', 'Preview restore', 'Migration ready']}
       />
@@ -270,7 +272,7 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Status</p>
           <p className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-sm font-black ${statusTone}`}>{statusLabel}</p>
-          <p className="mt-3 text-sm text-white/45">{enabled ? 'Member/reseller tidak dapat transaksi.' : 'Semua aktivitas berjalan normal.'}</p>
+          <p className="mt-3 text-sm text-white/45">{enabled ? 'Reseller tidak dapat transaksi.' : 'Semua aktivitas berjalan normal.'}</p>
         </NeonCard>
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Backup Format</p>
@@ -308,7 +310,7 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
             </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-6 text-white/58">
-            Admin tetap bisa login, backup, restore, melihat data, dan toggle OFF maintenance. Member/reseller hanya read-only.
+            Admin tetap bisa login, backup, restore, melihat data, dan toggle OFF maintenance. Reseller hanya read-only.
           </div>
         </div>
       </PageSection>

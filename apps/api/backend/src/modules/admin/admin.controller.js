@@ -21,7 +21,7 @@ import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 const DEFAULT_COMMUNITY_SETTINGS = {
   group_link: 'https://chat.whatsapp.com/Igg1KjY54I3A2ERIgofm4b',
   pinned_message: 'Rame boleh, saling jaga wajib. Hindari spam, transaksi liar, dan konten di luar aturan grup.',
-  announcement: 'Bergabung bersama reseller, anggota, admin, dan developer untuk diskusi, update stok, dan strategi jualan digital.',
+  announcement: 'Bergabung bersama reseller, admin, dan developer untuk diskusi, update stok, dan strategi jualan digital.',
   support_text: 'Jalur cepat untuk hubungi admin, tanya stok, dan koordinasi reseller harian.',
 };
 
@@ -157,7 +157,7 @@ export async function adminSummary(_req, res) {
          ) latest ON latest.latest_id = bm.id
        ) latest_mutation ON latest_mutation.user_id = u.id
        WHERE u.status = 'active'
-         AND u.role IN ('member', 'reseller')
+         AND u.role IN ('reseller')
      ) NumberedSaldo`,
   );
   const [withdrawRows] = await query(
@@ -867,21 +867,17 @@ export async function updateMarkup(req, res) {
     const payload = {
       markup: req.body?.markup,
       markup_type: req.body?.markup_type,
-      member_markup: req.body?.member_markup,
       reseller_markup: req.body?.reseller_markup,
-      member_markup_ranges: req.body?.member_markup_ranges,
       reseller_markup_ranges: req.body?.reseller_markup_ranges,
     };
 
     if (
       payload.markup === undefined &&
       payload.markup_type === undefined &&
-      payload.member_markup === undefined &&
       payload.reseller_markup === undefined &&
-      payload.member_markup_ranges === undefined &&
       payload.reseller_markup_ranges === undefined
     ) {
-      return res.status(400).json({ status: false, message: 'markup anggota atau reseller wajib diisi' });
+      return res.status(400).json({ status: false, message: 'markup reseller wajib diisi' });
     }
 
     const data = await setMarkupSetting(payload);
@@ -925,7 +921,7 @@ export async function createAdminNotification(req, res) {
   try {
     requireFields(req.body, ['title', 'message']);
     const targetRole = String(req.body.target_role || 'all').toLowerCase();
-    if (!['all', 'admin', 'reseller', 'member'].includes(targetRole)) {
+    if (!['all', 'admin', 'reseller'].includes(targetRole)) {
       return res.status(400).json({ status: false, message: 'Target notifikasi tidak valid' });
     }
 
@@ -952,7 +948,7 @@ export async function updateAdminNotification(req, res) {
     const payload = { ...req.body };
     if (payload.target_role !== undefined) {
       const targetRole = String(payload.target_role || 'all').toLowerCase();
-      if (!['all', 'admin', 'reseller', 'member'].includes(targetRole)) {
+      if (!['all', 'admin', 'reseller'].includes(targetRole)) {
         return res.status(400).json({ status: false, message: 'Target notifikasi tidak valid' });
       }
       payload.target_role = targetRole;

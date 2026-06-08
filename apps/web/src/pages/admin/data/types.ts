@@ -1,4 +1,4 @@
-export type AdminUserRole = 'Anggota' | 'Reseller' | 'Admin';
+export type AdminUserRole = 'Reseller' | 'Admin';
 
 export type AdminUserStatus = 'Aktif' | 'Nonaktif' | 'Suspended';
 

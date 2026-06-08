@@ -81,7 +81,7 @@ export default function Order() {
   const [loading, setLoading] = useState(true);
   const [ordering, setOrdering] = useState(false);
   const [saldo, setSaldo] = useState(0);
-  const [role, setRole] = useState<AppRole>('member');
+  const [role, setRole] = useState<AppRole>('reseller');
   const [error, setError] = useState('');
   const [result, setResult] = useState('');
   const [lastOrder, setLastOrder] = useState<Awaited<ReturnType<typeof premiuminApi.order>>['data'] | null>(null);
@@ -387,7 +387,7 @@ export default function Order() {
     setLastOrder(null);
 
     if (saldo < total) {
-      if (role === 'member' || role === 'reseller') {
+      if (role === 'reseller') {
         setError('Saldo tidak cukup. Silakan deposit saldo terlebih dahulu atau bayar QRIS langsung.');
         setShowDirectConfirm(true);
       } else {

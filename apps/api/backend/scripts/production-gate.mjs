@@ -263,7 +263,7 @@ async function verifyB2BLedgerIdempotency(db) {
   };
 }
 
-async function verifyMaintenanceBlocks(baseUrl, memberApiKey, adminApiKey) {
+async function verifyMaintenanceBlocks(baseUrl, resellerApiKey, adminApiKey) {
   const mutationRequests = [
     ['/api/order', { product_id: 1, qty: 1 }],
     ['/api/deposit', { amount: 1000 }],
@@ -273,7 +273,7 @@ async function verifyMaintenanceBlocks(baseUrl, memberApiKey, adminApiKey) {
     ['/api/public/v1/pay', { product_id: 1, qty: 1, amount: 1000, ref_id: 'MAINTENANCE-GATE-PAY' }],
   ];
   for (const [pathname, body] of mutationRequests) {
-    const result = await api(baseUrl, pathname, memberApiKey, {
+    const result = await api(baseUrl, pathname, resellerApiKey, {
       method: 'POST',
       body: JSON.stringify(body),
     });
@@ -323,7 +323,7 @@ async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger) {
   const secondKey = `gate_owner_${crypto.randomBytes(18).toString('hex')}`;
   await db.execute(
     `INSERT INTO users (username, role, status, saldo, api_key)
-     VALUES (?, 'member', 'active', 0, ?)`,
+     VALUES (?, 'reseller', 'active', 0, ?)`,
     [`gate_owner_${crypto.randomBytes(8).toString('hex')}`, secondKey],
   );
   const forbidden = await api(baseUrl, '/api/public/v1/status', secondKey, {
@@ -372,7 +372,7 @@ async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger) {
       provider_cost: Number(adminLedger.provider_cost),
       profit: Number(adminLedger.profit_admin),
     },
-    secondMemberApiKey: secondKey,
+    secondResellerApiKey: secondKey,
   };
 }
 
@@ -403,12 +403,12 @@ async function worker() {
   await dbModule.initializeDatabase();
   const [seedAdmin] = await dbModule.query("SELECT api_key FROM users WHERE role = 'admin' AND api_key IS NOT NULL ORDER BY id LIMIT 1");
   assert(seedAdmin?.api_key, 'Admin seed database test tidak tersedia.');
-  const memberApiKey = `gate_member_${crypto.randomBytes(18).toString('hex')}`;
-  const memberUsername = `gate_member_${crypto.randomBytes(8).toString('hex')}`;
+  const resellerApiKey = `gate_reseller_${crypto.randomBytes(18).toString('hex')}`;
+  const resellerUsername = `gate_reseller_${crypto.randomBytes(8).toString('hex')}`;
   await dbModule.execute(
     `INSERT INTO users (username, role, status, saldo, api_key)
-     VALUES (?, 'member', 'active', 0, ?)`,
-    [memberUsername, memberApiKey],
+     VALUES (?, 'reseller', 'active', 0, ?)`,
+    [resellerUsername, resellerApiKey],
   );
 
   const backupBuffer = await fs.readFile(backupPath);
@@ -427,12 +427,12 @@ async function worker() {
     });
     assert(maintenanceOn.response.ok && maintenanceOn.payload.data?.enabled === true, 'Gagal mengaktifkan maintenance test.');
 
-    const blockedOrder = await api(app.baseUrl, '/api/public/v1/order', memberApiKey, {
+    const blockedOrder = await api(app.baseUrl, '/api/public/v1/order', resellerApiKey, {
       method: 'POST',
       body: JSON.stringify({ product_id: 1, qty: 1, ref_id: 'MAINTENANCE-GATE' }),
     });
     assert(blockedOrder.response.status === 503, 'Public API order tidak diblokir saat maintenance.');
-    await verifyMaintenanceBlocks(app.baseUrl, memberApiKey, seedAdmin.api_key);
+    await verifyMaintenanceBlocks(app.baseUrl, resellerApiKey, seedAdmin.api_key);
 
     const upload = await api(app.baseUrl, '/api/admin/system/restore/upload', seedAdmin.api_key, {
       method: 'POST',
@@ -463,17 +463,17 @@ async function worker() {
       body: JSON.stringify({ enabled: false }),
     });
     assert(maintenanceOff.response.ok && maintenanceOff.payload.data?.enabled === false, 'Gagal menonaktifkan maintenance test.');
-    const transactionAllowed = await api(app.baseUrl, '/api/public/v1/order', apiDashboard.secondMemberApiKey, {
+    const transactionAllowed = await api(app.baseUrl, '/api/public/v1/order', apiDashboard.secondResellerApiKey, {
       method: 'POST',
       body: JSON.stringify({ product_id: 999999999, qty: 1, ref_id: 'MAINTENANCE-OFF-GATE' }),
     });
     assert(transactionAllowed.response.status === 404, 'Transaksi tetap diblokir setelah maintenance OFF.');
-    const memberCatalog = await api(app.baseUrl, '/api/bot/catalog', apiDashboard.secondMemberApiKey);
-    assert(memberCatalog.response.ok, 'Member tidak dapat memakai bot catalog non-session.');
-    const memberManagedSession = await api(app.baseUrl, '/api/bot/session/status', apiDashboard.secondMemberApiKey);
-    assert(memberManagedSession.response.status === 403, 'Member managed bot session tidak ditolak 403.');
-    const resellerManagedSession = await api(app.baseUrl, '/api/bot/session/status', ledger.test_context.apiKey);
-    assert(resellerManagedSession.response.status === 402, 'Reseller tanpa locked balance tidak ditolak 402.');
+    const resellerCatalog = await api(app.baseUrl, '/api/bot/catalog', apiDashboard.secondResellerApiKey);
+    assert(resellerCatalog.response.ok, 'Reseller tidak dapat memakai bot catalog non-session.');
+    const ownerResellerManagedSession = await api(app.baseUrl, '/api/bot/session/status', apiDashboard.secondResellerApiKey);
+    assert(ownerResellerManagedSession.response.status === 402, 'Reseller tanpa locked balance tidak ditolak 402.');
+    const ledgerResellerManagedSession = await api(app.baseUrl, '/api/bot/session/status', ledger.test_context.apiKey);
+    assert(ledgerResellerManagedSession.response.status === 402, 'Reseller ledger tanpa locked balance tidak ditolak 402.');
     await verifyRateLimit(app.baseUrl, ledger.test_context.apiKey);
 
     process.stdout.write(JSON.stringify({
@@ -505,8 +505,7 @@ async function worker() {
         admin_dashboard: apiDashboard.admin_dashboard,
       },
       bot_access: {
-        member_public_bot_api: true,
-        member_managed_session_403: true,
+        reseller_public_bot_api: true,
         reseller_without_lock_402: true,
       },
       rate_limit_429: true,

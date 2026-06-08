@@ -19,11 +19,9 @@ function rangePercent(price: number, ranges: MarkupRangeRecord[]) {
 }
 
 export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { compact?: boolean; apiKey?: string }) {
-  const [memberRanges, setMemberRanges] = useState<MarkupRangeRecord[]>(defaultRanges);
   const [resellerRanges, setResellerRanges] = useState<MarkupRangeRecord[]>(defaultRanges.map((range) => ({ ...range, percent: Math.max(0, range.percent - 4) })));
   const [markupType, setMarkupType] = useState<MarkupSettingRecord['markup_type']>('percent');
   const [markup, setMarkup] = useState(0);
-  const [memberMarkup, setMemberMarkup] = useState(0);
   const [resellerMarkup, setResellerMarkup] = useState(0);
   const [discountPercent, setDiscountPercent] = useState(10);
   const [premkuKey, setPremkuKey] = useState('');
@@ -47,11 +45,9 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
         ]);
         const discountResponse = await premiuminApi.discount(apiKey || undefined);
 
-        setMemberRanges(markupResponse.data.member_markup_ranges?.length ? markupResponse.data.member_markup_ranges : defaultRanges);
         setResellerRanges(markupResponse.data.reseller_markup_ranges?.length ? markupResponse.data.reseller_markup_ranges : defaultRanges.map((range) => ({ ...range, percent: Math.max(0, range.percent - 4) })));
         setMarkupType(markupResponse.data.markup_type);
         setMarkup(markupResponse.data.markup ?? 0);
-        setMemberMarkup(markupResponse.data.member_markup ?? markupResponse.data.markup ?? 0);
         setResellerMarkup(markupResponse.data.reseller_markup ?? 0);
         setDiscountPercent(discountResponse.data.discount_percent);
         setPremkuKeyMasked(keyResponse.data.masked);
@@ -69,21 +65,16 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
   const previews = useMemo(() => {
     return products.slice(0, 5).map((item: ProductRecord) => {
       const price = (item as any).price_base;
-      const memberPercent = rangePercent(price, memberRanges);
       const resellerPercent = rangePercent(price, resellerRanges);
-      const memberFinalPrice = price + Math.round((price * memberPercent) / 100);
       const resellerFinalPrice = price + Math.round((price * resellerPercent) / 100);
       return {
         price,
-        finalPrice: memberFinalPrice,
         resellerFinalPrice,
-        delta: memberFinalPrice - price,
         resellerDelta: resellerFinalPrice - price,
-        memberPercent,
         resellerPercent,
       };
     });
-  }, [memberRanges, products, resellerRanges]);
+  }, [products, resellerRanges]);
 
   const saveMarkup = async () => {
     setSaving(true);
@@ -92,17 +83,13 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
     try {
       const response = await premiuminApi.updateMarkup({
         markup,
-        member_markup: memberMarkup,
         reseller_markup: resellerMarkup,
-        member_markup_ranges: memberRanges,
         reseller_markup_ranges: resellerRanges,
         markup_type: markupType,
       }, apiKey || undefined);
-      setMemberRanges(response.data.member_markup_ranges?.length ? response.data.member_markup_ranges : memberRanges);
       setResellerRanges(response.data.reseller_markup_ranges?.length ? response.data.reseller_markup_ranges : resellerRanges);
       setMarkupType(response.data.markup_type);
       setMarkup(response.data.markup ?? markup);
-      setMemberMarkup(response.data.member_markup ?? memberMarkup);
       setResellerMarkup(response.data.reseller_markup ?? resellerMarkup);
       window.dispatchEvent(new Event('premiuminplus:pricing-updated'));
     } catch (caught) {
@@ -112,9 +99,8 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
     }
   };
 
-  const updateRange = (role: 'member' | 'reseller', index: number, percent: number) => {
-    const setter = role === 'member' ? setMemberRanges : setResellerRanges;
-    setter((current) => current.map((range, rangeIndex) => (rangeIndex === index ? { ...range, percent: Math.max(0, Number(percent || 0)) } : range)));
+  const updateRange = (index: number, percent: number) => {
+    setResellerRanges((current) => current.map((range, rangeIndex) => (rangeIndex === index ? { ...range, percent: Math.max(0, Number(percent || 0)) } : range)));
   };
 
   const savePremkuKey = async () => {
@@ -151,10 +137,10 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
       {!compact ? (
         <PageHero
           title="Setting Markup"
-          subtitle="Markup anggota dan reseller dipisah sesuai flow bisnis Premiumin Plus."
-          slogan="Anggota memakai harga anggota. Reseller memakai harga reseller dan tetap wajib saldo."
+          subtitle="Markup reseller menjadi satu-satunya source of truth harga jual Premiumin Plus."
+          slogan="Semua akun non-admin adalah reseller dan memakai harga reseller."
           tone="from-amber-500/15 via-brand/10 to-sky-500/10"
-          chips={['Markup anggota', 'Markup reseller', 'DB sync']}
+          chips={['Markup reseller', 'DB sync', 'Reseller only']}
         />
       ) : null}
 
@@ -163,11 +149,6 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Mode</p>
           <p className="mt-2 text-2xl font-black text-white">{markupType}</p>
           <p className="mt-2 text-sm text-white/45">Percent direkomendasikan untuk pricing otomatis.</p>
-        </NeonCard>
-        <NeonCard>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Fallback Anggota</p>
-          <p className="mt-2 text-2xl font-black text-emerald-200">{memberMarkup}%</p>
-          <p className="mt-2 text-sm text-white/45">Dipakai jika range tidak match.</p>
         </NeonCard>
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Fallback Reseller</p>
@@ -182,10 +163,10 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-        <PageSection title="Atur markup role" subtitle="Harga anggota dan reseller sinkron ke Product API">
+        <PageSection title="Atur markup reseller" subtitle="Harga reseller sinkron ke Product API">
           <div className="space-y-3">
             <NeonCard>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Tipe Markup</span>
                   <select
@@ -196,20 +177,6 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
                     <option value="percent">percent</option>
                     <option value="fixed">fixed</option>
                   </select>
-                </label>
-                <label className="block">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Fallback Anggota</span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={memberMarkup}
-                    onChange={(event) => {
-                      const value = Number(event.target.value || 0);
-                      setMemberMarkup(value);
-                      setMarkup(value);
-                    }}
-                    className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none"
-                  />
                 </label>
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Fallback Reseller</span>
@@ -223,28 +190,12 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
                 </label>
               </div>
               <p className="mt-3 text-xs leading-5 text-white/45">
-                Rumus produksi: harga final = modal produk + margin admin + markup role. Reseller masih bisa punya personal margin dari profil user.
+                Rumus produksi: harga final = modal produk + margin admin + markup reseller. Personal margin bot dihitung terpisah dari profil reseller.
               </p>
             </NeonCard>
 
             <div className="rounded-[1.15rem] border border-white/10 bg-[#0f0b15] p-4">
-              <div className="mb-4 grid gap-3 lg:grid-cols-2">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200">Range Markup Anggota</p>
-                  <div className="mt-2 space-y-2">
-                    {memberRanges.map((range, index) => (
-                      <label key={`${range.min}-${range.max ?? 'up'}-member`} className="grid grid-cols-[1fr_90px] items-center gap-2 text-xs text-white/60">
-                        <span>{formatCurrency(range.min)} - {range.max === null ? 'seterusnya' : formatCurrency(range.max)}</span>
-                        <input
-                          type="number"
-                          value={range.percent}
-                          onChange={(event) => updateRange('member', index, Number(event.target.value))}
-                          className="rounded-xl border border-white/10 bg-[#0b0f1a] px-3 py-2 text-sm text-white outline-none"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
+              <div className="mb-4">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-sky-200">Range Markup Reseller</p>
                   <div className="mt-2 space-y-2">
@@ -254,7 +205,7 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
                         <input
                           type="number"
                           value={range.percent}
-                          onChange={(event) => updateRange('reseller', index, Number(event.target.value))}
+                          onChange={(event) => updateRange(index, Number(event.target.value))}
                           className="rounded-xl border border-white/10 bg-[#0b0f1a] px-3 py-2 text-sm text-white outline-none"
                         />
                       </label>
@@ -265,8 +216,8 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-xs text-white/45">
                   {markupType === 'fixed'
-                    ? 'Harga jual = base + markup role'
-                    : 'Range markup menjadi source of truth harga anggota dan reseller.'}
+                    ? 'Harga jual = base + markup reseller'
+                    : 'Range markup menjadi source of truth harga reseller.'}
                 </p>
                 <button
                   type="button"
@@ -341,8 +292,8 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
                     <p className="mt-1 text-lg font-black text-white">{formatCurrency(item.price)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Markup Anggota</p>
-                    <p className="mt-1 text-lg font-black text-emerald-300">{item.memberPercent}%</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Markup Reseller</p>
+                    <p className="mt-1 text-lg font-black text-sky-300">{item.resellerPercent}%</p>
                   </div>
                 </div>
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
@@ -354,10 +305,6 @@ export function SettingMarkupPage({ compact = false, apiKey: sessionApiKey }: { 
                     </span>
                   </div>
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="text-sm text-white/55">Harga anggota</span>
-                    <span className="text-lg font-black text-white">{formatCurrency(item.finalPrice)}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
                     <span className="text-sm text-white/55">Harga reseller</span>
                     <span className="text-lg font-black text-white">{formatCurrency(item.resellerFinalPrice)}</span>
                   </div>

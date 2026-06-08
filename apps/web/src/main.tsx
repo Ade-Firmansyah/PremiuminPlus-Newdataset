@@ -6,7 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/app.css';
 
 const appTitle = 'Premiumin Plus - Platform Produk Digital Premium';
-const appDescription = 'Premiumin Plus adalah platform produk digital premium untuk member, reseller, deposit saldo, order otomatis, dan bot WhatsApp pribadi.';
+const appDescription = 'Premiumin Plus adalah platform produk digital premium untuk reseller, deposit saldo, order otomatis, dan bot WhatsApp pribadi.';
 
 document.title = appTitle;
 document.querySelector('meta[name="application-name"]')?.setAttribute('content', 'Premiumin Plus');

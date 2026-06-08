@@ -1,5 +1,5 @@
 import express from 'express';
-import { forgotPassword, login, registerMember } from '../modules/auth/auth.controller.js';
+import { forgotPassword, login, registerReseller } from '../modules/auth/auth.controller.js';
 import {
   adminAddProductStockItem,
   adminCreateHybridProduct,
@@ -21,7 +21,6 @@ import { myOrders, order, orderStatus } from '../modules/order/order.controller.
 import { botActivationDeposit, deposit, depositCancel, depositStatus, myDeposits } from '../modules/deposit/deposit.controller.js';
 import { cancelDirectPaymentController, createDirectOrderPaymentController, directPaymentStatusController } from '../modules/payment/payment.controller.js';
 import { myWithdraws, withdraw } from '../modules/withdraw/withdraw.controller.js';
-import { adminResellerRequests, approveResellerRequest, rejectResellerRequest, requestResellerUpgrade, resellerRequestStatus } from '../modules/reseller/reseller.controller.js';
 import { dashboardSummary, me, myApiKey, regenerateMyApiKey, saldo, saldoLogs, topAccounts, updateMyPreferences } from '../modules/wallet/wallet.controller.js';
 import {
   createAdminUser,
@@ -113,21 +112,21 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/me',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Ambil profil akun, saldo, locked balance, role, dan API key aktif.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/me`,
     },
     {
       method: 'GET',
       path: '/products',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Ambil katalog produk dengan harga final sesuai role akun.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/products`,
     },
     {
       method: 'POST',
       path: '/order',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Order langsung memakai saldo akun. Backend validasi saldo/locked balance sebelum hit provider atau stok manual.',
       body: { product_id: 123, qty: 1 },
       example: `curl -X POST ${baseUrl}/order -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"product_id\\":123,\\"qty\\":1}"`,
@@ -135,21 +134,21 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/order/:invoice',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Cek status order dan ambil credential jika order sudah success/sent.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/order/ORD-XXXX`,
     },
     {
       method: 'GET',
       path: '/orders',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Riwayat order akun. Credential pending disembunyikan sampai order sukses.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/orders`,
     },
     {
       method: 'POST',
       path: '/payments/direct-order',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller'],
       description: 'Buat QRIS order langsung tanpa memakai saldo. Order baru diproses setelah QRIS sukses.',
       body: { product_id: 123, qty: 1, target_whatsapp: '6281234567890' },
       example: `curl -X POST ${baseUrl}/payments/direct-order -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"product_id\\":123,\\"qty\\":1}"`,
@@ -157,14 +156,14 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/payments/:invoice/status',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Cek status QRIS order langsung. Saat success, backend otomatis proses order.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/payments/PAY-XXXX/status`,
     },
     {
       method: 'POST',
       path: '/deposit',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Buat QRIS deposit saldo.',
       body: { amount: 50000 },
       example: `curl -X POST ${baseUrl}/deposit -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"amount\\":50000}"`,
@@ -172,21 +171,21 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/deposit/:invoice',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Cek status deposit. Saldo dikredit hanya sekali saat provider menyatakan success.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/deposit/DEP-XXXX`,
     },
     {
       method: 'GET',
       path: '/saldo/logs',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Mutasi saldo legacy-compatible untuk akun pemilik API key.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/saldo/logs`,
     },
     {
       method: 'POST',
       path: '/withdraw',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Ajukan tarik saldo. Minimal Rp50.000 dan saldo usable harus cukup.',
       body: { amount: 50000, bank_name: 'DANA', account_number: '6281234567890', account_name: 'Nama Akun', notes: 'Catatan opsional' },
       example: `curl -X POST ${baseUrl}/withdraw -H "content-type: application/json" -H "x-api-key: YOUR_API_KEY" -d "{\\"amount\\":50000,\\"bank_name\\":\\"DANA\\",\\"account_number\\":\\"6281234567890\\",\\"account_name\\":\\"Nama Akun\\"}"`,
@@ -194,7 +193,7 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/withdraws',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Riwayat withdraw akun beserta status pending/approved/rejected.',
       example: `curl -H "x-api-key: YOUR_API_KEY" ${baseUrl}/withdraws`,
     },
@@ -204,20 +203,20 @@ function getApiDocs(req) {
     {
       method: 'GET',
       path: '/bot/catalog',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Katalog bot/API berdasarkan harga role pemilik API key. Tidak membutuhkan managed bot lock.',
     },
     {
       method: 'POST',
       path: '/bot/order/init',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Buat QRIS order bot/API. Backend mencatat uang masuk, modal keluar, profit user, dan order.',
       body: { product_id: 123, qty: 1, buyer_whatsapp: '6281234567890' },
     },
     {
       method: 'GET',
       path: '/bot/order/:invoice/status',
-      roles: ['member', 'reseller', 'admin'],
+      roles: ['reseller', 'admin'],
       description: 'Cek status QRIS/order milik API key.',
     },
   ];
@@ -300,8 +299,7 @@ function getApiDocs(req) {
       note: 'Pilih satu sumber API key. Jika key berbeda dikirim lewat header/body, request ditolak 400. Jangan taruh API key di frontend publik.',
     },
     roles: {
-      member: 'Bisa memakai API key untuk bot pribadi/bisnis sendiri, deposit, withdraw, order saldo, QRIS order, riwayat, dan mutasi.',
-      reseller: 'Semua akses API key member plus Managed Bot Hosting jika locked balance dan bot access aktif.',
+      reseller: 'Bisa memakai API key untuk bot pribadi/bisnis sendiri, deposit, withdraw, order saldo, QRIS order, riwayat, mutasi, dan Managed Bot Hosting jika locked balance serta bot access aktif.',
       admin: 'Full access termasuk endpoint admin.',
     },
     response_format: {
@@ -349,7 +347,7 @@ async function getPublicStats() {
 }
 
 router.post('/login', login);
-router.post('/register', blockPublicMutationDuringMaintenance, registerMember);
+router.post('/register', blockPublicMutationDuringMaintenance, registerReseller);
 router.post('/forgot-password', blockPublicMutationDuringMaintenance, forgotPassword);
 router.get('/system/status', getSystemStatus);
 router.get('/config/public', async (_req, res) => {
@@ -397,8 +395,6 @@ router.get('/saldo', auth, saldo);
 router.get('/saldo-logs', auth, saldoLogs);
 router.get('/saldo/logs', auth, saldoLogs);
 router.get('/notifications', auth, myNotifications);
-router.get('/reseller/request/status', auth, resellerRequestStatus);
-router.post('/reseller/request', auth, requestResellerUpgrade);
 router.get('/community/settings', auth, communitySettings);
 router.get('/bot-settings', auth, requireManagedBotAccess, myBotSettings);
 router.patch('/bot-settings', auth, requireManagedBotAccess, updateMyBotSettings);
@@ -456,9 +452,6 @@ router.get('/users', auth, adminOnly, users);
 router.get('/transactions/all', auth, adminOnly, transactions);
 router.get('/admin/deposits', auth, adminOnly, deposits);
 router.get('/admin/withdraws', auth, adminOnly, withdraws);
-router.get('/admin/reseller-requests', auth, adminOnly, adminResellerRequests);
-router.post('/admin/reseller-requests/:id/approve', auth, adminOnly, approveResellerRequest);
-router.post('/admin/reseller-requests/:id/reject', auth, adminOnly, rejectResellerRequest);
 router.get('/admin/finance/balance-mutations', auth, adminOnly, balanceMutations);
 router.get('/admin/finance/balance-mutations.csv', auth, adminOnly, balanceMutationsCsv);
 router.patch('/admin/withdraws/:id/approve', auth, adminOnly, approveWithdraw);
@@ -532,8 +525,6 @@ router.get('/docs', (req, res) => {
       'GET /api/saldo-logs',
       'GET /api/saldo/logs',
       'GET /api/notifications',
-      'GET /api/reseller/request/status',
-      'POST /api/reseller/request',
       'GET /api/community/settings',
       'GET /api/bot/profile',
       'GET /api/bot/settings',
@@ -566,9 +557,6 @@ router.get('/docs', (req, res) => {
       'DELETE /api/admin/product-stock-items/:itemId',
       'GET /api/admin/deposits',
       'GET /api/admin/withdraws',
-      'GET /api/admin/reseller-requests',
-      'POST /api/admin/reseller-requests/:id/approve',
-      'POST /api/admin/reseller-requests/:id/reject',
       'PATCH /api/admin/withdraws/:id/approve',
       'PATCH /api/admin/withdraws/:id/reject',
       'GET /api/admin/markup',

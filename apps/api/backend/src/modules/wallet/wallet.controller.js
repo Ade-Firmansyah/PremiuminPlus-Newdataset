@@ -34,8 +34,8 @@ export async function updateMyPreferences(req, res, next) {
     }
     const requestedMarkup = req.body?.reseller_margin_percent ?? req.body?.markup_percent;
     if (requestedMarkup !== undefined) {
-      if (!['admin', 'reseller', 'member'].includes(req.user.role)) {
-        return res.status(403).json({ status: false, message: 'Markup pribadi hanya untuk anggota dan reseller' });
+      if (!['admin', 'reseller'].includes(req.user.role)) {
+        return res.status(403).json({ status: false, message: 'Markup pribadi hanya untuk reseller' });
       }
       const markup = Number(requestedMarkup);
       if (!Number.isFinite(markup) || markup < 0 || markup > 100) {
@@ -125,7 +125,7 @@ function buildDailySeries(rows, valueKey, length = 10) {
 async function listTopAccounts(limit = 10) {
   const users = await remember('leaderboard:accounts', 30, () => listUsers());
   const rows = users
-    .filter((user) => ['member', 'reseller'].includes(String(user.role || '').toLowerCase()))
+    .filter((user) => ['reseller'].includes(String(user.role || '').toLowerCase()))
     .filter((user) => !['suspended', 'blocked', 'deleted'].includes(String(user.status || '').toLowerCase()))
     .sort((left, right) => Number(right.saldo || 0) - Number(left.saldo || 0) || Number(left.id || 0) - Number(right.id || 0))
     .slice(0, Number(limit) || 10);
@@ -134,7 +134,7 @@ async function listTopAccounts(limit = 10) {
     rank: index + 1,
     id: Number(row.id),
     username: row.username,
-    role: row.role === 'reseller' ? 'reseller' : 'member',
+    role: row.role === 'admin' ? 'admin' : 'reseller',
     saldo: Number(row.saldo || 0),
   }));
 }

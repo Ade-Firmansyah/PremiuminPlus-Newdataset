@@ -99,7 +99,7 @@ export function Sidebar({ open, sections, onClose, username, role, saldo, onLogo
                         to={item.to}
                         end={item.end}
                         onClick={onClose}
-                        className={({ isActive }) =>
+                      className={({ isActive }: { isActive: boolean }) =>
                           [
                             'group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition-all duration-200 hover:translate-x-0.5',
                             isActive

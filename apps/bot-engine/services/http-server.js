@@ -2,6 +2,9 @@ import express from 'express';
 
 function requireEngineToken(req, res, next) {
   const expected = process.env.BOT_ENGINE_TOKEN || '';
+  if (!expected && process.env.NODE_ENV === 'production') {
+    return res.status(503).json({ status: false, message: 'BOT_ENGINE_TOKEN belum dikonfigurasi' });
+  }
   if (!expected) return next();
   if (req.headers['x-bot-engine-token'] !== expected) {
     return res.status(401).json({ status: false, message: 'Unauthorized bot engine request' });

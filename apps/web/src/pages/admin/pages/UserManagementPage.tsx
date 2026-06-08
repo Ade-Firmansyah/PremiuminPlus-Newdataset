@@ -16,7 +16,7 @@ const emptyUser: AdminUserDraft = {
   username: '',
   password: '',
   fullName: '',
-  role: 'Anggota',
+  role: 'Reseller',
   balance: 0,
   status: 'Aktif',
   phone: '',
@@ -29,14 +29,12 @@ const emptyUser: AdminUserDraft = {
 
 function toUiRole(role: AdminUserRecord['role']): AdminUserRole {
   if (role === 'admin') return 'Admin';
-  if (role === 'reseller') return 'Reseller';
-  return 'Anggota';
+  return 'Reseller';
 }
 
 function toApiRole(role: AdminUserRole): AdminUserRecord['role'] {
   if (role === 'Admin') return 'admin';
-  if (role === 'Reseller') return 'reseller';
-  return 'member';
+  return 'reseller';
 }
 
 function toUiStatus(status: string): AdminUserStatus {
@@ -263,7 +261,7 @@ export function UserManagementPage({ apiKey: sessionApiKey }: { apiKey?: string 
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              {(['All', 'Anggota', 'Reseller', 'Admin'] as const).map((item) => (
+              {(['All', 'Reseller', 'Admin'] as const).map((item) => (
                 <button
                   key={item}
                   onClick={() => setRoleFilter(item)}
@@ -458,7 +456,6 @@ export function UserManagementPage({ apiKey: sessionApiKey }: { apiKey?: string 
                       onChange={(e) => setField('role', e.target.value as AdminUserRole)}
                       className="mt-1.5 w-full rounded-2xl border border-white/10 bg-[#0f0b15] px-4 py-3 text-sm text-white outline-none"
                     >
-                      <option>Anggota</option>
                       <option>Reseller</option>
                       <option>Admin</option>
                     </select>

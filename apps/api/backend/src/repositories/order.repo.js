@@ -85,7 +85,7 @@ export async function upsertOrderRecord(payload) {
       updated_at = CURRENT_TIMESTAMP`,
     [
       payload.user_id,
-      payload.role || 'member',
+      payload.role || 'reseller',
       payload.invoice,
       payload.payment_invoice || null,
       payload.product_id || null,

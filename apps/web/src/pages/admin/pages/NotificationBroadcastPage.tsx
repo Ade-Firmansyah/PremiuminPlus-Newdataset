@@ -153,7 +153,7 @@ export function NotificationBroadcastPage({ apiKey: sessionApiKey }: { apiKey?: 
     <div className="space-y-4">
       <PageHero
         title="Pesan Notifikasi"
-        subtitle="Kirim pesan broadcast ke semua anggota, reseller, atau admin."
+        subtitle="Kirim pesan broadcast ke semua reseller atau admin."
         slogan="Pesan tersimpan di database dan muncul di dropdown notifikasi user."
         tone="from-brand/15 via-fuchsia-500/10 to-sky-500/10"
         chips={['Broadcast', 'Database', 'Dropdown']}
@@ -211,9 +211,8 @@ export function NotificationBroadcastPage({ apiKey: sessionApiKey }: { apiKey?: 
               onChange={(event) => setTargetRole(event.target.value as TargetRole)}
               className="w-full rounded-2xl border border-white/10 bg-[#0b0f1a] px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
             >
-              <option value="all">Semua anggota</option>
+              <option value="all">Semua user</option>
               <option value="reseller">Reseller</option>
-              <option value="member">Anggota</option>
               <option value="admin">Admin</option>
             </select>
             <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">

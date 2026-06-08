@@ -83,7 +83,7 @@ export function resellerOnly(req, res, next) {
 }
 
 export function requireApiUser(req, res, next) {
-  if (!req.user || !['member', 'reseller', 'admin'].includes(String(req.user.role || '').toLowerCase())) {
+  if (!req.user || !['reseller', 'admin'].includes(String(req.user.role || '').toLowerCase())) {
     return res.status(403).json({
       status: false,
       message: 'Akses API key tidak tersedia untuk role ini',

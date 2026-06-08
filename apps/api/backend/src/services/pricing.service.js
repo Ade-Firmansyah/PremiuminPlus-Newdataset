@@ -67,8 +67,8 @@ export function calculateRoleSellPrice(product, markupSetting, user = {}) {
     throw error;
   }
 
-  const role = String(user?.role || 'member').toLowerCase();
-  const storedRolePrice = role === 'reseller' ? Number(product?.reseller_price || 0) : Number(product?.member_price || 0);
+  const role = String(user?.role || 'reseller').toLowerCase();
+  const storedRolePrice = Number(product?.reseller_price || 0);
   const resellerMarkupPercent = Number(user?.reseller_margin_percent ?? user?.markup_percent ?? user?.markup_custom ?? 0);
 
   if (!Number.isFinite(resellerMarkupPercent) || resellerMarkupPercent < 0) {
@@ -95,9 +95,9 @@ export function calculateRoleSellPrice(product, markupSetting, user = {}) {
   const type = markupSetting?.markup_type === 'fixed' ? 'fixed' : 'percent';
 
   const adminMargin = Number(product?.admin_margin || 0);
-  const roleRanges = role === 'reseller' ? markupSetting?.reseller_markup_ranges : markupSetting?.member_markup_ranges;
+  const roleRanges = markupSetting?.reseller_markup_ranges;
   const rangeMarkup = getRangeMarkup(basePrice + adminMargin, roleRanges);
-  const roleMarkupValue = rangeMarkup ?? (role === 'reseller' ? markupSetting?.reseller_markup : markupSetting?.member_markup);
+  const roleMarkupValue = rangeMarkup ?? markupSetting?.reseller_markup;
   const roleMarkup = calculateMarkupAmount(basePrice + adminMargin, roleMarkupValue ?? markupSetting?.markup ?? 0, type);
   const modalPrice = basePrice + adminMargin + roleMarkup;
   const includePersonalMarkup = role === 'reseller' && Boolean(user?.include_personal_markup);

@@ -7,7 +7,6 @@ import { formatCurrency } from '../utils/format';
 
 const pageSize = 12;
 const roleLabel: Record<string, string> = {
-  member: 'anggota',
   reseller: 'reseller',
   admin: 'admin',
 };
@@ -151,7 +150,7 @@ export default function DaftarHarga() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const [role, setRole] = useState('member');
+  const [role, setRole] = useState('reseller');
   const apiKey = getApiKey();
 
   useEffect(() => {

@@ -67,10 +67,8 @@ async function syncBotSessionUser(user, status = {}) {
 }
 
 function calculateBotSellPrice(product, markup, user, settings) {
-  const role = String(user?.role || 'member').toLowerCase();
-  const pricingRole = role === 'member' ? 'member' : 'reseller';
-  const modalPricing = calculateRoleSellPrice(product, markup, { ...user, role: pricingRole });
-  const storedPrice = pricingRole === 'member' ? product.member_price : product.reseller_price;
+  const modalPricing = calculateRoleSellPrice(product, markup, { ...user, role: 'reseller' });
+  const storedPrice = product.reseller_price;
   const modalPrice = Number(storedPrice || modalPricing.modalPrice || modalPricing.sellPrice || 0);
   const marginValue = Number(settings?.reseller_margin_value || 0);
   const marginType = settings?.reseller_margin_type === 'fixed' ? 'fixed' : 'percent';

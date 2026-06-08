@@ -130,16 +130,16 @@ function isExpiredAt(value) {
   return Number.isFinite(expiry) && expiry <= Date.now();
 }
 
-async function resolveRoleSellPrice(product, role = 'member') {
-  const normalizedRole = String(role || 'member').toLowerCase();
-  const storedPrice = normalizedRole === 'reseller' ? product.reseller_price : product.member_price;
+async function resolveRoleSellPrice(product, role = 'reseller') {
+  void role;
+  const storedPrice = product.reseller_price;
   if (Number(storedPrice || 0) > 0) return Number(storedPrice);
   const markupSetting = await getMarkupSetting();
   const calculated = calculateProductPrices(product, markupSetting);
-  return normalizedRole === 'reseller' ? calculated.reseller_price : calculated.member_price;
+  return calculated.reseller_price;
 }
 
-async function getMemberProductPricing(productId, qty = 1) {
+async function getRoleProductPricing(productId, qty = 1, user = { role: 'reseller' }) {
   const product = await findProductById(productId);
   if (!product || product.status !== 'active') {
     const error = new Error('Produk tidak ditemukan atau tidak aktif');
@@ -165,50 +165,16 @@ async function getMemberProductPricing(productId, qty = 1) {
   }
 
   /**
-   * Use pre-calculated member_price from database
+   * Use pre-calculated role price from database
    * RULE: Backend calculates ONCE (in product-pricing.service), Frontend renders ONLY
    */
-  const sellPrice = await resolveRoleSellPrice(product, 'member');
-  const pricing = { sellPrice };
-  return { product, pricing, qty: numericQty, total: pricing.sellPrice * numericQty };
-}
-
-async function getRoleProductPricing(productId, qty = 1, user = { role: 'member' }) {
-  const product = await findProductById(productId);
-  if (!product || product.status !== 'active') {
-    const error = new Error('Produk tidak ditemukan atau tidak aktif');
-    error.statusCode = 404;
-    throw error;
-  }
-  if (Number(product.stock || 0) <= 0) {
-    const error = new Error('Stok produk habis');
-    error.statusCode = 400;
-    throw error;
-  }
-  const numericQty = Number(qty || 1);
-  if (!Number.isInteger(numericQty) || numericQty < 1) {
-    const error = new Error('Qty tidak valid');
-    error.statusCode = 400;
-    throw error;
-  }
-  if (numericQty > Number(product.max_order_qty || product.stock || 0)) {
-    const error = new Error('Qty melebihi stok yang dapat dipenuhi dalam satu order');
-    error.statusCode = 409;
-    error.code = 'PRODUCT_QTY_UNAVAILABLE';
-    throw error;
-  }
-
-  /**
-   * Use pre-calculated member_price or reseller_price from database
-   * RULE: Backend calculates ONCE (in product-pricing.service), Frontend renders ONLY
-   */
-  const role = String(user?.role || 'member').toLowerCase();
+  const role = String(user?.role || 'reseller').toLowerCase();
   const sellPrice = await resolveRoleSellPrice(product, role);
   const pricing = { sellPrice };
   return { product, pricing, qty: numericQty, total: pricing.sellPrice * numericQty };
 }
 
-async function getBotProductPricing(productId, qty = 1, user = { role: 'member' }) {
+async function getBotProductPricing(productId, qty = 1, user = { role: 'reseller' }) {
   const product = await findProductById(productId);
   if (!product || product.status !== 'active') {
     const error = new Error('Produk tidak ditemukan atau tidak aktif');
@@ -235,10 +201,8 @@ async function getBotProductPricing(productId, qty = 1, user = { role: 'member' 
 
   const markupSetting = await getMarkupSetting();
   const settings = await findResellerBotSettings(user);
-  const role = String(user?.role || 'member').toLowerCase();
-  const pricingRole = role === 'member' ? 'member' : 'reseller';
-  const modalPricing = calculateRoleSellPrice(product, markupSetting, { ...user, role: pricingRole });
-  const storedPrice = pricingRole === 'member' ? product.member_price : product.reseller_price;
+  const modalPricing = calculateRoleSellPrice(product, markupSetting, { ...user, role: 'reseller' });
+  const storedPrice = product.reseller_price;
   const modalPrice = Number(storedPrice || modalPricing.modalPrice || modalPricing.sellPrice || 0);
   const marginType = settings?.reseller_margin_type === 'fixed' ? 'fixed' : 'percent';
   const marginValue = Number(settings?.reseller_margin_value || 0);
@@ -264,8 +228,8 @@ async function getBotProductPricing(productId, qty = 1, user = { role: 'member' 
 }
 
 export async function createDirectOrderPayment(user, payload) {
-  if (!['member', 'reseller'].includes(user.role)) {
-    const error = new Error('QRIS langsung hanya tersedia untuk member dan reseller');
+  if (!['reseller'].includes(user.role)) {
+    const error = new Error('QRIS langsung hanya tersedia untuk reseller');
     error.statusCode = 403;
     throw error;
   }
@@ -311,7 +275,7 @@ export async function createDirectOrderPayment(user, payload) {
 }
 
 export async function createBotOrderPayment(user, payload) {
-  if (!['admin', 'member', 'reseller'].includes(user.role)) {
+  if (!['admin', 'reseller'].includes(user.role)) {
     const error = new Error('Bot/API payment tidak tersedia untuk role ini');
     error.statusCode = 403;
     throw error;
@@ -475,7 +439,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
     });
     const [paymentUserRows] = await connection.query('SELECT id, role, saldo FROM users WHERE id = ? LIMIT 1', [payment.user_id]);
     const paymentUser = paymentUserRows[0] || {};
-    const role = String(paymentUser.role || 'member').toLowerCase();
+    const role = String(paymentUser.role || 'reseller').toLowerCase();
     const targetWhatsapp = validateWhatsapp(payment.target_whatsapp || '');
 
     if (product.product_source === 'manual' || product.product_source === 'hybrid') {
@@ -517,7 +481,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
       await connection.query(
         `INSERT INTO transactions
           (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, status, account_data, channel, product_image, description, transaction_type, amount, processed_at)
-         VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung member', 'payment', ?, ?)
+         VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung reseller', 'payment', ?, ?)
          ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
         [invoice, invoice, payment.user_id, total, total, JSON.stringify({ payment_type: payment.payment_type || 'direct_order', order_invoice: orderInvoice }), total, processedAt],
       );
@@ -542,7 +506,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
           product.image || product.image_url || null,
-          product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
+          product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
           total,
           processedAt,
         ],
@@ -610,7 +574,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
       await connection.query(
         `INSERT INTO transactions
           (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, status, account_data, channel, product_image, description, transaction_type, amount, processed_at)
-         VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung member', 'payment', ?, ?)
+         VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung reseller', 'payment', ?, ?)
          ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
         [invoice, invoice, payment.user_id, total, total, JSON.stringify({ payment_type: payment.payment_type || 'direct_order', order_invoice: orderInvoice }), total, processedAt],
       );
@@ -635,7 +599,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger, b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
           product.image || product.image_url || null,
-          product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
+          product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
           platformRevenueTotal,
         ],
       );
@@ -683,7 +647,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
     await connection.query(
       `INSERT INTO transactions
         (invoice, ref_id, user_id, product_id, product_name, qty, price_base, price_sell, total_price, profit, status, account_data, channel, product_image, description, transaction_type, amount, processed_at)
-       VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung member', 'payment', ?, ?)
+       VALUES (?, ?, ?, NULL, 'QRIS Payment', 1, 0, ?, ?, 0, 'success', CAST(? AS JSON), 'qris', NULL, 'Pembayaran langsung reseller', 'payment', ?, ?)
        ON DUPLICATE KEY UPDATE status = 'success', processed_at = COALESCE(processed_at, VALUES(processed_at))`,
       [invoice, invoice, payment.user_id, total, total, JSON.stringify({ payment_type: payment.payment_type || 'direct_order', order_invoice: orderInvoice }), total, processedAt],
     );
@@ -713,7 +677,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
         JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger, b2b_ledger: b2bLedger }),
         isBotOrder ? 'bot-qris' : 'qris-direct',
         product.image || product.image_url || null,
-        product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order member via QRIS langsung'),
+        product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
         platformRevenueTotal,
         orderStatus === 'success' ? processedAt : null,
       ],

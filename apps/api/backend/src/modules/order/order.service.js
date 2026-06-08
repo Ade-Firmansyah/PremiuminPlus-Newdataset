@@ -79,9 +79,9 @@ async function notifyOrderSuccessOnce(userId, invoice, productName, type = 'orde
  * Get the role-based price from pre-calculated product prices
  * RULE: Backend calculates ONCE (in product-pricing.service), Frontend renders ONLY
  */
-export async function getSellPrice(product, user = { role: 'member' }) {
-  const role = String(user?.role || 'member').toLowerCase();
-  const price = role === 'reseller' ? product.reseller_price : product.member_price;
+export async function getSellPrice(product, user = { role: 'reseller' }) {
+  void user;
+  const price = product.reseller_price;
   if (Number(price || 0) > 0) {
     return {
       sellPrice: price,
@@ -90,7 +90,7 @@ export async function getSellPrice(product, user = { role: 'member' }) {
   const markupSetting = await getMarkupSetting();
   const calculated = calculateProductPrices(product, markupSetting);
   return {
-    sellPrice: role === 'reseller' ? calculated.reseller_price : calculated.member_price,
+    sellPrice: calculated.reseller_price,
   };
 }
 
@@ -147,7 +147,7 @@ export async function refreshOrderStatus(invoice) {
     const user = await getUserById(transaction.user_id);
     const orderRecord = await upsertOrderRecord({
       user_id: transaction.user_id,
-      role: user?.role || 'member',
+      role: user?.role || 'reseller',
       invoice,
       product_id: transaction.product_id,
       product_name: transaction.product_name,
@@ -662,7 +662,7 @@ export async function retryOrderByAdmin(invoice) {
 
     const orderRecord = await upsertOrderRecord({
       user_id: transaction.user_id,
-      role: transaction.role || 'member',
+      role: transaction.role || 'reseller',
       invoice,
       product_id: transaction.product_id,
       product_name: transaction.product_name,

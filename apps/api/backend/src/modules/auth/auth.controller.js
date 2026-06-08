@@ -99,7 +99,7 @@ export async function login(req, res, next) {
   }
 }
 
-export async function registerMember(req, res, next) {
+export async function registerReseller(req, res, next) {
   try {
     requireFields(req.body, ['username', 'email', 'phone', 'password']);
 
@@ -135,13 +135,13 @@ export async function registerMember(req, res, next) {
       email,
       phone,
       fullName: req.body.fullName || username,
-      role: 'member',
+      role: 'reseller',
       status: 'active',
       theme: 'dark',
     }, {
       activity: {
         scope: 'REGISTER',
-        message: 'Member registered',
+        message: 'Reseller registered',
         metadata: { username },
         ip_address: req.ip,
       },
@@ -150,7 +150,7 @@ export async function registerMember(req, res, next) {
     logger('REGISTER', { user_id: data.id, username });
     void notifyAdmin('register', {
       user: username,
-      role: 'member',
+      role: 'reseller',
       status: 'REGISTERED',
     });
 

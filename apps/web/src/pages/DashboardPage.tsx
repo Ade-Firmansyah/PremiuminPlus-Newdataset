@@ -121,11 +121,6 @@ const pageMeta: Record<string, { title: string; subtitle: string; content: React
     subtitle: 'Lihat dan perbarui profil akun Anda.',
     content: <Profil />,
   },
-  '/dashboard/upgrade-reseller': {
-    title: 'Upgrade Reseller',
-    subtitle: 'Ajukan akses reseller untuk membuka margin, analytics, dan bot WhatsApp.',
-    content: null,
-  },
   '/dashboard/bot-wa-telegram': {
     title: 'Bot WhatsApp',
     subtitle: 'Kelola automation WhatsApp premium.',
@@ -217,7 +212,7 @@ function StatusBadge({ status }: { status: string }) {
 
 const userApiEndpoints = [
   ['GET', '/me', 'Profil, role, saldo, locked balance, dan API key aktif.'],
-  ['GET', '/products', 'Katalog produk dengan harga final sesuai role member/reseller.'],
+  ['GET', '/products', 'Katalog produk dengan harga final sesuai role reseller/admin.'],
   ['POST', '/order', 'Order langsung memakai saldo. Body: product_id, qty.'],
   ['GET', '/order/:invoice', 'Cek status order dan buka credential saat order sukses.'],
   ['GET', '/orders', 'Riwayat order akun pemilik API key.'],
@@ -382,7 +377,7 @@ with urlopen(request, timeout=20) as response:
           <p className="text-xs text-white/38">Pengguna: {username}</p>
           <p className="mt-2 break-all font-mono text-sm tracking-[0.16em] text-white">{visible ? key : maskKey(key)}</p>
           <p className="mt-3 text-xs leading-5 text-white/45">
-            API key ini bisa dipakai member dan reseller untuk integrasi server, bot pribadi, cron, atau aplikasi internal.
+            API key ini bisa dipakai reseller untuk integrasi server, bot pribadi, cron, atau aplikasi internal.
             Semua request wajib lewat backend Premiumin Plus dan memakai header <code>x-api-key</code>.
           </p>
         </div>
@@ -1022,7 +1017,7 @@ function DashboardHome({ session, maintenanceActive = false }: { session: Dashbo
 
   const normalizeProduct = (product: ProductRecord): DashboardRecord['products'][number] => ({
     product: product.name,
-    price: Number(product.final_price || product.member_price || product.reseller_price || 0),
+    price: Number(product.final_price || product.reseller_price || 0),
     stock: Number(product.stock || 0),
     sold: Number((product as ProductRecord & { sold?: number; orders?: number }).sold || (product as ProductRecord & { sold?: number; orders?: number }).orders || 0),
   });
@@ -1147,7 +1142,7 @@ function DashboardHome({ session, maintenanceActive = false }: { session: Dashbo
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/35">Account</p>
               <h2 className="mt-1 text-xl font-black text-white">{session.username}</h2>
-              <p className="mt-1 text-sm text-white/42">{session.role === 'member' ? 'anggota' : session.role} mode</p>
+              <p className="mt-1 text-sm text-white/42">{session.role} mode</p>
             </div>
             <button className="relative rounded-xl border border-white/10 bg-white/[0.06] p-3 text-white/72">
               <Bell className="h-4 w-4" />
@@ -1168,8 +1163,7 @@ export function DashboardPage({ session, onLogout, maintenanceActive = false, ma
   const navigate = useNavigate();
   const path = location.pathname === '/dashboard/' ? '/dashboard' : location.pathname;
   const visibleSections = useMemo(() => getDashboardSections(session.role), [session.role]);
-  const normalizedRole = String(session.role || 'member').toLowerCase();
-  const roleLabel = normalizedRole === 'member' ? 'anggota' : normalizedRole;
+  const roleLabel = String(session.role || 'reseller').toLowerCase();
 
   useEffect(() => {
     if (!canAccessDashboardPath(session.role, path)) navigate('/dashboard', { replace: true });
@@ -1182,7 +1176,6 @@ export function DashboardPage({ session, onLogout, maintenanceActive = false, ma
     if (path === '/dashboard/deposit-saldo') return <DepositPage apiKey={session.apiKey} maintenanceActive={maintenanceActive} />;
     if (path === '/dashboard/api-key') return <DashboardApiKeyPanel username={session.username} apiKey={session.apiKey} maintenanceActive={maintenanceActive} />;
     if (path === '/dashboard/profit-analytics') return <ProfitAnalytics session={session} />;
-    if (path === '/dashboard/upgrade-reseller') return <UpgradeResellerPage apiKey={session.apiKey} role={session.role} maintenanceActive={maintenanceActive} />;
     return meta.content;
   })();
 
@@ -1258,111 +1251,6 @@ function ProfitAnalytics({ session }: { session: DashboardPageProps['session'] }
         <MetricCard label="Transaksi" value={formatNumber(transactions)} icon={Sparkles} tone="bg-[#ff2f92]/10 text-[#ff72b9] ring-1 ring-[#ff2f92]/20" loading={loading} />
         <MetricCard label="Produk aktif" value={formatNumber(activeProducts)} icon={Package} tone="bg-[#a855f7]/10 text-[#c084fc] ring-1 ring-[#a855f7]/20" loading={loading} />
       </div>
-    </Panel>
-  );
-}
-
-function UpgradeResellerPage({ apiKey, role, maintenanceActive = false }: { apiKey: string; role: string; maintenanceActive?: boolean }) {
-  const [reason, setReason] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
-  const [experience, setExperience] = useState('');
-  const [status, setStatus] = useState('none');
-  const [reviewMessage, setReviewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    let active = true;
-    premiuminApi.resellerRequestStatus(apiKey)
-      .then((response) => {
-        if (!active) return;
-        setStatus(response.data.status || 'none');
-        setReason(response.data.reason || '');
-        setWhatsapp(response.data.whatsapp || '');
-        setExperience(response.data.experience || '');
-        setReviewMessage(response.data.rejected_reason || response.data.message || '');
-      })
-      .catch((caught) => {
-        if (active) setError(caught instanceof Error ? caught.message : 'Gagal memuat status upgrade.');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [apiKey]);
-
-  const submit = async () => {
-    if (maintenanceActive) {
-      setError('Maintenance aktif. Pengajuan sementara dinonaktifkan.');
-      return;
-    }
-    setSubmitting(true);
-    setError('');
-    setMessage('');
-    try {
-      const response = await premiuminApi.requestResellerUpgrade({ reason, whatsapp, experience }, apiKey);
-      setStatus(response.data.status || 'pending');
-      setMessage('Pengajuan upgrade reseller berhasil dikirim. Admin akan review dari panel backend.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Gagal mengajukan upgrade reseller.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Panel>
-      <SectionTitle kicker="Reseller" title="Upgrade Akun" />
-      {role === 'reseller' || role === 'admin' ? (
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          Akun Anda sudah reseller. Menu profit analytics dan Bot WhatsApp aktif sesuai role.
-        </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-            <p className="text-sm font-black text-white">Status pengajuan</p>
-            <p className="mt-3 text-2xl font-black uppercase text-brand-light">{loading ? 'loading' : status}</p>
-            <p className="mt-2 text-sm leading-6 text-white/58">
-              Pengajuan diproses di backend. Setelah admin approve, role berubah menjadi reseller dan menu upgrade otomatis hilang.
-            </p>
-            {reviewMessage ? <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">{reviewMessage}</p> : null}
-          </div>
-          <div className="grid gap-3">
-            <input
-              value={whatsapp}
-              onChange={(event) => setWhatsapp(event.target.value)}
-              placeholder="Nomor WhatsApp aktif"
-              className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-            />
-            <textarea
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Alasan ingin menjadi reseller"
-              className="min-h-[110px] rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-            />
-            <textarea
-              value={experience}
-              onChange={(event) => setExperience(event.target.value)}
-              placeholder="Pengalaman jualan (opsional)"
-              className="min-h-[90px] rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-brand/50"
-            />
-            {error ? <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
-            {message ? <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{message}</div> : null}
-            <button
-              onClick={submit}
-              disabled={submitting || loading || status === 'pending' || maintenanceActive}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-black text-white disabled:opacity-60"
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {status === 'pending' ? 'Menunggu Review Admin' : 'Ajukan Upgrade Reseller'}
-            </button>
-          </div>
-        </div>
-      )}
     </Panel>
   );
 }

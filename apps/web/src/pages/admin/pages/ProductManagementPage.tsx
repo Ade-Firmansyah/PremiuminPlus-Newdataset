@@ -3,16 +3,8 @@ import { ImageIcon, PackagePlus, Plus, RefreshCw, Save, Trash2, X } from 'lucide
 import { PageHero, PageSection, NeonCard } from '../../dashboardPageKit';
 import { formatCurrency } from '../../../utils/format';
 import { getApiKey } from '../../../store/useAuth';
-import { premiuminApi, type ProductRecord, type ProductStockItemRecord, type MarkupRangeRecord } from '../../../services/api';
+import { premiuminApi, type ProductRecord, type ProductStockItemRecord } from '../../../services/api';
 import { SettingMarkupPage } from './SettingMarkupPage';
-
-const defaultRanges: MarkupRangeRecord[] = [
-  { min: 0, max: 4999, percent: 18 },
-  { min: 5000, max: 9999, percent: 14 },
-  { min: 10000, max: 14999, percent: 12 },
-  { min: 15000, max: 19999, percent: 11 },
-  { min: 20000, max: null, percent: 10 },
-];
 
 const emptyProduct = {
   id: 0,
@@ -45,11 +37,6 @@ function readNumber(value: unknown): number {
 
 export function ProductManagementPage({ apiKey: sessionApiKey }: { apiKey?: string } = {}) {
   const [products, setProducts] = useState<ProductRecord[]>([]);
-  const [memberRanges, setMemberRanges] = useState<MarkupRangeRecord[]>(defaultRanges);
-  const [resellerRanges, setResellerRanges] = useState<MarkupRangeRecord[]>(defaultRanges.map((range) => ({ ...range, percent: Math.max(0, range.percent - 4) })));
-  const [memberMarkup, setMemberMarkup] = useState(0);
-  const [resellerMarkup, setResellerMarkup] = useState(0);
-  const [markupType, setMarkupType] = useState<'percent' | 'fixed'>('percent');
   const [draft, setDraft] = useState<Record<string, unknown>>(emptyProduct);
   const [activeSource, setActiveSource] = useState<ProductSource>('provider');
   const [stockProduct, setStockProduct] = useState<ProductRecord | null>(null);
@@ -122,27 +109,26 @@ export function ProductManagementPage({ apiKey: sessionApiKey }: { apiKey?: stri
       setError('Nama dan kode produk wajib diisi.');
       return;
     }
-    if (readNumber(draft.member_price) > 0 && readNumber(draft.reseller_price) > readNumber(draft.member_price)) {
-      setError('Harga reseller harus lebih murah atau sama dengan harga anggota.');
-      return;
-    }
-
     setSaving(true);
     setError('');
     setSuccess('');
     try {
       const savedSource = String(draft.product_source || 'manual') as ProductSource;
+      const payload = {
+        ...draft,
+        member_price: readNumber(draft.reseller_price),
+      };
       if (readNumber(draft.id)) {
-        await premiuminApi.adminUpdateProduct(readNumber(draft.id), draft, apiKey || undefined);
+        await premiuminApi.adminUpdateProduct(readNumber(draft.id), payload, apiKey || undefined);
         setSuccess('Produk berhasil diperbarui.');
       } else if (savedSource === 'manual') {
-        await premiuminApi.adminCreateManualProduct(draft, apiKey || undefined);
+        await premiuminApi.adminCreateManualProduct(payload, apiKey || undefined);
         setSuccess('Produk manual berhasil dibuat.');
       } else if (savedSource === 'hybrid') {
-        await premiuminApi.adminCreateHybridProduct(draft, apiKey || undefined);
+        await premiuminApi.adminCreateHybridProduct(payload, apiKey || undefined);
         setSuccess('Produk hybrid berhasil dibuat.');
       } else {
-        await premiuminApi.adminCreateProduct(draft, apiKey || undefined);
+        await premiuminApi.adminCreateProduct(payload, apiKey || undefined);
         setSuccess('Produk berhasil dibuat.');
       }
       closeModal();
@@ -288,30 +274,25 @@ export function ProductManagementPage({ apiKey: sessionApiKey }: { apiKey?: stri
       <PageHero
         title="Product & Margin"
         subtitle="Kelola produk, stok, harga dasar, margin admin, markup role, discount, dan key Premku."
-        slogan="Produk dan pricing adalah satu kesatuan. Admin melihat harga dasar; user hanya melihat harga final Anggota atau Reseller."
+        slogan="Produk dan pricing adalah satu kesatuan. Admin melihat harga dasar; reseller melihat harga final reseller."
         tone="from-brand/15 via-cyan-500/10 to-emerald-500/10"
         chips={['Product catalog', 'Margin rules', 'Premku sync']}
       />
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-3">
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Produk</p>
           <p className="mt-2 text-2xl font-black text-white">{products.length}</p>
           <p className="mt-2 text-sm text-white/45">Katalog dari database/API.</p>
         </NeonCard>
         <NeonCard>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Markup Anggota</p>
-          <p className="mt-2 text-2xl font-black text-emerald-200">{memberRanges.length ? `${memberRanges[0].percent}%+` : `${memberMarkup}%`}</p>
-          <p className="mt-2 text-sm text-white/45">Range anggota aktif.</p>
-        </NeonCard>
-        <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Markup Reseller</p>
-          <p className="mt-2 text-2xl font-black text-sky-200">{resellerRanges.length ? `${resellerRanges[0].percent}%+` : `${resellerMarkup}%`}</p>
+          <p className="mt-2 text-2xl font-black text-sky-200">Aktif</p>
           <p className="mt-2 text-sm text-white/45">Sinkron ke role reseller.</p>
         </NeonCard>
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Pricing Mode</p>
-          <p className="mt-2 text-2xl font-black text-brand-light">{markupType}</p>
+          <p className="mt-2 text-2xl font-black text-brand-light">Reseller</p>
           <p className="mt-2 text-sm text-white/45">Dipakai order dan katalog.</p>
         </NeonCard>
       </section>
@@ -418,7 +399,6 @@ export function ProductManagementPage({ apiKey: sessionApiKey }: { apiKey?: stri
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     <PriceCell label="Base" value={formatCurrency(product.base_price)} />
                     <PriceCell label={product.product_source === 'hybrid' ? 'Stock aktif' : 'Stok'} value={String(stock)} />
-                    <PriceCell label="Anggota" value={formatCurrency(product.member_price)} tone="emerald" />
                     <PriceCell label="Reseller" value={formatCurrency(product.reseller_price)} tone="sky" />
                   </div>
 
@@ -552,7 +532,6 @@ function ProductModal({
             <NeonCard className="mt-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Harga final</p>
               <div className="mt-3 grid gap-2">
-                <PriceCell label="Anggota" value={formatCurrency(readNumber(draft.member_price))} tone="emerald" />
                 <PriceCell label="Reseller" value={formatCurrency(readNumber(draft.reseller_price))} tone="sky" />
               </div>
             </NeonCard>
@@ -582,7 +561,6 @@ function ProductModal({
               {[
                 ['base_price', 'Harga dasar'],
                 ['admin_margin', 'Margin admin'],
-                ['member_price', 'Harga anggota'],
                 ['reseller_price', 'Harga reseller'],
                 ['discount_label_percent', 'Label diskon UI'],
               ].map(([key, label]) => (

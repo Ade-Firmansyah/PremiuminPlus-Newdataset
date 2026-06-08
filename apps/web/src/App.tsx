@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { premiuminApi, setMaintenanceMode } from './services/api';
+import { isMaintenanceMode, premiuminApi, setMaintenanceMode } from './services/api';
 import { clearApiKey, saveApiKey } from './store/useAuth';
 import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -11,7 +11,7 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage').then((module) => 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const AdminPanelPage = lazy(() => import('./pages/AdminPanelPage').then((module) => ({ default: module.AdminPanelPage })));
 
-type SessionRole = 'member' | 'reseller' | 'admin';
+type SessionRole = 'reseller' | 'admin';
 
 interface Session {
   username: string;
@@ -109,6 +109,14 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    const onMaintenanceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ enabled?: boolean }>).detail;
+      const enabled = Boolean(detail?.enabled);
+      setMaintenanceActive(enabled);
+      if (enabled) {
+        setMaintenanceMessage('Backend tidak merespons setelah tiga percobaan. Transaksi sementara dinonaktifkan.');
+      }
+    };
 
     const ping = async () => {
       try {
@@ -120,9 +128,13 @@ export default function App() {
         setMaintenanceMode(nextMaintenance);
       } catch {
         if (!active) return;
-        setMaintenanceActive(false);
-        setMaintenanceMessage('');
-        setMaintenanceMode(false);
+        const fallbackMaintenance = isMaintenanceMode();
+        setMaintenanceActive(fallbackMaintenance);
+        setMaintenanceMessage(
+          fallbackMaintenance
+            ? 'Backend tidak merespons setelah tiga percobaan. Transaksi sementara dinonaktifkan.'
+            : '',
+        );
       }
     };
 
@@ -130,11 +142,13 @@ export default function App() {
     const timer = window.setInterval(ping, 45000);
     const onFocus = () => void ping();
     window.addEventListener('focus', onFocus);
+    window.addEventListener('premiuminplus:maintenance-change', onMaintenanceChange);
 
     return () => {
       active = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('premiuminplus:maintenance-change', onMaintenanceChange);
     };
   }, []);
 

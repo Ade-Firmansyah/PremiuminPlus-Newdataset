@@ -1,31 +1,7 @@
-# 10-admin-system
+# Admin System V4
 
-> Source of truth aktif Premiumin Plus. PRD lama dari `legacy/archive/fase-1-docs-cleanup/docs` sudah digabung, divalidasi, lalu duplicate archive dihapus agar tidak ada dua sumber kontrak.
+Admin panel manages finance monitoring, pending orders, user management, product and margin, deposits, withdrawals, transactions, balance mutations, bot monitoring, notifications, maintenance, backup/restore, API settings, and system logs.
 
----
+User Management roles are only admin and reseller.
 
-## Merged from `12-admin-flow.md`
-
-# Admin Flow Contract
-
-Admin mengelola:
-
-- dashboard finance
-- users
-- products provider/manual/hybrid
-- pricing dan markup
-- Premku API key
-- sync provider
-- pending/manual order
-- cancel/refund order
-- deposits
-- withdrawals
-- notifications
-- bot monitoring
-- logs
-- maintenance
-- backup/restore
-
-Admin action penting wajib tercatat di activity/admin logs dan tidak boleh bypass wallet service.
-
-
+There is no upgrade approval queue in V4.

@@ -28,7 +28,7 @@ const systems = [
   ['Wallet', 'Saldo hanya berubah lewat wallet service dan dicatat ke saldo_logs serta saldo_mutations.'],
   ['Ledger B2B', 'Pembayaran buyer masuk, modal owner keluar, profit hanya analytics dan tidak dikredit dua kali.'],
   ['Bot WhatsApp', 'Bot pribadi memakai Public API. Managed Bot hanya reseller/admin dengan locked balance Rp50.000.'],
-  ['Maintenance', 'Mutasi member/reseller diblokir, read-only tetap tersedia, admin tetap dapat recovery.'],
+  ['Maintenance', 'Mutasi reseller diblokir, read-only tetap tersedia, admin tetap dapat recovery.'],
   ['Backup', 'ZIP tervalidasi berisi database, JSON state, settings, metadata, dan checksum.'],
 ];
 

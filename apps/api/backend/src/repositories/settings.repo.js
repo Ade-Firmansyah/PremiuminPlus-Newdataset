@@ -53,16 +53,12 @@ export async function getMarkupSetting() {
   const rawMarkup = Number((await getSetting('markup', 0)) || 0);
   const markup = Number.isFinite(rawMarkup) && rawMarkup >= 0 ? rawMarkup : 0;
   const markup_type = String((await getSetting('markup_type', 'percent')) || 'percent');
-  const member_markup = await getRoleMarkup('member');
   const reseller_markup = await getRoleMarkup('reseller');
-  const member_markup_ranges = normalizeMarkupRanges(await getSetting('member_markup_ranges', markupTiers));
   const reseller_markup_ranges = normalizeMarkupRanges(await getSetting('reseller_markup_ranges', markupTiers.map((tier) => ({ ...tier, percent: Math.max(0, tier.percent - 4) }))));
   return {
     markup,
     markup_type: markup_type === 'fixed' ? 'fixed' : 'percent',
-    member_markup,
     reseller_markup,
-    member_markup_ranges,
     reseller_markup_ranges,
   };
 }
@@ -79,15 +75,13 @@ function normalizeMarkupRanges(ranges) {
 }
 
 async function getRoleMarkup(role) {
-  const legacyFallback = role === 'member' ? await getSetting('markup', 0) : 0;
-  const value = Number((await getSetting(`${role}_markup`, legacyFallback)) || 0);
+  const value = Number((await getSetting(`${role}_markup`, 0)) || 0);
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 export async function getPricingSettings() {
   const setting = await getMarkupSetting();
   return {
-    member_markup: setting.member_markup,
     reseller_markup: setting.reseller_markup,
     markup_type: setting.markup_type,
   };
@@ -129,16 +123,6 @@ export async function setMarkupSetting(payload) {
     }
     await setSetting('markup_type', payload.markup_type === 'fixed' ? 'fixed' : 'percent');
   }
-  if (payload.member_markup !== undefined) {
-    const value = Number(payload.member_markup);
-    if (!Number.isFinite(value) || value < 0) {
-      const error = new Error('Markup anggota tidak valid');
-      error.statusCode = 400;
-      throw error;
-    }
-    await setSetting('member_markup', value);
-    await setSetting('markup', value);
-  }
   if (payload.reseller_markup !== undefined) {
     const value = Number(payload.reseller_markup);
     if (!Number.isFinite(value) || value < 0) {
@@ -147,9 +131,6 @@ export async function setMarkupSetting(payload) {
       throw error;
     }
     await setSetting('reseller_markup', value);
-  }
-  if (payload.member_markup_ranges !== undefined) {
-    await setSetting('member_markup_ranges', normalizeMarkupRanges(payload.member_markup_ranges));
   }
   if (payload.reseller_markup_ranges !== undefined) {
     await setSetting('reseller_markup_ranges', normalizeMarkupRanges(payload.reseller_markup_ranges));
