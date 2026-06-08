@@ -391,6 +391,8 @@ export interface OrderRecord {
   product_id?: number;
   product_name?: string;
   product_image?: string | null;
+  product_price?: number;
+  product_tutorial_url?: string | null;
   description?: string;
   qty?: number;
   total_price?: number;
@@ -407,6 +409,8 @@ export interface OrderRecord {
   retry_count?: number;
   fulfillment_type?: string | null;
   fulfilled_at?: string | null;
+  email_account?: string | null;
+  password_account?: string | null;
   manual_email?: string | null;
   manual_password?: string | null;
   manual_note?: string | null;
@@ -414,14 +418,19 @@ export interface OrderRecord {
   account_data?: {
     email?: string;
     password?: string;
+    username?: string;
+    pass?: string;
     description?: string;
     [key: string]: unknown;
   } | null;
   accounts?: Array<{
+    email?: string;
     username?: string;
     password?: string;
+    pass?: string;
     [key: string]: unknown;
   }>;
+  raw_response?: Record<string, unknown> | null;
   target_whatsapp?: string | null;
   delivery_status?: string | null;
   delivery_time?: string | null;

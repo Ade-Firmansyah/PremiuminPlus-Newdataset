@@ -17,6 +17,14 @@ function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function productSnapshot(product = {}, total = 0) {
+  return {
+    product_image: product.image_url || product.image || null,
+    product_price: Number(total || product.final_price || product.reseller_price || product.price_sell || product.price_base || product.base_price || 0),
+    product_tutorial_url: product.tutorial_url || null,
+  };
+}
+
 function normalizeStatus(payload) {
   return String(payload?.status ?? payload?.data?.status ?? payload?.pay_status ?? payload?.transaction_status ?? '').toLowerCase();
 }
@@ -151,6 +159,8 @@ export async function refreshOrderStatus(invoice) {
       invoice,
       product_id: transaction.product_id,
       product_name: transaction.product_name,
+      product_image: transaction.product_image || null,
+      product_price: transaction.total_price,
       payment_status: 'success',
       provider_invoice: externalInvoice,
       provider_status: 'success',
@@ -339,7 +349,7 @@ export async function createOrder(user, payload) {
             (pricing.sellPrice - (product.price_base || product.base_price || 0)) * qty,
             JSON.stringify(accounts),
             payload.channel || 'api',
-            product.image || null,
+            product.image_url || product.image || null,
             product.note || '',
             total,
           ],
@@ -348,10 +358,13 @@ export async function createOrder(user, payload) {
         await refreshManualStockCount(connection, product.id);
         await connection.query(
           `INSERT INTO orders
-          (user_id, role, invoice, product_id, product_name, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, fulfillment_type, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'success', ?, 'success', 'success', ?, ?, 'pending', ?, CAST(? AS JSON), NOW(), NOW())
+          (user_id, role, invoice, product_id, product_name, product_image, product_price, product_tutorial_url, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, fulfillment_type, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 'success', 'success', ?, ?, 'pending', ?, CAST(? AS JSON), NOW(), NOW())
          ON DUPLICATE KEY UPDATE
           payment_status = 'success',
+          product_image = COALESCE(NULLIF(VALUES(product_image), ''), product_image),
+          product_price = CASE WHEN VALUES(product_price) > 0 THEN VALUES(product_price) ELSE product_price END,
+          product_tutorial_url = COALESCE(NULLIF(VALUES(product_tutorial_url), ''), product_tutorial_url),
           provider_status = 'success',
           order_status = 'success',
           fulfillment_type = VALUES(fulfillment_type),
@@ -369,6 +382,9 @@ export async function createOrder(user, payload) {
             invoice,
             product.id,
             product.name,
+            product.image_url || product.image || null,
+            total,
+            product.tutorial_url || null,
             stockItems[0]?.email_account || null,
             stockItems[0]?.password_account || null,
             invoice,
@@ -428,7 +444,7 @@ export async function createOrder(user, payload) {
       status: 'pending',
       account_data: null,
       accounts: [],
-      product_image: product.image || null,
+      product_image: product.image_url || product.image || null,
       description: product.note || '',
       channel: payload.channel || 'api',
     });
@@ -454,6 +470,7 @@ export async function createOrder(user, payload) {
         invoice,
         product_id: product.id,
         product_name: product.name,
+        ...productSnapshot(product, total),
         payment_status: 'success',
         provider_invoice: invoice,
         provider_status: 'pending_manual',
@@ -495,6 +512,7 @@ export async function createOrder(user, payload) {
         invoice,
         product_id: product.id,
         product_name: product.name,
+        ...productSnapshot(product, total),
         payment_status: 'success',
         provider_invoice: external?.invoice || external?.data?.invoice || invoice,
         provider_status: nextStatus,
@@ -534,6 +552,7 @@ export async function createOrder(user, payload) {
         invoice,
         product_id: product.id,
         product_name: product.name,
+        ...productSnapshot(product, total),
         payment_status: 'success',
         provider_invoice: external?.invoice || external?.data?.invoice || invoice,
         provider_status: 'pending_manual',
@@ -556,6 +575,7 @@ export async function createOrder(user, payload) {
         invoice,
         product_id: product.id,
         product_name: product.name,
+        ...productSnapshot(product, total),
         payment_status: 'success',
         provider_invoice: external?.invoice || external?.data?.invoice || invoice,
         provider_status: nextStatus,
@@ -578,6 +598,7 @@ export async function createOrder(user, payload) {
         invoice,
         product_id: product.id,
         product_name: product.name,
+        ...productSnapshot(product, total),
         payment_status: 'success',
         provider_invoice: external?.invoice || external?.data?.invoice || invoice,
         provider_status: nextStatus,
@@ -666,6 +687,8 @@ export async function retryOrderByAdmin(invoice) {
       invoice,
       product_id: transaction.product_id,
       product_name: transaction.product_name,
+      product_image: transaction.product_image || null,
+      product_price: transaction.total_price,
       payment_status: 'success',
       provider_invoice: external?.invoice || external?.data?.invoice || invoice,
       provider_status: 'success',

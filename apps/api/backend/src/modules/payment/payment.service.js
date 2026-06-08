@@ -21,6 +21,14 @@ function toMysqlDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function productSnapshot(product = {}, total = 0) {
+  return {
+    image: product.image_url || product.image || null,
+    price: Number(total || product.final_price || product.reseller_price || product.price_sell || product.price_base || product.base_price || 0),
+    tutorial: product.tutorial_url || null,
+  };
+}
+
 function normalizePaymentStatus(payload) {
   const raw = payload?.data?.status ?? payload?.pay_status ?? payload?.payment_status ?? payload?.transaction_status ?? payload?.status ?? payload;
   const value = typeof raw === 'boolean' ? '' : String(raw ?? '').toLowerCase();
@@ -505,7 +513,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           JSON.stringify(accounts),
           JSON.stringify({ source: manualSource, stock_item_ids: stockItems.map((stockItem) => stockItem.id), b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
-          product.image || product.image_url || null,
+          product.image_url || product.image || null,
           product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
           total,
           processedAt,
@@ -515,9 +523,9 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
       await refreshManualStockCount(connection, product.id);
       await connection.query(
         `INSERT INTO orders
-          (user_id, role, invoice, payment_invoice, product_id, product_name, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, fulfillment_type, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 'success', 'success', ?, ?, 'pending', ?, CAST(? AS JSON), ?, ?)
-         ON DUPLICATE KEY UPDATE payment_status = 'success', provider_status = 'success', order_status = 'success', fulfillment_type = VALUES(fulfillment_type), email_account = VALUES(email_account), password_account = VALUES(password_account), raw_response = VALUES(raw_response), updated_at = CURRENT_TIMESTAMP`,
+          (user_id, role, invoice, payment_invoice, product_id, product_name, product_image, product_price, product_tutorial_url, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, fulfillment_type, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 'success', 'success', ?, ?, 'pending', ?, CAST(? AS JSON), ?, ?)
+         ON DUPLICATE KEY UPDATE payment_status = 'success', product_image = COALESCE(NULLIF(VALUES(product_image), ''), product_image), product_price = CASE WHEN VALUES(product_price) > 0 THEN VALUES(product_price) ELSE product_price END, product_tutorial_url = COALESCE(NULLIF(VALUES(product_tutorial_url), ''), product_tutorial_url), provider_status = 'success', order_status = 'success', fulfillment_type = VALUES(fulfillment_type), email_account = VALUES(email_account), password_account = VALUES(password_account), raw_response = VALUES(raw_response), updated_at = CURRENT_TIMESTAMP`,
         [
           payment.user_id,
           role,
@@ -525,6 +533,9 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           invoice,
           product.id,
           product.name,
+          productSnapshot(product, total).image,
+          productSnapshot(product, total).price,
+          productSnapshot(product, total).tutorial,
           stockItems[0]?.email_account || null,
           stockItems[0]?.password_account || null,
           orderInvoice,
@@ -598,16 +609,16 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           JSON.stringify(null),
           JSON.stringify({ ...fallbackResponse, bot_ledger: botLedger, b2b_ledger: b2bLedger }),
           isBotOrder ? 'bot-qris' : 'qris-direct',
-          product.image || product.image_url || null,
+          product.image_url || product.image || null,
           product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
           platformRevenueTotal,
         ],
       );
       await connection.query(
         `INSERT INTO orders
-          (user_id, role, invoice, payment_invoice, product_id, product_name, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'success', ?, 'pending_manual', 'pending_manual', ?, 'pending', ?, CAST(? AS JSON), ?)
-         ON DUPLICATE KEY UPDATE payment_status = 'success', provider_status = 'pending_manual', order_status = 'pending_manual', raw_response = VALUES(raw_response), updated_at = CURRENT_TIMESTAMP`,
+          (user_id, role, invoice, payment_invoice, product_id, product_name, product_image, product_price, product_tutorial_url, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, 'pending_manual', 'pending_manual', ?, 'pending', ?, CAST(? AS JSON), ?)
+         ON DUPLICATE KEY UPDATE payment_status = 'success', product_image = COALESCE(NULLIF(VALUES(product_image), ''), product_image), product_price = CASE WHEN VALUES(product_price) > 0 THEN VALUES(product_price) ELSE product_price END, product_tutorial_url = COALESCE(NULLIF(VALUES(product_tutorial_url), ''), product_tutorial_url), provider_status = 'pending_manual', order_status = 'pending_manual', raw_response = VALUES(raw_response), updated_at = CURRENT_TIMESTAMP`,
         [
           payment.user_id,
           role,
@@ -615,6 +626,9 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
           invoice,
           product.id,
           product.name,
+          productSnapshot(product, total).image,
+          productSnapshot(product, total).price,
+          productSnapshot(product, total).tutorial,
           orderInvoice,
           targetWhatsapp || null,
           total,
@@ -676,7 +690,7 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
         JSON.stringify(accounts.length ? accounts : null),
         JSON.stringify({ ...asPlainObject(external), bot_ledger: botLedger, b2b_ledger: b2bLedger }),
         isBotOrder ? 'bot-qris' : 'qris-direct',
-        product.image || product.image_url || null,
+        product.image_url || product.image || null,
         product.note || product.description || (isBotOrder ? 'Order buyer via reseller bot' : 'Order reseller via QRIS langsung'),
         platformRevenueTotal,
         orderStatus === 'success' ? processedAt : null,
@@ -684,10 +698,13 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
     );
     await connection.query(
       `INSERT INTO orders
-        (user_id, role, invoice, payment_invoice, product_id, product_name, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
+        (user_id, role, invoice, payment_invoice, product_id, product_name, product_image, product_price, product_tutorial_url, email_account, password_account, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, total_price, raw_response, processing_started_at, success_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
        ON DUPLICATE KEY UPDATE
         payment_status = 'success',
+        product_image = COALESCE(NULLIF(VALUES(product_image), ''), product_image),
+        product_price = CASE WHEN VALUES(product_price) > 0 THEN VALUES(product_price) ELSE product_price END,
+        product_tutorial_url = COALESCE(NULLIF(VALUES(product_tutorial_url), ''), product_tutorial_url),
         provider_invoice = COALESCE(VALUES(provider_invoice), provider_invoice),
         provider_status = VALUES(provider_status),
         order_status = VALUES(order_status),
@@ -705,6 +722,9 @@ export async function processSuccessfulPayment(invoice, statusResponse) {
         invoice,
         product.id,
         product.name,
+        productSnapshot(product, total).image,
+        productSnapshot(product, total).price,
+        productSnapshot(product, total).tutorial,
         firstAccount.email || firstAccount.username || null,
         firstAccount.password || firstAccount.pass || null,
         providerInvoice,

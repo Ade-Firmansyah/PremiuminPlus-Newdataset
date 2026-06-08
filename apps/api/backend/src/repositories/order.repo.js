@@ -24,6 +24,9 @@ function toOrder(row) {
     payment_invoice: row.payment_invoice || null,
     product_id: row.product_id || null,
     product_name: row.product_name || '',
+    product_image: row.product_image || null,
+    product_price: Number(row.product_price || row.total_price || 0),
+    product_tutorial_url: row.product_tutorial_url || null,
     email_account: row.email_account || null,
     password_account: row.password_account || null,
     manual_email: manualEmail,
@@ -60,10 +63,13 @@ export async function upsertOrderRecord(payload) {
 
   await execute(
     `INSERT INTO orders
-      (user_id, role, invoice, payment_invoice, product_id, product_name, email_account, password_account, manual_email, manual_password, manual_note, fulfilled_by_admin_id, fulfilled_at, fulfillment_type, retry_count, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, delivery_time, total_price, raw_response, processing_started_at, success_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (user_id, role, invoice, payment_invoice, product_id, product_name, product_image, product_price, product_tutorial_url, email_account, password_account, manual_email, manual_password, manual_note, fulfilled_by_admin_id, fulfilled_at, fulfillment_type, retry_count, payment_status, provider_invoice, provider_status, order_status, target_whatsapp, delivery_status, delivery_time, total_price, raw_response, processing_started_at, success_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
       payment_status = VALUES(payment_status),
+      product_image = COALESCE(NULLIF(VALUES(product_image), ''), product_image),
+      product_price = CASE WHEN VALUES(product_price) > 0 THEN VALUES(product_price) ELSE product_price END,
+      product_tutorial_url = COALESCE(NULLIF(VALUES(product_tutorial_url), ''), product_tutorial_url),
       provider_invoice = COALESCE(VALUES(provider_invoice), provider_invoice),
       provider_status = VALUES(provider_status),
       order_status = VALUES(order_status),
@@ -90,6 +96,9 @@ export async function upsertOrderRecord(payload) {
       payload.payment_invoice || null,
       payload.product_id || null,
       payload.product_name || null,
+      payload.product_image || null,
+      Number(payload.product_price || payload.total_price || 0),
+      payload.product_tutorial_url || null,
       email || null,
       password || null,
       manualEmail,

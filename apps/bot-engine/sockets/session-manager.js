@@ -41,6 +41,31 @@ function shouldStopRetry(error) {
   return error?.invalidInvoice || NO_RETRY_STATUS_CODES.has(Number(error?.statusCode || 0));
 }
 
+function formatPaymentSuccess(invoice) {
+  return [
+    'Pembayaran berhasil ✅',
+    '',
+    'Invoice:',
+    invoice,
+    '',
+    'Terima kasih Kak.',
+    'Pesanan sedang kami proses.',
+  ].join('\n');
+}
+
+function formatProviderPending(invoice) {
+  return [
+    '✅ Pembayaran berhasil',
+    '',
+    'Invoice:',
+    invoice,
+    '',
+    'Pesanan sedang diproses.',
+    '',
+    'Mohon tunggu beberapa saat ya Kak 🙏',
+  ].join('\n');
+}
+
 export class BotSessionManager {
   constructor({ logger, webCoreBaseUrl }) {
     this.logger = logger;
@@ -259,9 +284,9 @@ export class BotSessionManager {
               ? String(response.image)
               : `data:image/png;base64,${response.image}`;
             const buffer = Buffer.from(source.split(',').pop() || '', 'base64');
-            await session.socket.sendMessage(remoteJid, { image: buffer, caption: response.text || '' });
+            const sentMessage = await session.socket.sendMessage(remoteJid, { image: buffer, caption: response.text || '' });
             if (response.invoice) {
-              this.schedulePaymentWatch(session, remoteJid, response.invoice);
+              this.schedulePaymentWatch(session, remoteJid, response.invoice, sentMessage?.key || null);
             }
           } else {
             await session.socket.sendMessage(remoteJid, { text: String(response) });
@@ -273,7 +298,7 @@ export class BotSessionManager {
     }
   }
 
-  schedulePaymentWatch(session, remoteJid, rawInvoice) {
+  schedulePaymentWatch(session, remoteJid, rawInvoice, qrMessageKey = null) {
     const invoice = normalizePaymentInvoice(rawInvoice);
     if (!isLikelyPaymentInvoice(invoice)) {
       this.logger.error('Invalid payment invoice, skip status watch', { invoice: rawInvoice });
@@ -283,6 +308,9 @@ export class BotSessionManager {
     let statusRunning = false;
     let retryAttempt = 0;
     let nextRetryAt = 0;
+    let paymentAcknowledged = false;
+    let providerPendingNotified = false;
+    let accountDelivered = false;
     const client = createWebCoreClient({
       apiBaseUrl: this.webCoreBaseUrl,
       apiKey: session.apiKey,
@@ -308,15 +336,34 @@ export class BotSessionManager {
         nextRetryAt = 0;
         const paymentStatus = String(status.data?.status || '').toLowerCase();
         const orderStatus = String(status.data?.order?.order_status || '').toLowerCase();
+        const paymentPaid = ['success', 'payment_success'].includes(paymentStatus);
+        const orderFinished = ['success', 'provider_success', 'credential_delivery'].includes(orderStatus);
+
+        if (paymentPaid && !paymentAcknowledged && session.socket) {
+          paymentAcknowledged = true;
+          await session.socket.sendMessage(remoteJid, { text: formatPaymentSuccess(invoice) });
+          if (qrMessageKey) {
+            try {
+              await session.socket.sendMessage(remoteJid, { delete: qrMessageKey });
+            } catch (error) {
+              this.logger.error('Failed to delete paid QR message', { invoice, message: error?.message || String(error) });
+            }
+          }
+        }
 
         if (
-          ['success', 'payment_success'].includes(paymentStatus) &&
-          ['success', 'provider_success', 'credential_delivery'].includes(orderStatus) &&
+          paymentPaid &&
+          orderFinished &&
           status.data.order &&
-          session.socket
+          session.socket &&
+          !accountDelivered
         ) {
+          accountDelivered = true;
           await session.socket.sendMessage(remoteJid, { text: formatSuccess(status.data.order) });
           finish();
+        } else if (paymentPaid && status.data.order && !providerPendingNotified && session.socket) {
+          providerPendingNotified = true;
+          await session.socket.sendMessage(remoteJid, { text: formatProviderPending(invoice) });
         } else if (['failed', 'expired', 'canceled'].includes(orderStatus || paymentStatus)) {
           if (session.socket) {
             await session.socket.sendMessage(remoteJid, {

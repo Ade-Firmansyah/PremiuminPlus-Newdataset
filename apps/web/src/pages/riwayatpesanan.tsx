@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Eye, ImageIcon, Loader2, X } from 'lucide-react';
+import { Copy, Eye, Loader2, X } from 'lucide-react';
 import { PageHero, PageSection } from './dashboardPageKit';
 import { premiuminApi, type OrderRecord } from '../services/api';
 import { getApiKey } from '../store/useAuth';
 import { formatCurrency } from '../utils/format';
 import { useStablePolling } from '../hooks/useStablePolling';
+
+const DEFAULT_PRODUCT_IMAGE = '/default-product.webp';
 
 function statusTone(status?: string) {
   const value = String(status || 'pending').toLowerCase();
@@ -41,6 +43,50 @@ function fulfillmentBadge(fulfillmentType?: string) {
 function textValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
   return String(value);
+}
+
+function formatOrderDate(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Jakarta',
+    timeZoneName: 'short',
+  }).format(date);
+}
+
+function productImage(order: OrderRecord) {
+  return order.product_image || DEFAULT_PRODUCT_IMAGE;
+}
+
+function accountFromOrder(order?: OrderRecord | null) {
+  if (!order) return null;
+  return order.accounts?.[0] ||
+    (order.account_data && typeof order.account_data === 'object' ? order.account_data : null);
+}
+
+function rawValue(order: OrderRecord, key: string) {
+  const raw = order.raw_response;
+  if (!raw || typeof raw !== 'object') return '';
+  return String((raw as Record<string, unknown>)[key] || '');
+}
+
+function accessUrl(order: OrderRecord) {
+  return rawValue(order, 'email_access_url') || rawValue(order, 'access_url') || '';
+}
+
+function tutorialUrl(order: OrderRecord) {
+  return order.product_tutorial_url || rawValue(order, 'tutorial_url') || '';
+}
+
+function copyText(value: string) {
+  if (!value || value === '-') return;
+  void navigator.clipboard.writeText(value);
 }
 
 function hasActiveOrder(rows: OrderRecord[]) {
@@ -115,9 +161,7 @@ export default function RiwayatPesanan() {
   };
 
   const selectedStatus = selectedOrder ? statusLabel(selectedOrder) : '';
-  const selectedAccount =
-    selectedOrder?.accounts?.[0] ||
-    (selectedOrder?.account_data && typeof selectedOrder.account_data === 'object' ? selectedOrder.account_data : null);
+  const selectedAccount = accountFromOrder(selectedOrder);
 
   return (
     <div className="riwayat-pesanan">
@@ -135,44 +179,100 @@ export default function RiwayatPesanan() {
           {!loading && !orders.length && !error ? <p className="text-sm text-white/45">Belum ada pesanan.</p> : null}
 
           <div className="grid gap-3">
-            {orders.map((order) => (
-              <button
-                key={order.invoice}
-                type="button"
-                onClick={() => void openDetail(order)}
-                className="grid gap-3 rounded-[1.1rem] border border-white/10 bg-[#0f0b15] p-3 text-left transition hover:border-brand/30 hover:bg-white/[0.07] sm:grid-cols-[56px_1fr_auto]"
-              >
-                <div className="grid h-16 w-full place-items-center overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                  {order.product_image ? (
-                    <img src={order.product_image} alt={order.product_name || 'Produk'} className="h-full w-full object-cover" />
-                  ) : (
-                    <ImageIcon className="h-6 w-6 text-white/30" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-extrabold text-white">{order.product_name || 'Produk digital'}</p>
-                  <p className="mt-1 truncate text-xs text-white/40">{order.invoice}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${statusTone(order.order_status || order.status)}`}>
-                      {statusLabel(order)}
-                    </span>
-                    {fulfillmentBadge(order.fulfillment_type) && (
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${fulfillmentBadge(order.fulfillment_type)?.color}`}>
-                        {fulfillmentBadge(order.fulfillment_type)?.label}
-                      </span>
-                    )}
-                    <span className="text-xs font-semibold text-white/45">{order.created_at || '-'}</span>
+            {orders.map((order) => {
+              const badge = fulfillmentBadge(order.fulfillment_type);
+              const account = accountFromOrder(order);
+              const email = textValue(account?.email || account?.username || order.email_account);
+              const password = textValue(account?.password || account?.pass || order.password_account);
+              const tutorial = tutorialUrl(order);
+              const access = accessUrl(order);
+              const canCopyAccount = canShowCredential(order);
+              const copyAll = [
+                `Produk: ${order.product_name || 'Produk digital'}`,
+                `Invoice: ${order.invoice}`,
+                `Email: ${email}`,
+                `Password: ${password}`,
+                access ? `Akses: ${access}` : '',
+                tutorial ? `Tutorial: ${tutorial}` : '',
+              ].filter(Boolean).join('\n');
+
+              return (
+                <article
+                  key={order.invoice}
+                  className="grid gap-4 rounded-[1.1rem] border border-white/10 bg-[#0f0b15] p-3 text-left transition hover:border-brand/30 hover:bg-white/[0.07] md:grid-cols-[96px_minmax(0,1fr)_160px]"
+                >
+                  <div className="overflow-hidden rounded-xl border border-white/10 bg-white/5 md:h-24">
+                    <img src={productImage(order)} alt={order.product_name || 'Produk'} className="h-full min-h-24 w-full object-cover" loading="lazy" />
                   </div>
-                </div>
-                <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
-                  <p className="text-sm font-black text-white">{formatCurrency(order.total_price || 0)}</p>
-                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/70">
-                    <Eye className="h-3.5 w-3.5" />
-                    Detail
-                  </span>
-                </div>
-              </button>
-            ))}
+
+                  <div className="min-w-0">
+                    <p className="text-base font-extrabold text-white">{order.product_name || 'Produk digital'}</p>
+                    <div className="mt-3 grid gap-2 text-sm text-white/65 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Invoice</p>
+                        <p className="mt-1 break-all font-mono text-xs text-white/75">{order.invoice}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Tanggal</p>
+                        <p className="mt-1 text-white/75">{formatOrderDate(order.created_at)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Status</p>
+                        <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${statusTone(order.order_status || order.status)}`}>
+                          {statusLabel(order)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Metode</p>
+                        {badge ? (
+                          <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${badge.color}`}>
+                            {badge.label}
+                          </span>
+                        ) : (
+                          <p className="mt-1 text-white/75">-</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 border-t border-white/10 pt-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/35">Detail Akun</p>
+                      {canCopyAccount ? (
+                        <div className="mt-3 grid gap-2 text-sm">
+                          <p className="break-all text-white/70">Email: <b className="text-white">{email}</b></p>
+                          <p className="break-all text-white/70">Password: <b className="text-white">{password}</b></p>
+                          {access ? <p className="break-all text-white/70">Akses: <b className="text-white">{access}</b></p> : null}
+                          {tutorial ? <p className="break-all text-white/70">Tutorial: <b className="text-white">{tutorial}</b></p> : null}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button type="button" onClick={() => copyText(email)} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-bold text-white/75">
+                              <Copy className="h-3.5 w-3.5" /> Copy Email
+                            </button>
+                            <button type="button" onClick={() => copyText(password)} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-bold text-white/75">
+                              <Copy className="h-3.5 w-3.5" /> Copy Password
+                            </button>
+                            <button type="button" onClick={() => copyText(copyAll)} className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-2 text-xs font-bold text-white">
+                              <Copy className="h-3.5 w-3.5" /> Copy Semua
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-sky-100/80">Akun akan tampil setelah provider success dan credential tersimpan ke database.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 md:flex-col md:items-end">
+                    <div className="md:text-right">
+                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Harga</p>
+                      <p className="mt-1 text-base font-black text-white">{formatCurrency(order.product_price || order.total_price || 0)}</p>
+                    </div>
+                    <button type="button" onClick={() => void openDetail(order)} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/70">
+                      <Eye className="h-3.5 w-3.5" />
+                      Detail
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </PageSection>
       </div>

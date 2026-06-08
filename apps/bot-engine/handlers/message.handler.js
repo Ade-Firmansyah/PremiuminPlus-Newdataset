@@ -237,17 +237,27 @@ function formatPaymentCaption(payment, productName = 'Produk digital') {
 }
 
 export function formatSuccess(order, settings = {}) {
-  const lines = [
-    `*Produk:* ${order.product_name || '-'}`,
-    '',
-  ];
-  if (order.email_account) lines.push(`*📧 Email:* ${order.email_account}`);
-  if (order.password_account) lines.push(`*🔐 Password:* ${order.password_account}`);
   const raw = order.raw_response || {};
-  const accessUrl = raw.email_access_url || raw.access_url || raw.tutorial_url || '';
-  if (accessUrl) lines.push(`*📩 Akses Email:* ${accessUrl}`);
-  if (raw.tutorial_url) lines.push(`*📖 Tutorial:* ${raw.tutorial_url}`);
-  lines.push('', '*─「 📜 SYARAT & KETENTUAN 」─*', '', settings.terms_text || 'Simpan data akun baik-baik. Garansi mengikuti ketentuan produk.');
+  const accessUrl = raw.email_access_url || raw.access_url || '';
+  const tutorialUrl = raw.tutorial_url || order.product_tutorial_url || '';
+  const lines = [
+    '━━━━━━━━━━━━━━━━━━',
+    '✅ *PESANAN BERHASIL*',
+    '━━━━━━━━━━━━━━━━━━',
+    '',
+    '📦 *Produk:*',
+    order.product_name || '-',
+    '',
+    '📧 *Email:*',
+    order.email_account || '-',
+    '',
+    '🔐 *Password:*',
+    order.password_account || '-',
+  ];
+  if (accessUrl) lines.push('', '🌐 *Akses:*', accessUrl);
+  if (tutorialUrl) lines.push('', '━━━━━━━━━━━━━━━━━━', '📖 *Tutorial*', '━━━━━━━━━━━━━━━━━━', '', tutorialUrl);
+  lines.push('', '━━━━━━━━━━━━━━━━━━', '⚠ Simpan data ini baik-baik', '━━━━━━━━━━━━━━━━━━');
+  if (settings.terms_text) lines.push('', settings.terms_text);
   return lines.join('\n');
 }
 
