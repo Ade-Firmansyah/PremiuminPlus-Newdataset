@@ -18,6 +18,7 @@ import { createWebCoreClient } from '../api-client/web-core.client.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sessionsRoot = path.resolve(__dirname, '..', 'sessions');
 const silentLogger = pino({ level: process.env.BOT_LOG_LEVEL || 'silent' });
+const NO_RETRY_STATUS_CODES = new Set([401, 402, 403, 404]);
 
 function toSessionId(value) {
   return String(value || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -34,6 +35,10 @@ function normalizePaymentInvoice(invoice = '') {
 function isLikelyPaymentInvoice(invoice = '') {
   const value = normalizePaymentInvoice(invoice);
   return Boolean(value) && !/^\d+$/.test(value);
+}
+
+function shouldStopRetry(error) {
+  return error?.invalidInvoice || NO_RETRY_STATUS_CODES.has(Number(error?.statusCode || 0));
 }
 
 export class BotSessionManager {
@@ -231,35 +236,39 @@ export class BotSessionManager {
   async handleMessages(session, event, handler) {
     if (event.type !== 'notify') return;
     for (const message of event.messages || []) {
-      if (!message.message || message.key?.fromMe) continue;
-      const remoteJid = message.key?.remoteJid || '';
-      if (remoteJid.endsWith('@g.us')) continue;
+      try {
+        if (!message.message || message.key?.fromMe) continue;
+        const remoteJid = message.key?.remoteJid || '';
+        if (remoteJid.endsWith('@g.us')) continue;
 
-      const text =
-        message.message.conversation ||
-        message.message.extendedTextMessage?.text ||
-        message.message.imageMessage?.caption ||
-        '';
-      const response = await handler({
-        text,
-        jid: remoteJid,
-        messageId: message.key?.id,
-        pushName: message.pushName || '',
-      });
+        const text =
+          message.message.conversation ||
+          message.message.extendedTextMessage?.text ||
+          message.message.imageMessage?.caption ||
+          '';
+        const response = await handler({
+          text,
+          jid: remoteJid,
+          messageId: message.key?.id,
+          pushName: message.pushName || '',
+        });
 
-      if (response && session.socket) {
-        if (typeof response === 'object' && response.image) {
-          const source = String(response.image).startsWith('data:')
-            ? String(response.image)
-            : `data:image/png;base64,${response.image}`;
-          const buffer = Buffer.from(source.split(',').pop() || '', 'base64');
-          await session.socket.sendMessage(remoteJid, { image: buffer, caption: response.text || '' });
-          if (response.invoice) {
-            this.schedulePaymentWatch(session, remoteJid, response.invoice);
+        if (response && session.socket) {
+          if (typeof response === 'object' && response.image) {
+            const source = String(response.image).startsWith('data:')
+              ? String(response.image)
+              : `data:image/png;base64,${response.image}`;
+            const buffer = Buffer.from(source.split(',').pop() || '', 'base64');
+            await session.socket.sendMessage(remoteJid, { image: buffer, caption: response.text || '' });
+            if (response.invoice) {
+              this.schedulePaymentWatch(session, remoteJid, response.invoice);
+            }
+          } else {
+            await session.socket.sendMessage(remoteJid, { text: String(response) });
           }
-        } else {
-          await session.socket.sendMessage(remoteJid, { text: String(response) });
         }
+      } catch (error) {
+        this.logger.error(`Message handling failed ${session.id}`, { message: error?.message || String(error), statusCode: error?.statusCode });
       }
     }
   }
@@ -272,6 +281,8 @@ export class BotSessionManager {
     }
     if (session.paymentTimers.has(invoice)) return;
     let statusRunning = false;
+    let retryAttempt = 0;
+    let nextRetryAt = 0;
     const client = createWebCoreClient({
       apiBaseUrl: this.webCoreBaseUrl,
       apiKey: session.apiKey,
@@ -289,9 +300,12 @@ export class BotSessionManager {
 
     const statusTimer = setInterval(async () => {
       if (statusRunning) return;
+      if (nextRetryAt && Date.now() < nextRetryAt) return;
       statusRunning = true;
       try {
         const status = await client.paymentStatus(invoice);
+        retryAttempt = 0;
+        nextRetryAt = 0;
         const paymentStatus = String(status.data?.status || '').toLowerCase();
         const orderStatus = String(status.data?.order?.order_status || '').toLowerCase();
 
@@ -312,8 +326,8 @@ export class BotSessionManager {
           finish();
         }
       } catch (error) {
-        if (error?.invalidInvoice) {
-          this.logger.error('Invalid payment invoice, stop status watch', { invoice });
+        if (shouldStopRetry(error)) {
+          this.logger.error('Stop payment watch without retry', { invoice, statusCode: error?.statusCode });
           finish();
           return;
         }
@@ -322,7 +336,15 @@ export class BotSessionManager {
             await session.socket.sendMessage(remoteJid, { text: 'Web sedang maintenance. Transaksi sementara tidak tersedia.' });
           }
           finish();
+          return;
         }
+        retryAttempt += 1;
+        if (retryAttempt >= 3) {
+          this.logger.error('Payment watch retry limit reached', { invoice, retryAttempt, message: error?.message || String(error) });
+          finish();
+          return;
+        }
+        nextRetryAt = Date.now() + Math.min(60_000, (2 ** retryAttempt) * 5000);
       } finally {
         statusRunning = false;
       }
@@ -348,7 +370,7 @@ export class BotSessionManager {
           });
         }
       } catch (error) {
-        if (error?.invalidInvoice) finish();
+        if (shouldStopRetry(error)) finish();
         if (error?.maintenance || error?.statusCode === 503) finish();
       }
     }, 3 * 60 * 1000);
@@ -366,7 +388,7 @@ export class BotSessionManager {
           finish();
         }
       } catch (error) {
-        if (error?.invalidInvoice) finish();
+        if (shouldStopRetry(error)) finish();
         if (error?.maintenance || error?.statusCode === 503) finish();
       }
     }, 5 * 60 * 1000);

@@ -67,7 +67,24 @@ const JSON_COLUMNS = new Set([
   'provider_logs.metadata',
 ]);
 
-const REQUIRED_ZIP_FILES = ['database.sql', 'backup.json', 'settings.json', 'metadata.json', 'backup_info.json', 'checksums.json'];
+const REQUIRED_ZIP_FILES = [
+  'database.sql',
+  'backup.json',
+  'settings.json',
+  'metadata.json',
+  'backup_info.json',
+  'checksums.json',
+  'users.json',
+  'products.json',
+  'orders.json',
+  'transactions.json',
+  'saldo_mutations.json',
+  'deposits.json',
+  'withdraws.json',
+  'bot_settings.json',
+  'system_settings.json',
+  'activity_logs.json',
+];
 const HASHED_ZIP_FILES = REQUIRED_ZIP_FILES.filter((name) => name !== 'checksums.json');
 const restoreJobs = new Map();
 
@@ -275,6 +292,13 @@ function summarize(backup = {}) {
   return BACKUP_TABLES.map((table) => ({ table, rows: summary[table] || 0 }));
 }
 
+function snapProgress(progress) {
+  const value = Number(progress || 0);
+  if (value >= 100) return 100;
+  if (value <= 0) return 0;
+  return Math.min(90, Math.ceil(value / 10) * 10);
+}
+
 function sanitizeErrorMessage(error) {
   return String(error?.message || error || 'Restore gagal')
     .replace(/api_[a-z0-9_]+/gi, 'api_***')
@@ -433,13 +457,13 @@ function makeJob({ type = 'restore', createdBy = null, backup = null, files = []
     progress: 0,
     message: 'Upload tervalidasi. Menunggu konfirmasi restore.',
     logs: [
-      `[${now}] Upload diterima`,
-      `[${now}] Extract ZIP`,
-      `[${now}] Validasi struktur`,
-      `[${now}] Membaca backup.json`,
-      `[${now}] Membaca checksums`,
-      `[${now}] Preview data`,
-      `[${now}] Menunggu konfirmasi`,
+      `[${now}] [OK] 0% Upload diterima`,
+      `[${now}] [OK] 0% Extract ZIP`,
+      `[${now}] [OK] 0% Validasi struktur`,
+      `[${now}] [OK] 0% Membaca backup.json`,
+      `[${now}] [OK] 0% Membaca checksums`,
+      `[${now}] [OK] 0% Preview data`,
+      `[${now}] [OK] 0% Menunggu konfirmasi`,
     ],
     created_by: createdBy,
     created_at: now,
@@ -480,12 +504,86 @@ function publicJob(job) {
   };
 }
 
-function updateJob(job, progress, message) {
+function updateJob(job, progress, message, level = 'OK') {
   const now = new Date().toISOString();
-  job.progress = Math.max(0, Math.min(100, Number(progress || 0)));
+  job.progress = snapProgress(progress);
   job.message = message;
   job.updated_at = now;
-  job.logs.push(`[${now}] ${message}`);
+  job.logs.push(`[${now}] [${level}] ${job.progress}% ${message}`);
+}
+
+async function reconcileFinanceState() {
+  const [negativeBalanceRow] = await query('SELECT COUNT(*) AS total FROM users WHERE saldo < 0 OR locked_balance < 0 OR saldo < locked_balance');
+  const [orphanPaymentRow] = await query(
+    `SELECT COUNT(*) AS total
+     FROM payments p
+     LEFT JOIN users u ON u.id = p.user_id
+     LEFT JOIN products pr ON pr.id = p.product_id
+     WHERE u.id IS NULL OR (p.product_id IS NOT NULL AND pr.id IS NULL)`,
+  );
+  const [orphanOrderRow] = await query(
+    `SELECT COUNT(*) AS total
+     FROM orders o
+     LEFT JOIN users u ON u.id = o.user_id
+     LEFT JOIN products pr ON pr.id = o.product_id
+     LEFT JOIN payments p ON p.invoice = o.payment_invoice
+     WHERE u.id IS NULL
+        OR pr.id IS NULL
+        OR (o.payment_invoice IS NOT NULL AND o.payment_invoice <> '' AND p.invoice IS NULL)`,
+  );
+  const [missingSaldoMutationRow] = await query(
+    `SELECT COUNT(*) AS total
+     FROM balance_mutations bm
+     LEFT JOIN saldo_mutations sm
+       ON sm.user_id = bm.user_id
+      AND sm.reference_id = bm.source_ref
+      AND sm.mutation_type = bm.mutation_type
+     WHERE sm.id IS NULL`,
+  );
+  const [missingBalanceMutationRow] = await query(
+    `SELECT COUNT(*) AS total
+     FROM saldo_mutations sm
+     LEFT JOIN balance_mutations bm
+       ON bm.user_id = sm.user_id
+      AND bm.source_ref = sm.reference_id
+      AND bm.mutation_type = sm.mutation_type
+     WHERE bm.id IS NULL`,
+  );
+
+  const report = {
+    missing_mutation: Number(missingSaldoMutationRow?.total || 0) + Number(missingBalanceMutationRow?.total || 0),
+    orphan_payment: Number(orphanPaymentRow?.total || 0),
+    orphan_order: Number(orphanOrderRow?.total || 0),
+    negative_balance: Number(negativeBalanceRow?.total || 0),
+  };
+  return {
+    ...report,
+    mismatch_total: Object.values(report).reduce((total, value) => total + Number(value || 0), 0),
+    ok: Object.values(report).every((value) => Number(value || 0) === 0),
+  };
+}
+
+async function validateRestoreSchema(backup) {
+  const invalid = [];
+  for (const table of BACKUP_TABLES) {
+    const rows = Array.isArray(backup.tables?.[table]) ? backup.tables[table] : [];
+    if (!rows.length) continue;
+    const columns = await query(`SHOW COLUMNS FROM ${quoteId(table)}`);
+    const allowed = new Set(columns.map((column) => column.Field));
+    const unknown = new Set();
+    for (const row of rows.slice(0, 25)) {
+      for (const column of Object.keys(row)) {
+        if (!allowed.has(column)) unknown.add(column);
+      }
+    }
+    if (unknown.size) invalid.push(`${table}: ${Array.from(unknown).join(', ')}`);
+  }
+  if (invalid.length) {
+    const error = new Error(`Schema backup tidak cocok: ${invalid.join('; ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return true;
 }
 
 async function countRestoredState(backup) {
@@ -615,6 +713,16 @@ export async function downloadSystemBackup(_req, res, next) {
       { name: 'settings.json', data: JSON.stringify({ settings: tables.settings || [] }, null, 2) },
       { name: 'metadata.json', data: JSON.stringify(metadata, null, 2) },
       { name: 'backup_info.json', data: JSON.stringify(backupInfo, null, 2) },
+      { name: 'users.json', data: JSON.stringify({ users: tables.users || [] }, null, 2) },
+      { name: 'products.json', data: JSON.stringify({ products: tables.products || [], product_stock_items: tables.product_stock_items || [] }, null, 2) },
+      { name: 'orders.json', data: JSON.stringify({ orders: tables.orders || [], payments: tables.payments || [] }, null, 2) },
+      { name: 'transactions.json', data: JSON.stringify({ transactions: tables.transactions || [] }, null, 2) },
+      { name: 'saldo_mutations.json', data: JSON.stringify({ saldo_mutations: tables.saldo_mutations || [], balance_mutations: tables.balance_mutations || [] }, null, 2) },
+      { name: 'deposits.json', data: JSON.stringify({ deposits: tables.deposits || [] }, null, 2) },
+      { name: 'withdraws.json', data: JSON.stringify({ withdraws: tables.withdraws || [] }, null, 2) },
+      { name: 'bot_settings.json', data: JSON.stringify({ reseller_bot_settings: tables.reseller_bot_settings || [], bot_settings: (tables.settings || []).filter((row) => String(row.setting_key || row.key || '').includes('bot')) }, null, 2) },
+      { name: 'system_settings.json', data: JSON.stringify({ settings: tables.settings || [] }, null, 2) },
+      { name: 'activity_logs.json', data: JSON.stringify({ activity_logs: tables.activity_logs || [], admin_logs: tables.admin_logs || [] }, null, 2) },
     ];
     const checksumManifest = {
       ...checksums,
@@ -735,30 +843,42 @@ export async function confirmRestoreJob(req, res, next) {
     }
 
     job.status = 'running';
-    updateJob(job, 3, 'Restore dikonfirmasi');
+    updateJob(job, 10, 'Restore dikonfirmasi');
     void (async () => {
       try {
+        updateJob(job, 20, 'Checksum validation');
+        validateBackupPayload(job.backup);
+        updateJob(job, 30, 'Validate schema');
+        await validateRestoreSchema(job.backup);
+        updateJob(job, 40, 'Dry run validation');
         await restoreBackupData(job.backup, (progress, message) => updateJob(job, progress, message));
+        updateJob(job, 90, 'Rebuild indexes');
         await setMaintenanceStatus({
           enabled: true,
           message: maintenance.message || 'Restore selesai. Lakukan validasi sebelum maintenance dinonaktifkan.',
           adminId: req.user?.id || null,
         });
-        updateJob(job, 94, 'Clear cache');
+        updateJob(job, 90, 'Clear cache');
         deleteCachePrefix('');
-        updateJob(job, 98, 'Validasi hasil');
+        updateJob(job, 90, 'Reconcile finance');
+        const financeReconciliation = await reconcileFinanceState();
+        updateJob(job, 90, 'Final validation');
         const validation = await countRestoredState(job.backup);
         const warnings = Object.entries(validation)
           .filter(([, item]) => item && item.ok === false)
           .map(([table, item]) => `${table}: database ${item.database}, backup ${item.backup}`);
+        if (!financeReconciliation.ok) {
+          warnings.push(`finance_reconciliation: ${financeReconciliation.mismatch_total} mismatch`);
+        }
         job.result = {
           validation,
+          finance_reconciliation: financeReconciliation,
           warnings,
           checklist: {
             users: validation.users?.ok === true,
             products: validation.products?.ok === true,
             settings: validation.settings?.ok === true,
-            finance: validation.transactions?.ok === true && validation.saldo_mutations?.ok === true,
+            finance: validation.transactions?.ok === true && validation.saldo_mutations?.ok === true && financeReconciliation.ok,
             orders: validation.orders?.ok === true,
             bot_settings: validation.reseller_bot_settings?.ok === true,
             maintenance: validation.settings_present?.ok === true,
@@ -770,7 +890,7 @@ export async function confirmRestoreJob(req, res, next) {
         };
         job.status = warnings.length ? 'completed_with_warning' : 'completed';
         job.completed_at = new Date().toISOString();
-        updateJob(job, 100, warnings.length ? `FAILED - validasi warning: ${warnings.join('; ')}` : 'SUCCESS - Restore berhasil. Semua data sudah diterapkan.');
+        updateJob(job, 100, warnings.length ? `Validasi warning: ${warnings.join('; ')}` : 'SUCCESS - Restore berhasil. Semua data sudah diterapkan.', warnings.length ? 'WARNING' : 'OK');
         await safeCreateActivityLog({
           actor_id: req.user?.id || null,
           scope: 'SYSTEM',
@@ -781,7 +901,7 @@ export async function confirmRestoreJob(req, res, next) {
       } catch (error) {
         job.status = 'failed';
         job.failed_at = new Date().toISOString();
-        updateJob(job, job.progress || 1, sanitizeErrorMessage(error));
+        updateJob(job, job.progress || 10, sanitizeErrorMessage(error), 'ERROR');
       }
     })();
 

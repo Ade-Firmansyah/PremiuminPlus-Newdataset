@@ -308,6 +308,14 @@ export interface RestoreJobRecord {
     warnings?: string[];
     checklist?: Record<string, boolean>;
     validation?: Record<string, { backup: number; database: number; ok: boolean }>;
+    finance_reconciliation?: {
+      missing_mutation: number;
+      orphan_payment: number;
+      orphan_order: number;
+      negative_balance: number;
+      mismatch_total: number;
+      ok: boolean;
+    };
   } | null;
 }
 

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
@@ -245,7 +245,17 @@ const resellerApiEndpoints = [
   ['POST', '/bot/session/connect', 'Connect WhatsApp session dan tampilkan QR login.'],
 ];
 
-function DashboardApiKeyPanel({ username, apiKey, maintenanceActive = false }: { username: string; apiKey: string; maintenanceActive?: boolean }) {
+function DashboardApiKeyPanel({
+  username,
+  apiKey,
+  maintenanceActive = false,
+  compact = false,
+}: {
+  username: string;
+  apiKey: string;
+  maintenanceActive?: boolean;
+  compact?: boolean;
+}) {
   const [key, setKey] = useState(apiKey);
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -368,6 +378,51 @@ with urlopen(request, timeout=20) as response:
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1300);
   };
+
+  if (compact) {
+    return (
+      <Panel>
+        <SectionTitle
+          kicker="Developer"
+          title="API Key"
+          action={(
+            <Link to="/dashboard/api-key" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-white/72 transition hover:border-brand/35 hover:bg-brand/10 hover:text-white" aria-label="Buka dokumentasi API Key">
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          )}
+        />
+
+        <div className="min-w-0 rounded-xl border border-white/10 bg-[#050816] p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Pengguna</p>
+          <p className="mt-1 truncate text-sm font-black text-white">{username}</p>
+          <p className="mt-3 text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Key</p>
+          <p className="mt-1 min-w-0 break-all font-mono text-xs leading-5 tracking-[0.08em] text-white/78">{visible ? key : maskKey(key)}</p>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-brand/20 bg-brand/10 p-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-light">Base URL</p>
+          <p className="mt-1 truncate font-mono text-xs text-white">{publicApiBaseUrl}</p>
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <button onClick={() => setVisible((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.06] px-2 py-2 text-xs font-bold text-white/80">{visible ? 'Hide' : 'Show'}</button>
+          <button onClick={copy} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#ff2f92] px-2 py-2 text-xs font-bold text-white">
+            <Copy className="h-3.5 w-3.5" />
+            {copied ? 'OK' : 'Copy'}
+          </button>
+          <button onClick={refresh} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.06] px-2 py-2 text-xs font-bold text-white/80">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Sync
+          </button>
+        </div>
+
+        <Link to="/dashboard/api-key" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-brand/25 bg-brand/10 px-3 py-2.5 text-xs font-black text-white transition hover:border-brand/45 hover:bg-brand/20">
+          Buka Dokumentasi
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </Panel>
+    );
+  }
 
   return (
     <Panel>
@@ -1151,7 +1206,7 @@ function DashboardHome({ session, maintenanceActive = false }: { session: Dashbo
           </div>
         </Panel>
         <QuickActions maintenanceActive={maintenanceActive} />
-        <DashboardApiKeyPanel username={session.username} apiKey={session.apiKey} maintenanceActive={maintenanceActive} />
+        <DashboardApiKeyPanel username={session.username} apiKey={session.apiKey} maintenanceActive={maintenanceActive} compact />
         <PromoCard />
       </aside>
     </div>

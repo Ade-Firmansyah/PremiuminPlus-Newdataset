@@ -31,7 +31,16 @@ function ProgressBar({ value }: { value: number }) {
 function LogBox({ logs }: { logs: string[] }) {
   return (
     <div className="max-h-56 overflow-auto rounded-2xl border border-white/10 bg-black/35 p-3 font-mono text-xs leading-6 text-white/65">
-      {logs.length ? logs.map((line, index) => <p key={`${line}-${index}`}>{line}</p>) : <p>Belum ada log proses.</p>}
+      {logs.length ? logs.map((line, index) => {
+        const tone = line.includes('[ERROR]')
+          ? 'text-rose-200'
+          : line.includes('[WARNING]')
+            ? 'text-amber-200'
+            : line.includes('[OK]')
+              ? 'text-emerald-200'
+              : 'text-white/65';
+        return <p key={`${line}-${index}`} className={`${tone} break-words`}>{line}</p>;
+      }) : <p>Belum ada log proses.</p>}
     </div>
   );
 }
@@ -277,7 +286,7 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Backup Format</p>
           <p className="mt-2 text-xl font-black text-white">ZIP</p>
-          <p className="mt-2 text-sm text-white/45">database.sql, backup.json, metadata, info, checksums.</p>
+          <p className="mt-2 text-sm text-white/45">database.sql, backup.json, users, products, orders, finance, bot settings, metadata, checksums.</p>
         </NeonCard>
         <NeonCard>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/35">Restore Flow</p>
@@ -350,7 +359,7 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
                 <p className="text-xs text-white/45">{restoreJob.progress}%</p>
               </div>
               {restoreJob.files?.length ? (
-                <p className="mt-3 text-xs text-white/45">File tervalidasi: {restoreJob.files.join(', ')}</p>
+                <p className="mt-3 break-words text-xs text-white/45">File tervalidasi: {restoreJob.files.join(', ')}</p>
               ) : null}
               <button onClick={confirmRestore} disabled={loading || restoreJob.status !== 'pending'} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm font-black text-rose-100 disabled:opacity-50">
                 Confirm Restore Sekarang
@@ -377,6 +386,18 @@ export function SystemBackupPage({ apiKey: sessionApiKey }: { apiKey?: string } 
                     </p>
                   </div>
                 ))}
+              </div>
+            ) : null}
+
+            {restoreJob.result?.finance_reconciliation ? (
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${restoreJob.result.finance_reconciliation.ok ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/20 bg-amber-500/10 text-amber-100'}`}>
+                <p className="font-black">Finance Reconciliation</p>
+                <p className="mt-1 text-white/65">
+                  missing mutation: {restoreJob.result.finance_reconciliation.missing_mutation},
+                  orphan payment: {restoreJob.result.finance_reconciliation.orphan_payment},
+                  orphan order: {restoreJob.result.finance_reconciliation.orphan_order},
+                  negative balance: {restoreJob.result.finance_reconciliation.negative_balance}
+                </p>
               </div>
             ) : null}
 

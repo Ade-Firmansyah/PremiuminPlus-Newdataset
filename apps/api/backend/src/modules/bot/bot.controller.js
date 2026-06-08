@@ -204,7 +204,7 @@ export async function botProfile(req, res, next) {
 
 export async function botCatalog(req, res, next) {
   try {
-    const data = await remember(`bot:catalog:user:${req.user.id}`, 10, () => getBotCatalog(req.user));
+    const data = await remember(`bot_catalog:${req.user.id}`, 10, () => getBotCatalog(req.user));
     res.json({ status: true, data });
   } catch (error) {
     next(error);
@@ -214,7 +214,7 @@ export async function botCatalog(req, res, next) {
 export async function botSettings(req, res, next) {
   try {
     assertManagedBotAccess(req.user);
-    const data = await getResellerBotSettings(req.user);
+    const data = await remember(`bot_settings:${req.user.id}`, 10, () => getResellerBotSettings(req.user));
     res.json({ status: true, data });
   } catch (error) {
     next(error);
@@ -225,7 +225,8 @@ export async function updateBotSettings(req, res, next) {
   try {
     assertManagedBotAccess(req.user);
     const data = await updateResellerBotSettings(req.user, req.body || {});
-    deleteCachePrefix(`bot:catalog:user:${req.user.id}`);
+    deleteCachePrefix(`bot_catalog:${req.user.id}`);
+    deleteCachePrefix(`bot_settings:${req.user.id}`);
     res.json({ status: true, data });
   } catch (error) {
     next(error);
@@ -263,6 +264,8 @@ export async function botCreateOrder(req, res, next) {
       qty: Number(req.body?.qty || 1),
       channel: 'bot',
     });
+    deleteCachePrefix(`bot_history:${req.user.id}`);
+    deleteCachePrefix(`bot_analytics:${req.user.id}`);
 
     return res.status(201).json({ status: true, data });
   } catch (error) {
@@ -289,6 +292,8 @@ export async function botCreatePayment(req, res, next) {
       buyer_whatsapp: req.body?.buyer_whatsapp,
       buyer_name: req.body?.buyer_name,
     });
+    deleteCachePrefix(`bot_history:${req.user.id}`);
+    deleteCachePrefix(`bot_analytics:${req.user.id}`);
     return res.status(201).json({ status: true, data });
   } catch (error) {
     return next(error);
@@ -299,6 +304,8 @@ export async function botPaymentStatus(req, res, next) {
   try {
     const data = await refreshDirectPaymentStatus(req.params.invoice, req.user);
     if (!data) return res.status(404).json({ status: false, message: 'Payment tidak ditemukan' });
+    deleteCachePrefix(`bot_history:${req.user.id}`);
+    deleteCachePrefix(`bot_analytics:${req.user.id}`);
     return res.json({ status: true, data });
   } catch (error) {
     return next(error);
@@ -308,6 +315,8 @@ export async function botPaymentStatus(req, res, next) {
 export async function botPaymentCancel(req, res, next) {
   try {
     const data = await cancelDirectPayment(req.body?.invoice || req.params.invoice, req.user);
+    deleteCachePrefix(`bot_history:${req.user.id}`);
+    deleteCachePrefix(`bot_analytics:${req.user.id}`);
     return res.json({ status: true, data });
   } catch (error) {
     return next(error);
@@ -358,7 +367,7 @@ export async function botSessionLogout(req, res, next) {
 
 export async function botHistory(req, res, next) {
   try {
-    const rows = await query(
+    const rows = await remember(`bot_history:${req.user.id}`, 10, () => query(
       `SELECT p.invoice, p.amount, p.total_bayar, p.modal_price, p.sell_price, p.reseller_profit, p.status, p.product_id, p.buyer_whatsapp, p.buyer_name, pr.name AS product_name, p.order_invoice, p.created_at, p.processed_at,
               o.order_status, o.provider_status, o.delivery_status, o.email_account, o.password_account
        FROM payments p
@@ -368,7 +377,7 @@ export async function botHistory(req, res, next) {
        ORDER BY p.id DESC
        LIMIT 50`,
       [Number(req.user.id)],
-    );
+    ));
     res.json({ status: true, data: rows });
   } catch (error) {
     next(error);
@@ -377,7 +386,7 @@ export async function botHistory(req, res, next) {
 
 export async function botAnalytics(req, res, next) {
   try {
-    const [row] = await query(
+    const [row] = await remember(`bot_analytics:${req.user.id}`, 10, () => query(
       `SELECT
          COUNT(*) AS total_order_bot,
          COALESCE(SUM(CASE WHEN status IN ('payment_success', 'success') THEN sell_price ELSE 0 END), 0) AS total_pembayaran_masuk,
@@ -388,7 +397,7 @@ export async function botAnalytics(req, res, next) {
        FROM payments
        WHERE user_id = ? AND payment_type = 'bot_order'`,
       [Number(req.user.id)],
-    );
+    ));
     res.json({
       status: true,
       data: {
