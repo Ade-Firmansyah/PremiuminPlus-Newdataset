@@ -8,16 +8,23 @@ import { deleteCachePrefix, remember } from '../../services/cache.service.js';
 import { execute, query } from '../../config/db.js';
 import { findResellerBotSettings, getResellerBotSettings, updateResellerBotSettings } from '../../repositories/reseller-bot-settings.repo.js';
 
+const BOT_MINIMUM_BALANCE = 50000;
+
+function hasManagedBotBalance(user = {}) {
+  const saldo = Number(user.saldo || 0);
+  const lockedBalance = Number(user.locked_balance || 0);
+  return saldo >= BOT_MINIMUM_BALANCE || (Boolean(user.bot_access_unlocked) && lockedBalance >= BOT_MINIMUM_BALANCE && saldo >= lockedBalance);
+}
+
 function assertManagedBotAccess(user) {
   if (!user || !['admin', 'reseller'].includes(user.role)) {
     const error = new Error('Managed Bot Engine hanya tersedia untuk admin dan reseller aktif');
     error.statusCode = 403;
     throw error;
   }
-  const lockedBalance = Number(user.locked_balance || 0);
-  const hasAccess = user.role === 'admin' || (Boolean(user.bot_access_unlocked) && Number(user.saldo || 0) >= lockedBalance && lockedBalance >= 50000);
+  const hasAccess = user.role === 'admin' || hasManagedBotBalance(user);
   if (!hasAccess) {
-    const error = new Error(user.bot_disabled_reason || 'Fitur Bot WhatsApp terkunci. Aktivasi membutuhkan locked balance Rp50.000.');
+    const error = new Error(user.bot_disabled_reason || 'Fitur Bot WhatsApp terkunci. Saldo utama minimal Rp50.000.');
     error.statusCode = 402;
     error.code = 'BOT_ACCESS_LOCKED';
     throw error;

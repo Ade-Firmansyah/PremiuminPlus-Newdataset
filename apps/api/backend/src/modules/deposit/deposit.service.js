@@ -169,7 +169,7 @@ export async function createDeposit(user, amount, options = {}) {
 }
 
 export async function createBotActivationDeposit(user) {
-  if (user.bot_access_unlocked && Number(user.locked_balance || 0) >= BOT_LOCKED_BALANCE && Number(user.saldo || 0) >= Number(user.locked_balance || 0)) {
+  if (Number(user.saldo || 0) >= BOT_LOCKED_BALANCE || (user.bot_access_unlocked && Number(user.locked_balance || 0) >= BOT_LOCKED_BALANCE && Number(user.saldo || 0) >= Number(user.locked_balance || 0))) {
     const error = new Error('Akses Bot WhatsApp sudah aktif');
     error.statusCode = 409;
     throw error;

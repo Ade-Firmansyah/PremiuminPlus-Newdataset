@@ -68,18 +68,33 @@ export default function BotWA() {
       setLoading(true);
       setError('');
       try {
-        const [response, meResponse] = await Promise.all([
-          premiuminApi.resellerBotSettings(apiKey || undefined),
-          premiuminApi.me(apiKey || undefined),
-        ]);
+        const meResponse = await premiuminApi.me(apiKey || undefined);
         if (!active) return;
-        const resolvedMargin = Number(response.data.reseller_margin_value ?? meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
         setMe(meResponse.data);
-        setSettings(response.data);
+        setApiKeyMasked(meResponse.data.api_key ? `${meResponse.data.api_key.slice(0, 10)}...${meResponse.data.api_key.slice(-6)}` : '-');
+
+        let nextSettings = fallback;
+        try {
+          const response = await premiuminApi.resellerBotSettings(apiKey || undefined);
+          if (!active) return;
+          nextSettings = response.data;
+          setSettings(response.data);
+        } catch (settingsError) {
+          if (!active) return;
+          nextSettings = {
+            ...fallback,
+            reseller_margin_value: Number(meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? fallback.reseller_margin_value),
+          };
+          setSettings(nextSettings);
+          if (Number(meResponse.data.saldo || 0) < 50000) {
+            setError(settingsError instanceof Error ? settingsError.message : 'Gagal memuat setting bot.');
+          }
+        }
+
+        const resolvedMargin = Number(nextSettings.reseller_margin_value ?? meResponse.data.reseller_margin_percent ?? meResponse.data.markup_percent ?? 0);
         setMarginDraft(resolvedMargin);
         marginDesired.current = resolvedMargin;
         setPersistedMargin(resolvedMargin);
-        setApiKeyMasked(meResponse.data.api_key ? `${meResponse.data.api_key.slice(0, 10)}...${meResponse.data.api_key.slice(-6)}` : '-');
         premiuminApi.deposits(apiKey || undefined)
           .then((depositResponse) => {
             if (!active) return;
@@ -150,7 +165,11 @@ export default function BotWA() {
     };
   }, [loading, marginDraft, persistedMargin]);
 
-  const botUnlocked = Boolean(me?.bot_access_unlocked && Number(me?.locked_balance || 0) >= 50000 && Number(me?.saldo || 0) >= Number(me?.locked_balance || 0));
+  const botUnlocked = Boolean(
+    me?.role === 'admin' ||
+      Number(me?.saldo || 0) >= 50000 ||
+      (me?.bot_access_unlocked && Number(me?.locked_balance || 0) >= 50000 && Number(me?.saldo || 0) >= Number(me?.locked_balance || 0)),
+  );
 
   const loadStatus = useCallback(async () => {
     if (!botUnlocked) return;

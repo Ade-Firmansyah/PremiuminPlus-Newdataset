@@ -1,6 +1,8 @@
 import { findUserByApiKey } from '../repositories/user.repo.js';
 import { execute } from '../config/db.js';
 
+const BOT_MINIMUM_BALANCE = 50000;
+
 function readApiKey(req) {
   const rawApiKey = req.headers['x-api-key'];
   const apiKey = Array.isArray(rawApiKey) ? String(rawApiKey[0] || '').trim() : String(rawApiKey || '').trim();
@@ -107,11 +109,13 @@ export function requireManagedBotAccess(req, res, next) {
 
   const lockedBalance = Number(user.locked_balance || 0);
   const saldo = Number(user.saldo || 0);
-  if (!user.bot_access_unlocked || lockedBalance < 50000 || saldo < lockedBalance) {
+  const hasMainBalanceAccess = saldo >= BOT_MINIMUM_BALANCE;
+  const hasLegacyLockedAccess = Boolean(user.bot_access_unlocked) && lockedBalance >= BOT_MINIMUM_BALANCE && saldo >= lockedBalance;
+  if (!hasMainBalanceAccess && !hasLegacyLockedAccess) {
     return res.status(402).json({
       status: false,
       code: 'BOT_ACCESS_LOCKED',
-      message: user.bot_disabled_reason || 'Managed Bot Hosting terkunci. Aktivasi membutuhkan locked balance Rp50.000.',
+      message: user.bot_disabled_reason || 'Managed Bot Hosting terkunci. Saldo utama minimal Rp50.000.',
     });
   }
 

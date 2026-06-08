@@ -79,7 +79,7 @@ export function BotActivationPanel({
 
   const saldo = Number(me?.saldo || 0);
   const lockedBalance = Number(me?.locked_balance || 0);
-  const botActive = Boolean(me?.bot_access_unlocked && lockedBalance >= ACTIVATION_AMOUNT && saldo >= lockedBalance);
+  const botActive = Boolean(saldo >= ACTIVATION_AMOUNT || (me?.bot_access_unlocked && lockedBalance >= ACTIVATION_AMOUNT && saldo >= lockedBalance));
   const shortage = Math.max(ACTIVATION_AMOUNT - saldo, 0);
   const qrValue = activationDeposit?.qr_image || activationDeposit?.qr_raw || activationDeposit?.qr_data || '';
   const qrSource = renderQrSource(qrValue);
