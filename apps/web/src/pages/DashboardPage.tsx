@@ -381,7 +381,7 @@ with urlopen(request, timeout=20) as response:
 
   if (compact) {
     return (
-      <Panel>
+      <Panel className="p-3">
         <SectionTitle
           kicker="Developer"
           title="API Key"
@@ -392,16 +392,8 @@ with urlopen(request, timeout=20) as response:
           )}
         />
 
-        <div className="min-w-0 rounded-xl border border-white/10 bg-[#050816] p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Pengguna</p>
-          <p className="mt-1 truncate text-sm font-black text-white">{username}</p>
-          <p className="mt-3 text-[10px] font-black uppercase tracking-[0.16em] text-white/35">Key</p>
-          <p className="mt-1 min-w-0 break-all font-mono text-xs leading-5 tracking-[0.08em] text-white/78">{visible ? key : maskKey(key)}</p>
-        </div>
-
-        <div className="mt-3 rounded-xl border border-brand/20 bg-brand/10 p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-light">Base URL</p>
-          <p className="mt-1 truncate font-mono text-xs text-white">{publicApiBaseUrl}</p>
+        <div className="min-w-0 rounded-xl border border-white/10 bg-[#050816] px-3 py-2.5">
+          <p className="truncate font-mono text-xs leading-5 tracking-[0.06em] text-white/82">{visible ? key : maskKey(key)}</p>
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2">
@@ -415,11 +407,6 @@ with urlopen(request, timeout=20) as response:
             Sync
           </button>
         </div>
-
-        <Link to="/dashboard/api-key" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-brand/25 bg-brand/10 px-3 py-2.5 text-xs font-black text-white transition hover:border-brand/45 hover:bg-brand/20">
-          Buka Dokumentasi
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
       </Panel>
     );
   }
