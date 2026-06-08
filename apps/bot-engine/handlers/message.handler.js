@@ -5,6 +5,23 @@ function normalizeText(message = '') {
   return String(message).trim().toLowerCase();
 }
 
+function normalizeWhatsappNumber(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw.includes('@lid')) return '';
+
+  const localPart = raw.split('@')[0].split(':')[0];
+  const digits = localPart.replace(/\D/g, '');
+  if (!digits) return '';
+
+  const normalized = digits.startsWith('0')
+    ? `62${digits.slice(1)}`
+    : digits.startsWith('8')
+      ? `62${digits}`
+      : digits;
+
+  return /^62\d{8,15}$/.test(normalized) ? normalized : '';
+}
+
 function formatRupiah(value) {
   return Number(value || 0).toLocaleString('id-ID');
 }
@@ -277,7 +294,10 @@ export function createMessageHandler({ client, queue, logger }) {
         const code = buyMatch[1];
         const catalog = await client.catalog();
         const product = (catalog.data || []).find((item) => productCode(item) === code);
-        const payment = await client.payment({ product_code: code, qty: 1, buyer_whatsapp: context.jid?.split('@')[0], buyer_name: context.pushName || '' });
+        const buyerWhatsapp = normalizeWhatsappNumber(context.sender || context.participant || context.jid);
+        const payload = { product_code: code, qty: 1, buyer_name: context.pushName || '' };
+        if (buyerWhatsapp) payload.buyer_whatsapp = buyerWhatsapp;
+        const payment = await client.payment(payload);
         const invoice = paymentInvoice(payment.data);
         if (!isLikelyPaymentInvoice(invoice)) {
           logger.error('Invalid payment invoice from web-core', { product_code: code, invoice });
@@ -323,7 +343,14 @@ export function createMessageHandler({ client, queue, logger }) {
           logger.info('Maintenance response sent to bot user');
           return MAINTENANCE_REPLY;
         }
-        throw error;
+        logger.error('Bot message failed', {
+          message: error?.message || String(error),
+          statusCode: error?.statusCode,
+        });
+        if (error?.statusCode === 400) {
+          return `Order belum bisa diproses: ${error.message || 'data pesanan tidak valid'}.\n\nSilakan cek format order dan coba lagi.`;
+        }
+        return 'Bot sedang gagal memproses request ini. Silakan coba lagi beberapa saat.';
       }
     });
   };
