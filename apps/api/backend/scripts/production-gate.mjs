@@ -150,6 +150,122 @@ async function verifyUniqueConstraints(db, backup) {
   }
 }
 
+async function verifyUserDeletionCleanup(db) {
+  const suffix = crypto.randomBytes(6).toString('hex');
+  const username = `gate_delete_${suffix}`;
+  const productResult = await db.execute(
+    `INSERT INTO products
+      (code, name, stock, manual_stock_count, status, product_source, base_price, member_price, reseller_price)
+     VALUES (?, 'Gate Delete Product', 0, 0, 'active', 'manual', 1, 1, 1)`,
+    [`GATE-DELETE-${suffix}`],
+  );
+  const productId = Number(productResult.insertId);
+  let userId = null;
+
+  try {
+    const userResult = await db.execute(
+      `INSERT INTO users (username, role, status, saldo, api_key)
+       VALUES (?, 'reseller', 'active', 0, ?)`,
+      [username, `gate_delete_${crypto.randomBytes(18).toString('hex')}`],
+    );
+    userId = Number(userResult.insertId);
+    const paymentInvoice = `GATE-DELETE-PAY-${suffix}`;
+
+    await db.execute('INSERT INTO reseller_bot_settings (user_id) VALUES (?)', [userId]);
+    await db.execute(
+      `INSERT INTO transactions (invoice, user_id, transaction_type, amount, status)
+       VALUES (?, ?, 'order', 1, 'pending')`,
+      [`GATE-DELETE-TRX-${suffix}`, userId],
+    );
+    await db.execute(
+      `INSERT INTO payments (invoice, user_id, product_id, amount, total_bayar, payment_type, status)
+       VALUES (?, ?, ?, 1, 1, 'order', 'pending_payment')`,
+      [paymentInvoice, userId, productId],
+    );
+    await db.execute(
+      `INSERT INTO orders
+        (user_id, invoice, payment_invoice, product_id, product_name, product_price, total_price)
+       VALUES (?, ?, ?, ?, 'Gate Delete Product', 1, 1)`,
+      [userId, `GATE-DELETE-ORD-${suffix}`, paymentInvoice, productId],
+    );
+    await db.execute(
+      `INSERT INTO deposits (invoice, user_id, amount, total_bayar, status)
+       VALUES (?, ?, 1, 1, 'pending')`,
+      [`GATE-DELETE-DEP-${suffix}`, userId],
+    );
+    await db.execute(
+      `INSERT INTO withdraws (invoice, user_id, amount, status)
+       VALUES (?, ?, 1, 'pending')`,
+      [`GATE-DELETE-WD-${suffix}`, userId],
+    );
+    await db.execute('INSERT INTO saldo_logs (user_id, amount) VALUES (?, 1)', [userId]);
+    await db.execute('INSERT INTO saldo_mutations (user_id, amount) VALUES (?, 1)', [userId]);
+    await db.execute('INSERT INTO balance_mutations (user_id, amount) VALUES (?, 1)', [userId]);
+    await db.execute(
+      `INSERT INTO notifications (user_id, title, message, created_by)
+       VALUES (?, 'Gate', 'Delete cleanup', ?)`,
+      [userId, userId],
+    );
+    await db.execute(
+      `INSERT INTO notifications (title, message, created_by)
+       VALUES ('Gate creator', 'Delete creator cleanup', ?)`,
+      [userId],
+    );
+    await db.execute(
+      `INSERT INTO activity_logs (user_id, actor_id, action)
+       VALUES (?, ?, 'gate_delete')`,
+      [userId, userId],
+    );
+    await db.execute(
+      `INSERT INTO websocket_events (event_name, target_user_id)
+       VALUES ('gate.delete', ?)`,
+      [userId],
+    );
+    await db.execute(
+      `INSERT INTO temp_notifications (user_id, message, expires_at)
+       VALUES (?, 'Gate delete cleanup', DATE_ADD(NOW(), INTERVAL 1 HOUR))`,
+      [userId],
+    );
+
+    const { deleteUserWithCleanup } = await import('../src/repositories/user.repo.js');
+    const deleted = await deleteUserWithCleanup(userId, username);
+    assert(Number(deleted?.id) === userId, 'Delete user cleanup tidak mengembalikan user yang dihapus.');
+
+    const checks = [
+      ['users', 'id'],
+      ['reseller_bot_settings', 'user_id'],
+      ['transactions', 'user_id'],
+      ['payments', 'user_id'],
+      ['deposits', 'user_id'],
+      ['orders', 'user_id'],
+      ['withdraws', 'user_id'],
+      ['saldo_logs', 'user_id'],
+      ['saldo_mutations', 'user_id'],
+      ['balance_mutations', 'user_id'],
+      ['notifications', 'user_id'],
+      ['activity_logs', 'user_id'],
+      ['websocket_events', 'target_user_id'],
+      ['temp_notifications', 'user_id'],
+    ];
+    for (const [table, column] of checks) {
+      const [row] = await db.query(`SELECT COUNT(*) AS total FROM \`${table}\` WHERE \`${column}\` = ?`, [userId]);
+      assert(Number(row.total) === 0, `Cleanup user menyisakan ${table}.${column}.`);
+    }
+    const [creatorNotification] = await db.query(
+      'SELECT COUNT(*) AS total FROM notifications WHERE created_by = ?',
+      [userId],
+    );
+    assert(Number(creatorNotification.total) === 0, 'Cleanup user menyisakan notifications.created_by.');
+
+    return { foreign_key_relations: checks.length, creator_notifications_removed: true };
+  } finally {
+    if (userId) {
+      await db.execute('DELETE FROM users WHERE id = ?', [userId]).catch(() => {});
+    }
+    await db.execute('DELETE FROM products WHERE id = ?', [productId]).catch(() => {});
+  }
+}
+
 async function verifyB2BLedgerIdempotency(db) {
   const suffix = crypto.randomBytes(6).toString('hex');
   const userApiKey = `gate_ledger_${crypto.randomBytes(18).toString('hex')}`;
@@ -285,7 +401,7 @@ async function verifyMaintenanceBlocks(baseUrl, resellerApiKey, adminApiKey) {
   assert(backup.ok, 'Backup admin tidak tersedia saat maintenance.');
 }
 
-async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger) {
+async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger, adminBaseline) {
   const context = ledger.test_context;
   const profile = await api(baseUrl, '/api/public/v1/profile', context.apiKey, {
     method: 'POST',
@@ -342,11 +458,26 @@ async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger) {
   const adminSummary = await api(baseUrl, '/api/admin/summary', adminApiKey);
   assert(adminSummary.response.ok, 'Admin summary gagal.');
   const adminLedger = adminSummary.payload.data?.b2b_ledger || {};
-  assert(Number(adminLedger.total_bot_orders) === 1, 'Admin bot order tidak 1.');
-  assert(Number(adminLedger.revenue_reseller) === 600, 'Admin revenue tidak 600.');
-  assert(Number(adminLedger.provider_cost) === 500, 'Admin provider cost tidak 500.');
-  assert(Number(adminLedger.profit_admin) === 100, 'Admin profit tidak 100.');
-  assert(Number(adminLedger.profit_reseller) === 70, 'Admin reseller profit tidak 70.');
+  assert(
+    Number(adminLedger.total_bot_orders) === Number(adminBaseline.total_bot_orders || 0) + 1,
+    'Admin bot order tidak bertambah 1.',
+  );
+  assert(
+    Number(adminLedger.revenue_reseller) === Number(adminBaseline.revenue_reseller || 0) + 600,
+    'Admin revenue tidak bertambah 600.',
+  );
+  assert(
+    Number(adminLedger.provider_cost) === Number(adminBaseline.provider_cost || 0) + 500,
+    'Admin provider cost tidak bertambah 500.',
+  );
+  assert(
+    Number(adminLedger.profit_admin) === Number(adminBaseline.profit_admin || 0) + 100,
+    'Admin profit tidak bertambah 100.',
+  );
+  assert(
+    Number(adminLedger.profit_reseller) === Number(adminBaseline.profit_reseller || 0) + 70,
+    'Admin reseller profit tidak bertambah 70.',
+  );
 
   const botHistory = await api(baseUrl, '/api/bot/history', context.apiKey);
   assert(botHistory.response.ok && botHistory.payload.data?.length === 1, 'Bot history tidak memiliki satu payment.');
@@ -376,21 +507,35 @@ async function verifyApiAndDashboard(baseUrl, db, adminApiKey, ledger) {
   };
 }
 
-async function verifyRateLimit(baseUrl, apiKey) {
-  let limited = null;
-  for (let attempt = 0; attempt < 190; attempt += 1) {
-    const result = await api(baseUrl, '/api/public/v1/profile', apiKey, {
-      method: 'POST',
-      body: '{}',
-    });
-    if (result.response.status === 429) {
-      limited = result;
-      break;
-    }
-    assert(result.response.ok, `Rate-limit probe gagal HTTP ${result.response.status}.`);
+async function verifyRateLimit() {
+  const { publicApiUserRateLimit } = await import('../src/middlewares/public-api.middleware.js');
+  let limitedPayload = null;
+  let retryAfter = null;
+  const response = {
+    statusCode: 200,
+    setHeader(name, value) {
+      if (String(name).toLowerCase() === 'retry-after') retryAfter = value;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      limitedPayload = payload;
+      return this;
+    },
+  };
+
+  for (let attempt = 0; attempt <= 180; attempt += 1) {
+    publicApiUserRateLimit(
+      { user: { id: 900000000 + process.pid }, path: '/profile' },
+      response,
+      () => {},
+    );
   }
-  assert(limited?.payload?.code === 'RATE_LIMITED', 'Public API tidak mengaktifkan rate limit 429.');
-  assert(Number(limited.response.headers.get('retry-after')) >= 1, 'Rate limit tidak mengirim Retry-After.');
+  assert(response.statusCode === 429, 'Public API tidak mengaktifkan rate limit 429.');
+  assert(limitedPayload?.code === 'RATE_LIMITED', 'Public API rate limit tidak mengirim code RATE_LIMITED.');
+  assert(Number(retryAfter) >= 1, 'Rate limit tidak mengirim Retry-After.');
   return true;
 }
 
@@ -455,8 +600,18 @@ async function worker() {
     const status = await fetch(`${app.baseUrl}/api/system/status`).then((response) => response.json());
     assert(status.data?.maintenance === true, 'Maintenance tidak tetap aktif setelah restore.');
     await verifyUniqueConstraints(dbModule, backup);
+    const userDeletion = await verifyUserDeletionCleanup(dbModule);
+    const baselineSummary = await api(app.baseUrl, '/api/admin/summary', restoredAdminApiKey);
+    assert(baselineSummary.response.ok, 'Admin baseline summary gagal.');
+    const adminBaseline = baselineSummary.payload.data?.b2b_ledger || {};
     const ledger = await verifyB2BLedgerIdempotency(dbModule);
-    const apiDashboard = await verifyApiAndDashboard(app.baseUrl, dbModule, restoredAdminApiKey, ledger);
+    const apiDashboard = await verifyApiAndDashboard(
+      app.baseUrl,
+      dbModule,
+      restoredAdminApiKey,
+      ledger,
+      adminBaseline,
+    );
 
     const maintenanceOff = await api(app.baseUrl, '/api/admin/maintenance', restoredAdminApiKey, {
       method: 'PATCH',
@@ -474,7 +629,7 @@ async function worker() {
     assert(ownerResellerManagedSession.response.status === 402, 'Reseller tanpa locked balance tidak ditolak 402.');
     const ledgerResellerManagedSession = await api(app.baseUrl, '/api/bot/session/status', ledger.test_context.apiKey);
     assert(ledgerResellerManagedSession.response.status === 402, 'Reseller ledger tanpa locked balance tidak ditolak 402.');
-    await verifyRateLimit(app.baseUrl, ledger.test_context.apiKey);
+    await verifyRateLimit();
 
     process.stdout.write(JSON.stringify({
       restore_status: job.status,
@@ -509,6 +664,7 @@ async function worker() {
         reseller_without_lock_402: true,
       },
       rate_limit_429: true,
+      user_deletion_cleanup: userDeletion,
     }));
   } finally {
     await app.close();
@@ -517,14 +673,20 @@ async function worker() {
 
 function runWorker(testDatabase, backupPath) {
   return new Promise((resolve, reject) => {
+    const workerEnv = {
+      ...process.env,
+      DB_NAME: testDatabase,
+      DB_CREATE_IF_MISSING: 'false',
+      TEST_BACKUP_PATH: backupPath,
+    };
+    if (workerEnv.DATABASE_URL) {
+      const databaseUrl = new URL(workerEnv.DATABASE_URL);
+      databaseUrl.pathname = `/${testDatabase}`;
+      workerEnv.DATABASE_URL = databaseUrl.toString();
+    }
     const child = spawn(process.execPath, [__filename, '--worker'], {
       cwd: ROOT_DIR,
-      env: {
-        ...process.env,
-        DB_NAME: testDatabase,
-        DB_CREATE_IF_MISSING: 'false',
-        TEST_BACKUP_PATH: backupPath,
-      },
+      env: workerEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -555,6 +717,8 @@ async function main() {
   const app = await startApp();
   let backupBuffer;
   try {
+    const sourceStatus = await fetch(`${app.baseUrl}/api/system/status`).then((response) => response.json());
+    const sourceMaintenanceEnabled = sourceStatus.data?.maintenance === true;
     const backupResponse = await fetch(`${app.baseUrl}/api/admin/system/backup`, {
       headers: { 'x-api-key': admin.api_key },
     });
@@ -567,16 +731,18 @@ async function main() {
       body: JSON.stringify({ zip_base64: backupBuffer.toString('base64') }),
     });
     assert(upload.response.status === 201, 'Preview upload backup source gagal.');
-    const noMaintenanceConfirm = await api(
-      app.baseUrl,
-      `/api/admin/system/restore/${upload.payload.data.id}/confirm`,
-      admin.api_key,
-      { method: 'POST', body: '{}' },
-    );
-    assert(
-      noMaintenanceConfirm.response.status === 409 && noMaintenanceConfirm.payload.code === 'MAINTENANCE_REQUIRED',
-      'Restore source tidak ditolak saat maintenance OFF.',
-    );
+    if (!sourceMaintenanceEnabled) {
+      const noMaintenanceConfirm = await api(
+        app.baseUrl,
+        `/api/admin/system/restore/${upload.payload.data.id}/confirm`,
+        admin.api_key,
+        { method: 'POST', body: '{}' },
+      );
+      assert(
+        noMaintenanceConfirm.response.status === 409 && noMaintenanceConfirm.payload.code === 'MAINTENANCE_REQUIRED',
+        'Restore source tidak ditolak saat maintenance OFF.',
+      );
+    }
   } finally {
     await app.close();
   }

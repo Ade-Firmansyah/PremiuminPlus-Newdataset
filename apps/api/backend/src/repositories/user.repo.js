@@ -386,7 +386,12 @@ export async function deleteUserWithCleanup(id, usernameConfirmation) {
       throw error;
     }
 
+    await connection.query('DELETE FROM websocket_events WHERE target_user_id = ?', [userId]);
+    await connection.query('DELETE FROM temp_notifications WHERE user_id = ?', [userId]);
+    await connection.query('DELETE FROM notifications WHERE user_id = ? OR created_by = ?', [userId, userId]);
     await connection.query('DELETE FROM activity_logs WHERE actor_id = ? OR user_id = ?', [userId, userId]);
+    await connection.query('DELETE FROM reseller_bot_settings WHERE user_id = ?', [userId]);
+    await connection.query('DELETE FROM balance_mutations WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM saldo_mutations WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM saldo_logs WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM withdraws WHERE user_id = ?', [userId]);
@@ -394,7 +399,9 @@ export async function deleteUserWithCleanup(id, usernameConfirmation) {
     await connection.query('DELETE FROM payments WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM deposits WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM transactions WHERE user_id = ?', [userId]);
-    await connection.query('DELETE FROM notifications WHERE created_by = ?', [userId]);
+    await connection.query('UPDATE orders SET fulfilled_by_admin_id = NULL WHERE fulfilled_by_admin_id = ?', [userId]);
+    await connection.query('UPDATE balance_mutations SET admin_executor_id = NULL WHERE admin_executor_id = ?', [userId]);
+    await connection.query('UPDATE admin_logs SET admin_id = NULL WHERE admin_id = ?', [userId]);
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);
 
     return toPublicUser(current);
